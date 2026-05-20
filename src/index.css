@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: hsl(0 0% 100%);
+  --color-fg: hsl(240 10% 4%);
+  --color-muted: hsl(240 5% 65%);
+  --color-border: hsl(240 6% 90%);
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-bg: hsl(240 10% 4%);
+    --color-fg: hsl(0 0% 98%);
+    --color-muted: hsl(240 5% 45%);
+    --color-border: hsl(240 4% 16%);
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif;
+}
