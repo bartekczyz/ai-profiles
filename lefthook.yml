@@ -1,0 +1,4 @@
+pre-commit:
+  jobs:
+    - name: biome check
+      run: pnpm biome check --staged --no-errors-on-unmatched --reporter=summary
