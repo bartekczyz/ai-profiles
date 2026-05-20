@@ -1,48 +1,59 @@
-import { useState } from 'react'
+import type { AppError, Profile } from './lib/types'
 
-import { invoke } from '@tauri-apps/api/core'
+import { useEffect, useState } from 'react'
 
-import reactLogo from './assets/react.svg'
+import { createProfile, listProfiles } from './lib/commands'
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState('')
-  const [name, setName] = useState('')
+export default function App() {
+  const [profiles, setProfiles] = useState<Array<Profile>>([])
+  const [error, setError] = useState<string | null>(null)
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke('greet', { name }))
+  useEffect(() => {
+    listProfiles()
+      .then(setProfiles)
+      .catch((caught: AppError) => {
+        setError(caught.message)
+      })
+  }, [])
+
+  async function handleCreate() {
+    try {
+      const created = await createProfile({
+        name: `Test ${new Date().toISOString()}`,
+        color: '#7C3AED',
+        surfaces: { gui: true, cli: true },
+      })
+      setProfiles((previous) => [...previous, created])
+      setError(null)
+    } catch (caught) {
+      const cast = caught as AppError
+      setError(cast.message)
+    }
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank" rel="noopener">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank" rel="noopener">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank" rel="noopener">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault()
-          greet()
-        }}
+    <main className="p-8">
+      <h1 className="text-2xl font-semibold mb-4">claude-profiles</h1>
+      <p className="text-sm text-[color:var(--color-muted)] mb-6">
+        Phase 1 scaffolding screen — Phase 4 replaces this with the real UI.
+      </p>
+      <button
+        type="button"
+        onClick={handleCreate}
+        className="px-3 py-1.5 rounded-lg border border-[color:var(--color-border)]"
       >
-        <input id="greet-input" onChange={(e) => setName(e.currentTarget.value)} placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
+        Create a test profile
+      </button>
+      {error ? <p className="mt-4 text-red-600">Error: {error}</p> : null}
+      <ul className="mt-6 space-y-2">
+        {profiles.map((profile) => (
+          <li key={profile.id} className="flex items-center gap-3">
+            <span className="inline-block h-3 w-3 rounded-full" style={{ background: profile.color }} />
+            <span className="font-medium">{profile.name}</span>
+            <span className="text-xs text-[color:var(--color-muted)]">{profile.slug}</span>
+          </li>
+        ))}
+      </ul>
     </main>
   )
 }
-
-export default App
