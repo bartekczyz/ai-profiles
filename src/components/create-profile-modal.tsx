@@ -1,4 +1,4 @@
-import type { Surfaces } from '@/lib/types'
+import type { Dependencies, Surfaces } from '@/lib/types'
 
 import { useState } from 'react'
 
@@ -19,24 +19,31 @@ import { ColorSwatchPicker } from './color-swatch-picker'
 
 type Props = {
   open: boolean
+  dependencies: Dependencies
   submitting?: boolean
   onClose: () => void
   onCreate: (input: { name: string; color: string; surfaces: Surfaces }) => Promise<void>
 }
 
-export function CreateProfileModal({ open, submitting, onClose, onCreate }: Props) {
+export function CreateProfileModal({ open, dependencies, submitting, onClose, onCreate }: Props) {
   const [name, setName] = useState('')
   const [color, setColor] = useState<string>(presetColors[0])
   const [gui, setGui] = useState(true)
   const [cli, setCli] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const canSubmit = name.trim().length > 0 && isValidHexColor(color) && (gui || cli)
+  const effectiveGui = gui && dependencies.claudeAppInstalled
+  const effectiveCli = cli && dependencies.claudeCliInstalled
+  const canSubmit = name.trim().length > 0 && isValidHexColor(color) && (effectiveGui || effectiveCli)
 
   async function handleSubmit() {
     setError(null)
     try {
-      await onCreate({ name: name.trim(), color, surfaces: { gui, cli } })
+      await onCreate({
+        name: name.trim(),
+        color,
+        surfaces: { gui: effectiveGui, cli: effectiveCli },
+      })
       setName('')
       setColor(presetColors[0])
       setGui(true)
@@ -70,14 +77,50 @@ export function CreateProfileModal({ open, submitting, onClose, onCreate }: Prop
           <ColorSwatchPicker value={color} onChange={setColor} />
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">Surfaces</legend>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={gui} onChange={(event) => setGui(event.target.checked)} />
+            <label
+              className={
+                dependencies.claudeAppInstalled
+                  ? 'flex items-center gap-2 text-sm'
+                  : 'flex items-center gap-2 text-sm text-[color:var(--color-muted)]'
+              }
+            >
+              <input
+                type="checkbox"
+                checked={gui && dependencies.claudeAppInstalled}
+                disabled={!dependencies.claudeAppInstalled}
+                onChange={(event) => setGui(event.target.checked)}
+              />
               Desktop app launcher (in /Applications)
             </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={cli} onChange={(event) => setCli(event.target.checked)} />
+            {!dependencies.claudeAppInstalled ? (
+              <p className="pl-6 text-xs text-[color:var(--color-muted)]">
+                Install{' '}
+                <a className="underline" href="https://claude.ai/download" target="_blank" rel="noreferrer">
+                  Claude Desktop
+                </a>{' '}
+                first.
+              </p>
+            ) : null}
+            <label
+              className={
+                dependencies.claudeCliInstalled
+                  ? 'flex items-center gap-2 text-sm'
+                  : 'flex items-center gap-2 text-sm text-[color:var(--color-muted)]'
+              }
+            >
+              <input
+                type="checkbox"
+                checked={cli && dependencies.claudeCliInstalled}
+                disabled={!dependencies.claudeCliInstalled}
+                onChange={(event) => setCli(event.target.checked)}
+              />
               Claude Code CLI wrapper (in ~/.local/bin)
             </label>
+            {!dependencies.claudeCliInstalled ? (
+              <p className="pl-6 text-xs text-[color:var(--color-muted)]">
+                Install Claude Code first: <code>npm install -g @anthropic-ai/claude-code</code>
+              </p>
+            ) : null}
           </fieldset>
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
         </div>
