@@ -1,4 +1,13 @@
-import type { Profile, ProfilePatch, ProfilePaths, Surface, Surfaces } from './types'
+import type {
+  ExistingInstallInfo,
+  ImportExistingInput,
+  MigrationBackupInfo,
+  Profile,
+  ProfilePatch,
+  ProfilePaths,
+  Surface,
+  Surfaces,
+} from './types'
 
 import { invoke } from '@tauri-apps/api/core'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
@@ -37,4 +46,20 @@ export function profilePaths(id: string): Promise<ProfilePaths> {
 
 export function copyToClipboard(text: string): Promise<void> {
   return writeText(text)
+}
+
+export function detectExistingClaudeInstall(): Promise<ExistingInstallInfo> {
+  return invoke<ExistingInstallInfo>('detect_existing_claude_install')
+}
+
+export function importExistingInstall(input: ImportExistingInput): Promise<Profile> {
+  return invoke<Profile>('import_existing_install', { input })
+}
+
+export function listMigrationBackups(): Promise<Array<MigrationBackupInfo>> {
+  return invoke<Array<MigrationBackupInfo>>('list_migration_backups')
+}
+
+export function deleteMigrationBackup(path: string): Promise<void> {
+  return invoke('delete_migration_backup', { path })
 }
