@@ -1,5 +1,6 @@
 mod app_state;
 mod commands;
+mod deps;
 mod error;
 mod launchers;
 mod migration;
