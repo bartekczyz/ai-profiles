@@ -3,6 +3,7 @@ mod commands;
 mod error;
 mod launchers;
 mod migration;
+mod path_setup;
 mod paths;
 mod profiles;
 mod slug;
