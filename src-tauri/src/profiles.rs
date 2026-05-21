@@ -230,9 +230,7 @@ pub fn update(id: &str, patch: ProfilePatch) -> AppResult<Profile> {
     };
 
     if updated.surfaces.gui {
-        if let Err(err) = crate::launchers::gui::generate(&updated, env!("CARGO_PKG_VERSION")) {
-            return Err(err);
-        }
+        crate::launchers::gui::generate(&updated, env!("CARGO_PKG_VERSION"))?;
     }
     if updated.surfaces.cli {
         if let Err(err) = crate::launchers::cli::generate(&updated) {
