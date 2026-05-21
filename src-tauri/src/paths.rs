@@ -15,6 +15,10 @@ pub fn profiles_json_path() -> AppResult<PathBuf> {
     Ok(app_data_dir()?.join("profiles.json"))
 }
 
+pub fn app_state_json_path() -> AppResult<PathBuf> {
+    Ok(app_data_dir()?.join("state.json"))
+}
+
 pub fn profile_dir(id: &str) -> AppResult<PathBuf> {
     Ok(app_data_dir()?.join("profiles").join(id))
 }
@@ -119,6 +123,14 @@ mod tests {
     fn claude_code_install_path_is_dot_claude_under_home() {
         let path = claude_code_install_path().unwrap();
         assert!(path.ends_with(".claude"));
+    }
+
+    #[test]
+    fn app_state_json_path_sits_next_to_profiles_json() {
+        let state_path = app_state_json_path().unwrap();
+        let profiles_path = profiles_json_path().unwrap();
+        assert_eq!(state_path.parent(), profiles_path.parent());
+        assert!(state_path.ends_with("state.json"));
     }
 
     #[test]

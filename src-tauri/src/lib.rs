@@ -1,3 +1,4 @@
+mod app_state;
 mod commands;
 mod error;
 mod launchers;
