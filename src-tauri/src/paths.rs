@@ -47,6 +47,30 @@ pub fn cli_config_dir(id: &str) -> AppResult<PathBuf> {
     Ok(profile_dir(id)?.join("cli-config"))
 }
 
+pub fn claude_desktop_install_path() -> AppResult<PathBuf> {
+    let home = dirs::home_dir()
+        .ok_or_else(|| AppError::NotFound("could not determine user home directory".to_string()))?;
+    Ok(home
+        .join("Library")
+        .join("Application Support")
+        .join("Claude"))
+}
+
+pub fn claude_code_install_path() -> AppResult<PathBuf> {
+    let home = dirs::home_dir()
+        .ok_or_else(|| AppError::NotFound("could not determine user home directory".to_string()))?;
+    Ok(home.join(".claude"))
+}
+
+pub fn migration_backup_root() -> AppResult<PathBuf> {
+    Ok(app_data_dir()?.join("migration-backup"))
+}
+
+pub fn next_migration_backup_dir() -> AppResult<PathBuf> {
+    let stamp = chrono::Utc::now().timestamp_millis();
+    Ok(app_data_dir()?.join(format!("migration-backup-{stamp}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,5 +106,26 @@ mod tests {
         let id = "11111111-1111-1111-1111-111111111111";
         let path = cli_config_dir(id).unwrap();
         assert!(path.ends_with(format!("profiles/{id}/cli-config")));
+    }
+
+    #[test]
+    fn claude_desktop_install_path_lives_under_home_library() {
+        let path = claude_desktop_install_path().unwrap();
+        assert!(path.ends_with("Library/Application Support/Claude"));
+    }
+
+    #[test]
+    fn claude_code_install_path_is_dot_claude_under_home() {
+        let path = claude_code_install_path().unwrap();
+        assert!(path.ends_with(".claude"));
+    }
+
+    #[test]
+    fn next_migration_backup_dir_starts_with_prefix() {
+        let path = next_migration_backup_dir().unwrap();
+        let last = path.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(last.starts_with("migration-backup-"));
+        let suffix = last.trim_start_matches("migration-backup-");
+        assert!(suffix.chars().all(|character| character.is_ascii_digit()));
     }
 }
