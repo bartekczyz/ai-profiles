@@ -10,12 +10,14 @@
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
     "lint": "biome check",
-    "format": "biome format --write"
+    "format": "biome format --write",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@fontsource-variable/geist": "5.2.9",
     "@tauri-apps/api": "2.11.0",
-    "@tauri-apps/plugin-clipboard-manager": "~2",
+    "@tauri-apps/plugin-clipboard-manager": "2.3.2",
     "@tauri-apps/plugin-fs": "2.5.1",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
@@ -33,14 +35,19 @@
     "@rolldown/plugin-babel": "0.2.3",
     "@tailwindcss/vite": "4.3.0",
     "@tauri-apps/cli": "2.11.2",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
     "@types/babel__core": "7.20.5",
     "@types/react": "19.2.15",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
     "babel-plugin-react-compiler": "1.0.0",
+    "happy-dom": "20.9.0",
     "lefthook": "2.1.8",
     "tailwindcss": "4.3.0",
     "typescript": "6.0.3",
-    "vite": "8.0.13"
+    "vite": "8.0.13",
+    "vitest": "4.1.7"
   }
 }
