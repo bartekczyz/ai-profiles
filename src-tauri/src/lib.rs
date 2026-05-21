@@ -1,5 +1,6 @@
 mod commands;
 mod error;
+mod launchers;
 mod paths;
 mod profiles;
 mod slug;

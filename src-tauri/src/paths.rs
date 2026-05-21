@@ -24,3 +24,28 @@ pub fn ensure_app_dir() -> AppResult<()> {
     std::fs::create_dir_all(&dir)?;
     Ok(())
 }
+
+pub fn applications_dir() -> PathBuf {
+    PathBuf::from("/Applications")
+}
+
+pub fn gui_launcher_path(name: &str) -> PathBuf {
+    applications_dir().join(format!("Claude ({name}).app"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gui_launcher_path_builds_expected_filename() {
+        let path = gui_launcher_path("Personal");
+        assert_eq!(path, PathBuf::from("/Applications/Claude (Personal).app"));
+    }
+
+    #[test]
+    fn gui_launcher_path_handles_names_with_special_chars() {
+        let path = gui_launcher_path("Acme & Co");
+        assert_eq!(path, PathBuf::from("/Applications/Claude (Acme & Co).app"));
+    }
+}
