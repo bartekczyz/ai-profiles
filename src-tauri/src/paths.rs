@@ -39,6 +39,10 @@ pub fn local_bin_dir() -> AppResult<PathBuf> {
     Ok(home.join(".local").join("bin"))
 }
 
+pub fn cli_wrapper_path(slug: &str) -> AppResult<PathBuf> {
+    Ok(local_bin_dir()?.join(format!("claude-{slug}")))
+}
+
 pub fn cli_config_dir(id: &str) -> AppResult<PathBuf> {
     Ok(profile_dir(id)?.join("cli-config"))
 }
@@ -64,6 +68,13 @@ mod tests {
         let path = local_bin_dir().unwrap();
         let home = dirs::home_dir().unwrap();
         assert_eq!(path, home.join(".local").join("bin"));
+    }
+
+    #[test]
+    fn cli_wrapper_path_uses_claude_prefix() {
+        let path = cli_wrapper_path("personal").unwrap();
+        assert!(path.ends_with("claude-personal"));
+        assert!(path.parent().unwrap().ends_with(".local/bin"));
     }
 
     #[test]
