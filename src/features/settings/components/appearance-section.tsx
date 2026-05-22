@@ -38,10 +38,6 @@ const themeOptions: ReadonlyArray<SegmentedOption<ThemeMode>> = [
  *    state.json via the existing optimistic mutation. The corresponding
  *    effect in `app.tsx` becomes a no-op since the two values are already
  *    in sync.
- *
- * The helper line reads `useTheme().resolved` so it updates in real time
- * when System is selected and the OS appearance flips (the provider
- * subscribes to prefers-color-scheme via useSyncExternalStore).
  */
 export function AppearanceSection() {
   const theme = useTheme()
@@ -52,8 +48,6 @@ export function AppearanceSection() {
     void appState.update({ themeMode: next })
   }
 
-  const helperSuffix = theme.mode === 'system' ? 'matches system' : 'explicit'
-
   return (
     <section className="mb-8">
       <div className="mb-2.5 flex items-center justify-between">
@@ -61,15 +55,7 @@ export function AppearanceSection() {
           Appearance
         </span>
       </div>
-      <p className="text-[12.5px] leading-[1.55] tracking-[-0.003em] text-muted">
-        Choose how claude-profiles renders. System follows your macOS appearance setting.
-      </p>
-      <div className="mt-3 flex items-center gap-4">
-        <Segmented<ThemeMode> ariaLabel="Theme" options={themeOptions} value={theme.mode} onChange={handleChange} />
-        <span className="font-mono text-[11px] tracking-normal text-muted-strong" data-testid="theme-helper">
-          Currently: {theme.resolved} ({helperSuffix})
-        </span>
-      </div>
+      <Segmented<ThemeMode> ariaLabel="Theme" options={themeOptions} value={theme.mode} onChange={handleChange} />
     </section>
   )
 }

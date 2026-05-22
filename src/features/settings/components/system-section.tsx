@@ -1,21 +1,17 @@
-import type { Dependencies, Shell } from '@/lib/types'
+import type { Shell } from '@/lib/types'
 
 import { useEffect, useState } from 'react'
 
-import { ChevronRight, RotateCw } from 'lucide-react'
+import { RotateCw } from 'lucide-react'
 
-import { Button, StatusDot } from '@/design'
+import { Button, Skeleton, StatusDot } from '@/design'
+import { useDependencies } from '@/features/dependencies/api/use-dependencies'
 import { detectShell, installPathHook } from '@/lib/commands'
 
 const rcDisplay: Record<Shell, string> = {
   zsh: '~/.zshrc',
   bash: '~/.bashrc',
   fish: '~/.config/fish/config.fish',
-}
-
-type Props = {
-  deps: Dependencies
-  onRefresh: () => void | Promise<void>
 }
 
 type Row = {
@@ -29,7 +25,12 @@ type Row = {
 // status dot already conveys installed vs. not-detected.
 const MISSING_DETAIL = '—'
 
-function buildRows(deps: Dependencies, shell: Shell | null): Array<Row> {
+const REFRESH_FLASH_MS = 1500
+
+function buildRows(
+  deps: { claudeAppInstalled: boolean; claudeCliInstalled: boolean; localBinOnPath: boolean },
+  shell: Shell | null,
+): Array<Row> {
   return [
     {
       label: 'Claude Desktop',
@@ -57,16 +58,45 @@ function buildRows(deps: Dependencies, shell: Shell | null): Array<Row> {
  * version numbers if available (currently `—` everywhere, see follow-up in
  * 99-todo.md), or the resolved rc path for the PATH row. Beneath the card
  * a hookline lets the user re-install the shell hook in one click.
+ *
+ * The section owns its own data: `useDependencies` suspends here (not at
+ * the SettingsView level) so the rest of the Settings pane can paint
+ * instantly while this card resolves.
  */
-export function SystemSection({ deps, onRefresh }: Props) {
+export function SystemSection() {
+  const dependencies = useDependencies()
   const [shell, setShell] = useState<Shell | null>(null)
   const [hookMessage, setHookMessage] = useState<string | null>(null)
   const [hookError, setHookError] = useState<string | null>(null)
   const [hookBusy, setHookBusy] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshedAt, setRefreshedAt] = useState<number | null>(null)
 
   useEffect(() => {
     void detectShell().then(setShell)
   }, [])
+
+  useEffect(() => {
+    if (refreshedAt === null) {
+      return
+    }
+    const handle = window.setTimeout(() => setRefreshedAt(null), REFRESH_FLASH_MS)
+    return () => window.clearTimeout(handle)
+  }, [refreshedAt])
+
+  async function handleRefresh() {
+    if (refreshing) {
+      return
+    }
+    setRefreshing(true)
+    setRefreshedAt(null)
+    try {
+      await Promise.all([dependencies.refresh(), detectShell().then(setShell)])
+      setRefreshedAt(Date.now())
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   async function handleReinstall() {
     if (!shell) {
@@ -82,7 +112,7 @@ export function SystemSection({ deps, onRefresh }: Props) {
       } else {
         setHookMessage(`Updated ${rcDisplay[shell]}. Open a new terminal to pick it up.`)
       }
-      await onRefresh()
+      await dependencies.refresh()
     } catch (caught) {
       setHookError(caught instanceof Error ? caught.message : String(caught))
     } finally {
@@ -90,33 +120,40 @@ export function SystemSection({ deps, onRefresh }: Props) {
     }
   }
 
-  const rows = buildRows(deps, shell)
-  const hookInstalled = deps.localBinOnPath && shell !== null
+  const rows = buildRows(dependencies.deps, shell)
+  const hookInstalled = dependencies.deps.localBinOnPath && shell !== null
 
   return (
     <section className="mb-8">
       <div className="mb-2.5 flex items-center justify-between">
         <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">System</span>
-        <Button
-          size="sm"
-          variant="secondary"
-          leadingIcon={<RotateCw className="h-3.5 w-3.5" strokeWidth={1.85} />}
-          onClick={() => void onRefresh()}
-        >
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          {refreshedAt !== null ? (
+            <span className="font-mono text-[11px] text-muted-strong" role="status" aria-live="polite">
+              Refreshed
+            </span>
+          ) : null}
+          <Button
+            size="sm"
+            variant="secondary"
+            leadingIcon={<RotateCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={1.85} />}
+            disabled={refreshing}
+            onClick={() => void handleRefresh()}
+          >
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </Button>
+        </div>
       </div>
       <div className="rounded-xl border border-border bg-white py-1 dark:bg-cream-2">
         {rows.map((row, index) => (
           <div
             // biome-ignore lint/suspicious/noArrayIndexKey: rows are a fixed tuple of three deps with no insert/reorder semantics
             key={index}
-            className="grid grid-cols-[7px_1fr_auto_12px] items-center gap-3 border-b border-border-soft px-4 py-3 text-[13px] tracking-[-0.003em] text-ink-soft last:border-b-0"
+            className="grid grid-cols-[7px_1fr_auto] items-center gap-3 border-b border-border-soft px-4 py-3 text-[13px] tracking-[-0.003em] text-ink-soft last:border-b-0"
           >
             <StatusDot tone={row.tone} pulse />
             <span>{row.label}</span>
             <span className="font-mono text-[11.5px] text-muted">{row.detail}</span>
-            <ChevronRight className="h-3 w-3 text-muted-strong" strokeWidth={1.85} />
           </div>
         ))}
       </div>
@@ -132,8 +169,34 @@ export function SystemSection({ deps, onRefresh }: Props) {
           {hookInstalled ? 'Re-install hook' : 'Install hook'}
         </Button>
       </div>
-      {hookMessage ? <p className="mt-1 text-[11.5px] text-muted-strong">{hookMessage}</p> : null}
-      {hookError ? <p className="mt-1 text-[11.5px] text-red">{hookError}</p> : null}
+      {hookMessage ? (
+        <p role="status" aria-live="polite" className="mt-1 text-[11.5px] text-muted-strong">
+          {hookMessage}
+        </p>
+      ) : null}
+      {hookError ? (
+        <p role="alert" className="mt-1 text-[11.5px] text-red">
+          {hookError}
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
+/**
+ * Skeleton placeholder for the System section while `useDependencies`
+ * resolves. Kept colocated so the section's loading shape stays in sync
+ * with its rendered shape.
+ */
+export function SystemSectionFallback() {
+  return (
+    <section className="mb-8">
+      <div className="mb-2.5 flex items-center justify-between">
+        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">System</span>
+        <Skeleton className="h-7 w-[88px] rounded-md" />
+      </div>
+      <Skeleton className="h-[126px] w-full rounded-xl" />
+      <Skeleton className="mt-2.5 h-4 w-[280px] rounded-sm" />
     </section>
   )
 }

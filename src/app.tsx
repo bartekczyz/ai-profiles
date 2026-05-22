@@ -1,9 +1,11 @@
 import { Activity, Suspense, useEffect, useRef, useState } from 'react'
 
 import { useHotkey } from '@tanstack/react-hotkeys'
+import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
 import { useShortcut, useTheme } from '@/design'
+import { AboutDialog } from '@/features/about/components/about-dialog'
 import { CommandPalette } from '@/features/command-palette/components/command-palette'
 import { useCommandPalette } from '@/features/command-palette/use-command-palette'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
@@ -26,7 +28,7 @@ import { SettingsViewSkeleton } from '@/features/settings/components/settings-vi
 import { useAppState } from '@/lib/app-state/use-app-state'
 import { QueryErrorBoundary } from '@/lib/query/error-boundary'
 
-type DialogState = { kind: 'none' } | { kind: 'create' } | { kind: 'edit' } | { kind: 'delete' }
+type DialogState = { kind: 'none' } | { kind: 'create' } | { kind: 'edit' } | { kind: 'delete' } | { kind: 'about' }
 
 type RightPane = { kind: 'profile' } | { kind: 'settings' }
 
@@ -122,6 +124,21 @@ function AppContent() {
     return () => window.removeEventListener('contextmenu', handleContextMenu)
   }, [])
 
+  // Bridge the macOS App menu's "About claude-profiles" item to our custom
+  // dialog. The menu item (set up in src-tauri/src/lib.rs) emits the
+  // `open-about` event; this listener catches it and opens the dialog.
+  // Replaces the tiny native About panel macOS would otherwise show.
+  useEffect(() => {
+    const unlistenPromise = listen('open-about', () => {
+      setDialog({ kind: 'about' })
+    })
+    return () => {
+      void unlistenPromise.then((unlisten) => {
+        unlisten()
+      })
+    }
+  }, [])
+
   // Native (not React-synthetic) mousedown listener on the title-bar drag
   // strip. React's synthetic events fire AFTER the browser has finished
   // delivering the native event, by which point macOS has already decided
@@ -179,7 +196,9 @@ function AppContent() {
   const detailEnabled = rightPane.kind === 'profile' && selected !== null && !overlayOpen
 
   // Global shortcuts — suppressed when a blocking overlay (dialog,
-  // palette, migration prompt) is on top.
+  // palette, migration prompt) is on top, EXCEPT toggle-palette which
+  // must keep working while the palette itself is open so ⌘K closes it.
+  useShortcut('toggle-palette', palette.toggle, { enabled: !dialogOpen && !showMigration })
   useShortcut('open-create-profile', () => setDialog({ kind: 'create' }), { enabled: !overlayOpen })
   useShortcut(
     'toggle-settings',
@@ -366,6 +385,7 @@ function AppContent() {
                     setRightPane({ kind: 'profile' })
                     setForceMigrationOpen(true)
                   }}
+                  onOpenAbout={() => setDialog({ kind: 'about' })}
                 />
               </QueryErrorBoundary>
             </Suspense>
@@ -398,6 +418,10 @@ function AppContent() {
           onConfirm={handleDelete}
         />
       ) : null}
+
+      <Suspense fallback={null}>
+        <AboutDialog open={dialog.kind === 'about'} onClose={() => setDialog({ kind: 'none' })} />
+      </Suspense>
 
       {showMigration ? (
         <MigrationDialog
@@ -439,7 +463,6 @@ function AppContent() {
         selectedId={profiles.selectedId}
         dependencies={dependencies.deps}
         onClose={palette.close}
-        onToggle={palette.toggle}
         onSwitch={(id) => {
           profiles.select(id)
           setRightPane({ kind: 'profile' })

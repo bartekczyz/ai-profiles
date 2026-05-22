@@ -1,6 +1,7 @@
 import type {
   Activity,
   ActivityKind,
+  AppMetadata,
   AppState,
   AppStatePatch,
   Dependencies,
@@ -105,4 +106,12 @@ export function loadAppState(): Promise<AppState> {
 
 export function updateAppState(patch: AppStatePatch): Promise<AppState> {
   return invoke<AppState>('update_app_state', { patch })
+}
+
+export function getAppMetadata(): Promise<AppMetadata> {
+  return invoke<AppMetadata>('get_app_metadata')
+}
+
+export function openExternalUrl(url: string): Promise<void> {
+  return invoke('open_external_url', { url })
 }

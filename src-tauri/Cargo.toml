@@ -1,8 +1,11 @@
 [package]
 name = "claude-profiles"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Run multiple Claude accounts on one Mac, each with its own isolated Desktop launcher and CLI wrapper."
+authors = ["Bartek Czyż <bartek@czyz.it>"]
+repository = "https://github.com/bartekczyz/claude-profiles"
+license = "MIT"
+homepage = "https://czyz.it?utm_source=claude-profiles"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

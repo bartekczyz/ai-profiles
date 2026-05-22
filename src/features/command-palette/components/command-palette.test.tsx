@@ -30,7 +30,6 @@ type RenderProps = Partial<Parameters<typeof CommandPalette>[0]>
 function setup(props: RenderProps = {}) {
   const handlers = {
     onClose: vi.fn(),
-    onToggle: vi.fn(),
     onSwitch: vi.fn(),
     onLaunch: vi.fn(),
     onCopy: vi.fn(),

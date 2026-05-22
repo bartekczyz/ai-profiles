@@ -3,7 +3,7 @@ import type { Dependencies, Profile } from '@/lib/types'
 import { Command } from 'cmdk'
 import { CornerDownLeft, Download, Plus, Search, Settings as SettingsIcon, Terminal } from 'lucide-react'
 
-import { cn, Kbd, useShortcut } from '@/design'
+import { cn, Kbd } from '@/design'
 
 type CommandPaletteProps = {
   open: boolean
@@ -11,7 +11,6 @@ type CommandPaletteProps = {
   selectedId: string | null
   dependencies: Dependencies
   onClose: () => void
-  onToggle: () => void
   onSwitch: (profileId: string) => void
   onLaunch: (profileId: string) => void
   onCopy: (profile: Profile) => void
@@ -26,8 +25,9 @@ type CommandPaletteProps = {
  * directly. The active profile's rows sit at the top so ⏎ on first open
  * does the obvious thing.
  *
- * The ⌘K keydown listener is temporary — Phase 11 wires this binding
- * through the shortcut registry instead.
+ * The ⌘K toggle binding lives in `app.tsx` next to the other global
+ * shortcuts so palette-open and palette-closed states share one
+ * registration site.
  */
 export function CommandPalette({
   open,
@@ -35,7 +35,6 @@ export function CommandPalette({
   selectedId,
   dependencies,
   onClose,
-  onToggle,
   onSwitch,
   onLaunch,
   onCopy,
@@ -43,10 +42,6 @@ export function CommandPalette({
   onSettings,
   onImport,
 }: CommandPaletteProps) {
-  useShortcut('toggle-palette', () => {
-    onToggle()
-  })
-
   // Active profile's rows first so ⏎ on first open does the obvious thing.
   const ordered = [...profiles].sort((a, b) => {
     if (a.id === selectedId) {

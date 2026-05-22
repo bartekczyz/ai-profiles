@@ -2,13 +2,13 @@ import type { ExistingInstallInfo } from '@/lib/types'
 
 import { Download } from 'lucide-react'
 
-import { Button, Kbd } from '@/design'
+import { ariaKeyshortcutsFor, Button, Kbd, Skeleton } from '@/design'
+import { useMigration } from '@/features/migration/api/use-migration'
 import { useMigrationBackups } from '@/features/migration/api/use-migration-backups'
 import { MigrationBackupsList } from '@/features/migration/components/migration-backups-list'
 import { formatBytes } from '@/lib/format-bytes'
 
 type Props = {
-  existing: ExistingInstallInfo
   onReimport: () => void | Promise<void>
 }
 
@@ -28,9 +28,16 @@ function actionDetail(existing: ExistingInstallInfo): { path: string; size: numb
   return null
 }
 
-export function DataSection({ existing, onReimport }: Props) {
+/**
+ * The Data section owns its own loading: both `useMigration` (filesystem
+ * walk to detect existing installs) and `useMigrationBackups` (lists
+ * `migration-backup-*` dirs) suspend here so the Appearance + System
+ * sections above don't wait on either.
+ */
+export function DataSection({ onReimport }: Props) {
+  const migration = useMigration()
   const backups = useMigrationBackups()
-  const detected = actionDetail(existing)
+  const detected = actionDetail(migration.existing)
 
   return (
     <section className="mb-8">
@@ -59,6 +66,7 @@ export function DataSection({ existing, onReimport }: Props) {
             size="sm"
             variant="secondary"
             trailingKbd={<Kbd shortcutId="open-detect-import" />}
+            aria-keyshortcuts={ariaKeyshortcutsFor('open-detect-import')}
             onClick={() => void onReimport()}
           >
             Re-import…
@@ -73,6 +81,27 @@ export function DataSection({ existing, onReimport }: Props) {
         <span className="text-[11px] tracking-[-0.003em] text-muted-strong">Removed automatically after 7 days.</span>
       </div>
       <MigrationBackupsList backups={backups.backups} onDelete={backups.remove} />
+    </section>
+  )
+}
+
+/**
+ * Skeleton placeholder for the Data section while its suspending queries
+ * resolve. Approximates the action-card + backups-list shape so the
+ * pane doesn't jump when the data lands.
+ */
+export function DataSectionFallback() {
+  return (
+    <section className="mb-8">
+      <div className="mb-2.5 flex items-center justify-between">
+        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">Data</span>
+      </div>
+      <Skeleton className="h-[60px] w-full rounded-xl" />
+      <div className="mt-[18px] mb-2 flex items-center justify-between gap-3">
+        <Skeleton className="h-3 w-24 rounded-sm" />
+        <Skeleton className="h-3 w-40 rounded-sm" />
+      </div>
+      <Skeleton className="h-[52px] w-full rounded-xl" />
     </section>
   )
 }

@@ -108,3 +108,19 @@ export type AppStatePatch = {
   clearMigrationDismissed?: boolean
   clearPathBannerDismissed?: boolean
 }
+
+/**
+ * What the About dialog renders. Sourced from `Cargo.toml` via Cargo's
+ * `env!` macros on the Rust side, so editing the manifest (e.g. setting
+ * `repository = "https://github.com/…"`) automatically populates the
+ * dialog on next build.
+ */
+export type AppMetadata = {
+  name: string
+  version: string
+  description: string
+  authors: Array<string>
+  repository: string | null
+  homepage: string | null
+  license: string | null
+}

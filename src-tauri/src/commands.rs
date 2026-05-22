@@ -149,6 +149,31 @@ pub fn profile_paths(id: String) -> AppResult<ProfilePaths> {
     profiles::paths(&id)
 }
 
+/// Open a web URL (or `mailto:` link) in the user's default handler via
+/// macOS's `open` shell command.
+///
+/// The scheme whitelist is the gate — `open <anything>` would happily
+/// launch files, .app bundles, or even custom scheme handlers, so we
+/// refuse anything that isn't http(s)/mailto before invoking `open`.
+#[tauri::command]
+pub fn open_external_url(url: String) -> AppResult<()> {
+    if !url.starts_with("https://") && !url.starts_with("http://") && !url.starts_with("mailto:") {
+        return Err(AppError::Validation(format!(
+            "refusing to open URL with unsupported scheme: {url}"
+        )));
+    }
+    let status = Command::new("open")
+        .arg(&url)
+        .status()
+        .map_err(AppError::Io)?;
+    if !status.success() {
+        return Err(AppError::Validation(format!(
+            "`open {url}` exited with status {status}"
+        )));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn list_activity(profile_id: String, limit: usize) -> AppResult<Vec<Activity>> {
     let path = activity_log_path(&profile_id)?;
@@ -322,4 +347,48 @@ pub fn load_app_state() -> AppResult<AppState> {
 #[tauri::command]
 pub fn update_app_state(patch: AppStatePatch) -> AppResult<AppState> {
     app_state::apply(patch)
+}
+
+/// Metadata the About dialog renders.
+///
+/// Every field is pulled from `Cargo.toml` via Cargo's `env!` macros, so
+/// editing the manifest (adding a `repository = "https://github.com/…"`
+/// line for example) updates the dialog on next build with no other code
+/// changes required.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppMetadata {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub authors: Vec<String>,
+    pub repository: Option<String>,
+    pub homepage: Option<String>,
+    pub license: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_app_metadata() -> AppMetadata {
+    fn optional(value: &str) -> Option<String> {
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    }
+    let authors_raw = env!("CARGO_PKG_AUTHORS");
+    let authors = authors_raw
+        .split(':')
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| entry.to_string())
+        .collect();
+    AppMetadata {
+        name: env!("CARGO_PKG_NAME").to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        description: env!("CARGO_PKG_DESCRIPTION").to_string(),
+        authors,
+        repository: optional(env!("CARGO_PKG_REPOSITORY")),
+        homepage: optional(env!("CARGO_PKG_HOMEPAGE")),
+        license: optional(env!("CARGO_PKG_LICENSE")),
+    }
 }
