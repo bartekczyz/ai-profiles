@@ -4,11 +4,42 @@ use crate::error::{AppError, AppResult};
 
 const APP_DIR_NAME: &str = "claude-profiles";
 
+/// Returns the on-disk data directory for the app.
+///
+/// **Production** (`cargo build`, `cargo run`, `pnpm tauri dev`):
+/// `~/Library/Application Support/claude-profiles/`.
+///
+/// **Tests** (`cargo test`): a per-process tempdir created lazily. The
+/// tempdir lives for the duration of the test process and is cleaned up
+/// automatically when the process exits.
+///
+/// This split exists because earlier versions of the test harness called
+/// `remove_dir_all(app_data_dir())` to reset state between tests — which
+/// wiped the *real* user data every time `cargo test` ran. Routing tests
+/// to a tempdir makes that class of bug structurally impossible.
 pub fn app_data_dir() -> AppResult<PathBuf> {
-    let base = dirs::data_dir().ok_or_else(|| {
-        AppError::NotFound("could not determine macOS Application Support directory".to_string())
-    })?;
-    Ok(base.join(APP_DIR_NAME))
+    #[cfg(test)]
+    {
+        return Ok(test_app_data_dir());
+    }
+    #[cfg(not(test))]
+    {
+        let base = dirs::data_dir().ok_or_else(|| {
+            AppError::NotFound(
+                "could not determine macOS Application Support directory".to_string(),
+            )
+        })?;
+        Ok(base.join(APP_DIR_NAME))
+    }
+}
+
+#[cfg(test)]
+fn test_app_data_dir() -> PathBuf {
+    use std::sync::OnceLock;
+    static DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
+    DIR.get_or_init(|| tempfile::tempdir().expect("could not create test tempdir"))
+        .path()
+        .join(APP_DIR_NAME)
 }
 
 pub fn profiles_json_path() -> AppResult<PathBuf> {
