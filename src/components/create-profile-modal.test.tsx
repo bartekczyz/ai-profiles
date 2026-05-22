@@ -45,7 +45,7 @@ describe('CreateProfileModal', () => {
     await user.click(screen.getByRole('button', { name: 'Create' }))
     expect(onCreate).toHaveBeenCalledWith({
       name: 'Personal',
-      color: '#7C3AED',
+      color: '#d97757',
       surfaces: { gui: true, cli: true },
     })
     expect(onClose).toHaveBeenCalled()
@@ -107,7 +107,7 @@ describe('CreateProfileModal — dependency awareness', () => {
     await user.click(screen.getByRole('button', { name: 'Create' }))
     expect(onCreate).toHaveBeenCalledWith({
       name: 'Personal',
-      color: '#7C3AED',
+      color: '#d97757',
       surfaces: { gui: false, cli: true },
     })
   })

@@ -63,16 +63,20 @@ export type PathHookOutcome =
   | { outcome: 'alreadyInstalled'; rcPath: string }
   | { outcome: 'installed'; rcPath: string; backupPath: string }
 
+export type ThemeMode = 'light' | 'system' | 'dark'
+
 export type AppState = {
   welcomeShown: boolean
   migrationDismissedAt: string | null
   pathBannerDismissedAt: string | null
+  themeMode: ThemeMode
 }
 
 export type AppStatePatch = {
   welcomeShown?: boolean
   migrationDismissedAt?: string
   pathBannerDismissedAt?: string
+  themeMode?: ThemeMode
   clearMigrationDismissed?: boolean
   clearPathBannerDismissed?: boolean
 }

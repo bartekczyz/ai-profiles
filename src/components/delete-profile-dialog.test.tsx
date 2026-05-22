@@ -10,7 +10,7 @@ const fixture: Profile = {
   id: '1',
   name: 'Personal',
   slug: 'personal',
-  color: '#7C3AED',
+  color: '#d97757',
   createdAt: '2026-05-20T12:00:00Z',
   surfaces: { gui: true, cli: true },
 }

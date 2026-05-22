@@ -53,7 +53,7 @@ describe('useMigration', () => {
       id: '1',
       name: 'Default',
       slug: 'default',
-      color: '#7C3AED',
+      color: '#d97757',
       createdAt: '2026-05-20T12:00:00Z',
       surfaces: { gui: true, cli: false },
     }
@@ -63,14 +63,14 @@ describe('useMigration', () => {
     await act(async () => {
       returned = await result.current.import({
         name: 'Default',
-        color: '#7C3AED',
+        color: '#d97757',
         includeGui: true,
         includeCli: false,
       })
     })
     expect(returned).toEqual(fakeProfile)
     expect(mockInvoke).toHaveBeenLastCalledWith('import_existing_install', {
-      input: { name: 'Default', color: '#7C3AED', includeGui: true, includeCli: false },
+      input: { name: 'Default', color: '#d97757', includeGui: true, includeCli: false },
     })
   })
 })

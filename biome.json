@@ -13,6 +13,7 @@
       "!**/dist",
       "!src-tauri/target",
       "!src-tauri/gen",
+      "!prototypes",
       "!**/*.tsbuildinfo",
       "!**/*.css"
     ]

@@ -122,7 +122,7 @@ export function CreateProfileModal({ open, dependencies, submitting, onClose, on
               </p>
             ) : null}
           </fieldset>
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          {error ? <p className="text-sm text-red">{error}</p> : null}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={submitting}>

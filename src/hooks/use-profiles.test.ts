@@ -15,7 +15,7 @@ function profileFixture(overrides: Partial<Profile> = {}): Profile {
     id: '1',
     name: 'Personal',
     slug: 'personal',
-    color: '#7C3AED',
+    color: '#d97757',
     createdAt: '2026-05-20T12:00:00Z',
     surfaces: { gui: true, cli: true },
     ...overrides,
@@ -64,7 +64,7 @@ describe('useProfiles', () => {
     await act(async () => {
       await result.current.create({
         name: 'Work',
-        color: '#3B82F6',
+        color: '#6b8db5',
         surfaces: { gui: true, cli: false },
       })
     })

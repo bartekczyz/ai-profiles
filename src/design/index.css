@@ -1,0 +1,104 @@
+/**
+ * Design module CSS entry — wires the Tailwind `dark` variant to the
+ * data-theme attribute and applies the body background gradient + grain.
+ *
+ * Imported once from src/index.css; downstream code never touches this file.
+ */
+
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+@import "./tokens.css";
+
+/* The dark variant fires when the runtime sets [data-theme="dark"] on the
+   <html> element. ThemeProvider handles the system-preference mirror so a
+   single selector covers explicit-dark and system-dark uniformly. */
+@custom-variant dark (&:where([data-theme="dark"] *, [data-theme="dark"]));
+
+/* Body background — warm cream wash with overlapping orange + steel
+   radial gradients. Switches palette via the cream token, so dark mode
+   adopts a much darker base automatically. */
+body {
+  background-color: var(--color-base);
+  background-image:
+    radial-gradient(
+      1200px 800px at 18% 12%,
+      color-mix(in oklab, var(--color-orange) 10%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 700px at 82% 88%,
+      color-mix(in oklab, var(--color-profile-steel) 10%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      600px 500px at 50% 50%,
+      rgba(255, 255, 255, 0.25),
+      transparent 70%
+    );
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+[data-theme="dark"] body {
+  background-image:
+    radial-gradient(
+      1200px 800px at 18% 12%,
+      rgba(217, 119, 87, 0.07),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 700px at 82% 88%,
+      rgba(107, 141, 181, 0.05),
+      transparent 60%
+    ),
+    radial-gradient(
+      600px 500px at 50% 50%,
+      rgba(255, 255, 255, 0.02),
+      transparent 70%
+    );
+}
+
+/* Subtle grain overlay — opacity flips per theme via --noise-opacity. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: var(--noise-opacity);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.045 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+@keyframes design-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-green) 18%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--color-green) 6%, transparent);
+  }
+}
+
+@keyframes design-modal-in {
+  from {
+    transform: translateY(8px) scale(0.985);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

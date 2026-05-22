@@ -364,9 +364,7 @@ pub fn paths(id: &str) -> AppResult<ProfilePaths> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    use crate::test_support::APP_DIR_TEST_LOCK as TEST_LOCK;
 
     fn purge_for_test() {
         let _ = std::fs::remove_dir_all(crate::paths::app_data_dir().unwrap());

@@ -55,7 +55,7 @@ export function EditProfileModal({ open, profile, submitting, onClose, onSave }:
             <Input id="edit-name" value={name} onChange={(event) => setName(event.target.value)} autoFocus />
           </div>
           <ColorSwatchPicker value={color} onChange={setColor} />
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          {error ? <p className="text-sm text-red">{error}</p> : null}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={submitting}>

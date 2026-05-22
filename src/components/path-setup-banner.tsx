@@ -53,7 +53,7 @@ export function PathSetupBanner({ onFixed, onDismiss }: Props) {
             includes that directory.
           </p>
           {success ? <p className="mt-2 text-xs">{success}</p> : null}
-          {error ? <p className="mt-2 text-xs text-red-700">{error}</p> : null}
+          {error ? <p className="mt-2 text-xs text-red">{error}</p> : null}
         </div>
         <div className="flex shrink-0 gap-2">
           <Button size="sm" onClick={handleFix} disabled={busy}>

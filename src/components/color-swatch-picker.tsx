@@ -31,7 +31,7 @@ export function ColorSwatchPicker({ value, onChange }: Props) {
       <Input
         type="text"
         value={value}
-        placeholder="#7C3AED"
+        placeholder={presetColors[0]}
         onChange={(event) => onChange(event.target.value)}
         aria-invalid={!isValidHexColor(value)}
         className="font-mono"

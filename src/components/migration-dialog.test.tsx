@@ -10,7 +10,7 @@ const FAKE_PROFILE: Profile = {
   id: '1',
   name: 'Default',
   slug: 'default',
-  color: '#7C3AED',
+  color: '#d97757',
   createdAt: '2026-05-20T12:00:00Z',
   surfaces: { gui: true, cli: true },
 }
@@ -69,7 +69,7 @@ describe('MigrationDialog', () => {
 
     expect(onImport).toHaveBeenCalledWith({
       name: 'Personal',
-      color: '#7C3AED',
+      color: '#d97757',
       includeGui: true,
       includeCli: true,
     })

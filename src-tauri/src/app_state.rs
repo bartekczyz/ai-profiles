@@ -10,6 +10,15 @@ use serde::{Deserialize, Serialize};
 use crate::error::{AppError, AppResult};
 use crate::paths::{app_state_json_path, ensure_app_dir};
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeMode {
+    Light,
+    #[default]
+    System,
+    Dark,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppState {
@@ -19,6 +28,8 @@ pub struct AppState {
     pub migration_dismissed_at: Option<String>,
     #[serde(default)]
     pub path_banner_dismissed_at: Option<String>,
+    #[serde(default)]
+    pub theme_mode: ThemeMode,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -30,6 +41,8 @@ pub struct AppStatePatch {
     pub migration_dismissed_at: Option<String>,
     #[serde(default)]
     pub path_banner_dismissed_at: Option<String>,
+    #[serde(default)]
+    pub theme_mode: Option<ThemeMode>,
     #[serde(default)]
     pub clear_migration_dismissed: bool,
     #[serde(default)]
@@ -72,6 +85,9 @@ pub fn apply(patch: AppStatePatch) -> AppResult<AppState> {
     } else if patch.path_banner_dismissed_at.is_some() {
         state.path_banner_dismissed_at = patch.path_banner_dismissed_at;
     }
+    if let Some(theme) = patch.theme_mode {
+        state.theme_mode = theme;
+    }
     save(&state)?;
     Ok(state)
 }
@@ -98,9 +114,7 @@ fn atomic_write(path: &Path, body: &[u8]) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    use crate::test_support::APP_DIR_TEST_LOCK as TEST_LOCK;
 
     fn purge() {
         let _ = std::fs::remove_dir_all(crate::paths::app_data_dir().unwrap());
@@ -112,6 +126,22 @@ mod tests {
         assert!(!state.welcome_shown);
         assert_eq!(state.migration_dismissed_at, None);
         assert_eq!(state.path_banner_dismissed_at, None);
+        assert_eq!(state.theme_mode, ThemeMode::System);
+    }
+
+    #[test]
+    fn apply_persists_theme_mode() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        let after = apply(AppStatePatch {
+            theme_mode: Some(ThemeMode::Dark),
+            ..AppStatePatch::default()
+        })
+        .unwrap();
+        assert_eq!(after.theme_mode, ThemeMode::Dark);
+        let reloaded = load().unwrap();
+        assert_eq!(reloaded.theme_mode, ThemeMode::Dark);
+        purge();
     }
 
     #[test]
@@ -130,6 +160,7 @@ mod tests {
             welcome_shown: true,
             migration_dismissed_at: Some("2026-05-20T12:00:00Z".into()),
             path_banner_dismissed_at: None,
+            theme_mode: ThemeMode::default(),
         };
         save(&state).unwrap();
         let loaded = load().unwrap();
@@ -145,6 +176,7 @@ mod tests {
             welcome_shown: false,
             migration_dismissed_at: Some("old".into()),
             path_banner_dismissed_at: None,
+            theme_mode: ThemeMode::default(),
         })
         .unwrap();
 
@@ -166,6 +198,7 @@ mod tests {
             welcome_shown: true,
             migration_dismissed_at: Some("set".into()),
             path_banner_dismissed_at: Some("set".into()),
+            theme_mode: ThemeMode::default(),
         })
         .unwrap();
 

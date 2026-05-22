@@ -11,7 +11,7 @@ function fixture(overrides: Partial<Profile> = {}): Profile {
     id: '1',
     name: 'Personal',
     slug: 'personal',
-    color: '#7C3AED',
+    color: '#d97757',
     createdAt: '2026-05-20T12:00:00Z',
     surfaces: { gui: true, cli: true },
     ...overrides,
@@ -67,6 +67,6 @@ describe('EditProfileModal', () => {
     await user.clear(input)
     await user.type(input, '  Renamed  ')
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    expect(onSave).toHaveBeenCalledWith({ name: 'Renamed', color: '#7C3AED' })
+    expect(onSave).toHaveBeenCalledWith({ name: 'Renamed', color: '#d97757' })
   })
 })

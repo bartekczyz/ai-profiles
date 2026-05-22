@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { CreateProfileModal } from '@/components/create-profile-modal'
 import { DeleteProfileDialog } from '@/components/delete-profile-dialog'
@@ -10,6 +10,7 @@ import { ProfileDetail } from '@/components/profile-detail'
 import { SettingsView } from '@/components/settings-view'
 import { Sidebar } from '@/components/sidebar'
 import { WelcomeDialog } from '@/components/welcome-dialog'
+import { useTheme } from '@/design'
 import { useAppState } from '@/hooks/use-app-state'
 import { useDependencies } from '@/hooks/use-dependencies'
 import { useMigration } from '@/hooks/use-migration'
@@ -38,6 +39,15 @@ export default function App() {
   const [submitting, setSubmitting] = useState(false)
   const [rightPane, setRightPane] = useState<RightPane>({ kind: 'profile' })
   const [forceMigrationOpen, setForceMigrationOpen] = useState(false)
+
+  const theme = useTheme()
+  const persistedThemeMode = appState.state?.themeMode
+
+  useEffect(() => {
+    if (persistedThemeMode && persistedThemeMode !== theme.mode) {
+      theme.setMode(persistedThemeMode)
+    }
+  }, [persistedThemeMode, theme])
 
   const selected = profiles.profiles.find((profile) => profile.id === profiles.selectedId) ?? null
 
@@ -204,7 +214,7 @@ export default function App() {
       ) : null}
 
       {profiles.error ? (
-        <div className="pointer-events-none absolute right-4 bottom-4 max-w-sm rounded-md bg-red-600 px-3 py-2 text-sm text-white shadow">
+        <div className="pointer-events-none absolute right-4 bottom-4 max-w-sm rounded-md bg-red px-3 py-2 text-sm text-white shadow">
           {profiles.error}
         </div>
       ) : null}

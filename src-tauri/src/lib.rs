@@ -8,6 +8,8 @@ mod path_setup;
 mod paths;
 mod profiles;
 mod slug;
+#[cfg(test)]
+mod test_support;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

@@ -153,7 +153,7 @@ export function SettingsView({ onClose, onOpenMigration }: Props) {
           Install / re-install hook
         </Button>
         {pathMessage ? <p className="mt-2 text-sm text-muted-foreground">{pathMessage}</p> : null}
-        {pathError ? <p className="mt-2 text-sm text-red-600">{pathError}</p> : null}
+        {pathError ? <p className="mt-2 text-sm text-red">{pathError}</p> : null}
       </section>
 
       <section className="mb-6">

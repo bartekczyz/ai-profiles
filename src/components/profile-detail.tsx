@@ -111,14 +111,14 @@ export function ProfileDetail({ profile, onEdit, onDelete, onToggle }: Props) {
           }
         />
 
-        {actionError ? <p className="text-sm text-red-600">{actionError}</p> : null}
+        {actionError ? <p className="text-sm text-red">{actionError}</p> : null}
 
-        <section className="rounded-[10px] border border-red-200 p-4">
-          <h3 className="text-sm font-semibold text-red-700">Danger zone</h3>
+        <section className="rounded-[10px] border border-red/40 p-4">
+          <h3 className="text-sm font-semibold text-red">Danger zone</h3>
           <p className="mt-1 text-xs text-muted-foreground">
             Deleting a profile removes its launchers and data directory.
           </p>
-          <Button variant="ghost" size="sm" className="mt-3 text-red-700" onClick={onDelete}>
+          <Button variant="ghost" size="sm" className="mt-3 text-red" onClick={onDelete}>
             Delete profile
           </Button>
         </section>

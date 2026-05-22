@@ -106,7 +106,7 @@ export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
             <code>~/Library/Application Support/claude-profiles/migration-backup-…/</code>. You can delete the backup
             from Settings after 7 days.
           </p>
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          {error ? <p className="text-sm text-red">{error}</p> : null}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={submitting}>
