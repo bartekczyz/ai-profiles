@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
 
 import { Dialog as DialogPrimitive } from 'radix-ui'
 
@@ -13,6 +13,16 @@ type DialogProps = {
   className?: string
   children: ReactNode
   onClose: () => void
+  /**
+   * Fires when the user presses Enter while focus is anywhere inside the
+   * dialog — input, button, swatch, checkbox. Use it to invoke the same
+   * handler the primary action button calls; the consumer's button keeps
+   * its own onClick so click and Enter share one code path.
+   *
+   * Skipped when focus is in a `<textarea>` (Enter means newline there) or
+   * when the event has already been default-prevented.
+   */
+  onSubmit?: () => void
 }
 
 /**
@@ -33,12 +43,29 @@ type DialogProps = {
  * impose footer semantics so danger dialogs and confirm dialogs share
  * the same primitive.
  */
-export function Dialog({ open, title, description, head, foot, className, children, onClose }: DialogProps) {
+export function Dialog({ open, title, description, head, foot, className, children, onClose, onSubmit }: DialogProps) {
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (!onSubmit || event.key !== 'Enter' || event.isDefaultPrevented()) {
+      return
+    }
+    const target = event.target as HTMLElement | null
+    // Enter in a textarea is a newline, not a submit.
+    if (target?.tagName === 'TEXTAREA') {
+      return
+    }
+    // preventDefault stops the focused element's default Enter behaviour
+    // (e.g. a checkbox button would otherwise toggle), so the dialog gets
+    // one canonical "user committed" signal regardless of focus.
+    event.preventDefault()
+    onSubmit()
+  }
+
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => (next ? null : onClose())}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgba(26,24,21,0.18)] backdrop-blur-sm backdrop-saturate-150 data-[state=closed]:opacity-0 dark:bg-[rgba(0,0,0,0.55)]" />
         <DialogPrimitive.Content
+          onKeyDown={handleKeyDown}
           className={cn(
             'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 outline-none',
             'w-[min(440px,calc(100%-64px))] rounded-xl border border-[color:rgba(40,30,20,0.1)] bg-cream',

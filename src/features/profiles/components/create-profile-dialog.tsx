@@ -2,8 +2,9 @@ import type { Dependencies, Surfaces } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { Button, Dialog, Kbd } from '@/design'
+import { Button, Dialog, Kbd, useToast } from '@/design'
 import { isValidHexColor, presetColors } from '@/lib/colors'
+import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { ProfileFormFields } from './profile-form-fields'
 
@@ -16,17 +17,19 @@ type Props = {
 }
 
 export function CreateProfileDialog({ open, dependencies, submitting, onClose, onCreate }: Props) {
+  const toast = useToast()
   const [name, setName] = useState('')
   const [color, setColor] = useState<string>(presetColors[0])
   const [surfaces, setSurfaces] = useState<Surfaces>({ gui: true, cli: true })
-  const [error, setError] = useState<string | null>(null)
 
   const effectiveGui = surfaces.gui && dependencies.claudeAppInstalled
   const effectiveCli = surfaces.cli && dependencies.claudeCliInstalled
   const canSubmit = name.trim().length > 0 && isValidHexColor(color) && (effectiveGui || effectiveCli)
 
   async function handleSubmit() {
-    setError(null)
+    if (!canSubmit || submitting) {
+      return
+    }
     try {
       await onCreate({
         name: name.trim(),
@@ -38,7 +41,7 @@ export function CreateProfileDialog({ open, dependencies, submitting, onClose, o
       setSurfaces({ gui: true, cli: true })
       onClose()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught))
+      toast.error('Could not create profile.', extractErrorMessage(caught))
     }
   }
 
@@ -48,6 +51,7 @@ export function CreateProfileDialog({ open, dependencies, submitting, onClose, o
       title="New profile"
       description="A profile bundles a Desktop launcher and a CLI wrapper. Pick a name and color; everything else stays isolated."
       onClose={onClose}
+      onSubmit={handleSubmit}
       foot={
         <>
           <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={submitting} onClick={onClose}>
@@ -74,7 +78,6 @@ export function CreateProfileDialog({ open, dependencies, submitting, onClose, o
         onColorChange={setColor}
         onSurfacesChange={setSurfaces}
       />
-      {error ? <p className="mt-3 text-meta text-red">{error}</p> : null}
     </Dialog>
   )
 }

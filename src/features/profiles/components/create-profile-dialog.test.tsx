@@ -4,6 +4,8 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
+import { ToastProvider } from '@/design'
+
 import { CreateProfileDialog } from './create-profile-dialog'
 
 const ALL_INSTALLED: Dependencies = {
@@ -15,7 +17,11 @@ const ALL_INSTALLED: Dependencies = {
 function setup(overrides: Partial<Parameters<typeof CreateProfileDialog>[0]> = {}) {
   const onClose = vi.fn()
   const onCreate = vi.fn().mockResolvedValue(undefined)
-  render(<CreateProfileDialog open dependencies={ALL_INSTALLED} onClose={onClose} onCreate={onCreate} {...overrides} />)
+  render(
+    <ToastProvider>
+      <CreateProfileDialog open dependencies={ALL_INSTALLED} onClose={onClose} onCreate={onCreate} {...overrides} />
+    </ToastProvider>,
+  )
   return { onClose, onCreate, user: userEvent.setup() }
 }
 
@@ -57,14 +63,53 @@ describe('CreateProfileDialog', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('surfaces backend error in the dialog without closing', async () => {
-    const onCreate = vi.fn().mockRejectedValue(new Error('slug exists'))
+  it('submits when the user presses Enter from inside the name input', async () => {
+    const { user, onCreate } = setup()
+    const nameInput = screen.getByLabelText('Name') as HTMLInputElement
+    await user.type(nameInput, 'Personal{Enter}')
+    expect(onCreate).toHaveBeenCalledWith({
+      name: 'Personal',
+      color: '#d97757',
+      surfaces: { gui: true, cli: true },
+    })
+  })
+
+  it('submits when the user presses Enter while focused on a surface checkbox', async () => {
+    const { user, onCreate } = setup()
+    await user.type(screen.getByLabelText('Name'), 'Personal')
+    // Tab through the dialog until the first SurfaceToggle button has focus.
+    // (Name input → color swatches → hex input → desktop checkbox.)
+    const desktopCheckbox = screen.getByRole('checkbox', { name: /Desktop App launcher/ }) as HTMLButtonElement
+    desktopCheckbox.focus()
+    await user.keyboard('{Enter}')
+    expect(onCreate).toHaveBeenCalledWith({
+      name: 'Personal',
+      color: '#d97757',
+      // Both surfaces still selected — preventDefault on the dialog-level
+      // Enter handler stops the checkbox from toggling itself off.
+      surfaces: { gui: true, cli: true },
+    })
+  })
+
+  it('does not submit when Enter is pressed and the form is invalid', async () => {
+    const { user, onCreate } = setup()
+    await user.type(screen.getByLabelText('Name'), '   {Enter}')
+    expect(onCreate).not.toHaveBeenCalled()
+  })
+
+  it('shows a toast (not an inline message) when the backend rejects, and keeps the dialog open', async () => {
+    const onCreate = vi.fn().mockRejectedValue({ kind: 'Validation', message: 'validation error: slug already exists' })
     const onClose = vi.fn()
-    render(<CreateProfileDialog open dependencies={ALL_INSTALLED} onClose={onClose} onCreate={onCreate} />)
+    render(
+      <ToastProvider>
+        <CreateProfileDialog open dependencies={ALL_INSTALLED} onClose={onClose} onCreate={onCreate} />
+      </ToastProvider>,
+    )
     const user = userEvent.setup()
     await user.type(screen.getByLabelText('Name'), 'Personal')
     await user.click(screen.getByRole('button', { name: /^Create profile/ }))
-    expect(await screen.findByText('slug exists')).toBeInTheDocument()
+    expect(await screen.findByText('Could not create profile.')).toBeInTheDocument()
+    expect(screen.getAllByText(/slug already exists/).length).toBeGreaterThan(0)
     expect(onClose).not.toHaveBeenCalled()
   })
 })
@@ -72,7 +117,11 @@ describe('CreateProfileDialog', () => {
 describe('CreateProfileDialog — dependency awareness', () => {
   function renderWith(deps: Dependencies) {
     const onCreate = vi.fn().mockResolvedValue(undefined)
-    render(<CreateProfileDialog open dependencies={deps} onClose={vi.fn()} onCreate={onCreate} />)
+    render(
+      <ToastProvider>
+        <CreateProfileDialog open dependencies={deps} onClose={vi.fn()} onCreate={onCreate} />
+      </ToastProvider>,
+    )
     return { onCreate, user: userEvent.setup() }
   }
 
@@ -101,12 +150,14 @@ describe('CreateProfileDialog — dependency awareness', () => {
   it('submits only the available surface when one is missing', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined)
     render(
-      <CreateProfileDialog
-        open
-        dependencies={{ ...ALL_INSTALLED, claudeAppInstalled: false }}
-        onClose={vi.fn()}
-        onCreate={onCreate}
-      />,
+      <ToastProvider>
+        <CreateProfileDialog
+          open
+          dependencies={{ ...ALL_INSTALLED, claudeAppInstalled: false }}
+          onClose={vi.fn()}
+          onCreate={onCreate}
+        />
+      </ToastProvider>,
     )
     const user = userEvent.setup()
     await user.type(screen.getByLabelText('Name'), 'Personal')
