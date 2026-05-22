@@ -83,7 +83,11 @@ export function MigrationBackupsList({ backups, onDelete }: Props) {
           </Button>
         </div>
       ))}
-      {error ? <p className="text-[11.5px] text-red">{error}</p> : null}
+      {error ? (
+        <p role="alert" className="text-[11.5px] text-red">
+          {error}
+        </p>
+      ) : null}
     </div>
   )
 }

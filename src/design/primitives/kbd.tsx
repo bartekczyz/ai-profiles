@@ -21,10 +21,18 @@ type KbdProps = {
 }
 
 const variantClasses: Record<KbdVariant, string> = {
+  // The chip should *blend* with its surface — a key cap pressed into the
+  // panel, not stamped on top. Faint background, faint border, muted text:
+  // visible enough to read as a key cap but not so heavy that it
+  // outweighs neighbouring icons or text. (Earlier attempts with a
+  // stronger border made the chip optically taller than the 12px icons it
+  // sits next to in the sidebar rows.)
   default:
-    'text-muted bg-white/70 border border-border shadow-[inset_0_-1px_0_rgba(0,0,0,0.04)] dark:bg-white/5 dark:border-white/10',
-  onOrange: 'text-white bg-white/15 border border-white/30 shadow-[inset_0_-1px_0_rgba(0,0,0,0.08)]',
-  subtle: 'text-muted-strong bg-transparent border border-border/70 dark:border-white/10',
+    'text-muted bg-cream-2 border border-border/50 dark:text-ink-soft dark:bg-white/[0.06] dark:border-white/[0.08]',
+  onOrange: 'text-white bg-white/20 border border-white/40 shadow-[inset_0_-1px_0_rgba(0,0,0,0.08)]',
+  // Subtle is for inline hint strips — borderless on light, faint border
+  // on dark, slightly stronger text than `text-muted` so it still reads.
+  subtle: 'text-muted bg-transparent border border-border/70 dark:text-ink-soft dark:border-white/[0.12]',
 }
 
 export function Kbd({ variant = 'default', shortcutId, className, children }: KbdProps) {

@@ -18,6 +18,7 @@ export type { PulseTone, StatusPulseProps } from './primitives/status-pulse'
 export type { ToastTone } from './primitives/toast'
 export type { ResolvedTheme, ThemeMode } from './theme/theme-provider'
 
+export { ariaKeyshortcuts, ariaKeyshortcutsFor } from './keyboard/aria-keyshortcuts'
 export { formatShortcut } from './keyboard/format-shortcut'
 export { getShortcut, shortcuts } from './keyboard/shortcuts'
 export { useShortcut } from './keyboard/use-shortcut'

@@ -5,15 +5,15 @@ type Hint = {
   keys: ReadonlyArray<string>
 }
 
-// TODO(phase-11): replace with `useShortcutHints()` reading from the registry,
-// so renaming a binding in one place updates every chip across the UI.
+// Each hint here MUST correspond to a registered shortcut that fires in the
+// detail/global scope. Don't add `navigate ↑↓` (no global arrow keys) or
+// `help ⌘?` (no help cheatsheet exists) — advertising a binding that does
+// nothing is worse than no hint at all.
 const HINTS: ReadonlyArray<Hint> = [
-  { label: 'navigate', keys: ['↑↓'] },
   { label: 'open', keys: ['⏎'] },
   { label: 'copy', keys: ['⌘C'] },
   { label: 'new', keys: ['⌘N'] },
   { label: 'commands', keys: ['⌘K'] },
-  { label: 'help', keys: ['⌘?'] },
 ]
 
 /**
@@ -23,7 +23,7 @@ const HINTS: ReadonlyArray<Hint> = [
  */
 export function ProfileDetailHintStrip() {
   return (
-    <div className="-mx-10 mt-6 flex items-center justify-center gap-4 border-t border-border-soft bg-cream/55 px-6 py-3 text-[11.5px] text-muted-strong">
+    <div className="flex shrink-0 items-center justify-center gap-4 border-t border-border-soft bg-cream/55 px-6 py-3 text-[11.5px] text-muted-strong">
       {HINTS.map((hint, index) => (
         <span key={hint.label} className="inline-flex items-center gap-1.5">
           <span className="inline-flex items-center gap-0.5">

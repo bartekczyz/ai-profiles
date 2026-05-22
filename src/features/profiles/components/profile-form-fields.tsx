@@ -69,6 +69,10 @@ export function ProfileFormFields({
           value={name}
           onChange={(event) => onNameChange(event.target.value)}
           placeholder="Personal"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           className="w-full appearance-none rounded-md border border-border bg-white px-3 py-2.5 font-sans text-[13.5px] text-ink outline-none transition-[border-color,box-shadow] duration-(--duration-snap) ease-(--ease-natural) focus:border-orange focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-orange)_15%,transparent)] dark:bg-cream-2"
         />
         {showSlugPreview && slugPreview ? (

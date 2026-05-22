@@ -51,22 +51,32 @@ export function ProfileDetail({ profile, onEdit, onDelete }: Props) {
   const [actionError, setActionError] = useState<string | null>(null)
 
   return (
-    <main className="flex flex-1 flex-col overflow-y-auto px-10 pt-10 pb-0">
-      <div className="mx-auto w-full max-w-[640px] flex-1">
-        <ProfileDetailHeader profile={profile} onEdit={onEdit} />
+    // Outer `<main>` is a flex column that DOESN'T scroll — only the inner
+    // content area does. That keeps the hint strip pinned to the bottom of
+    // the pane regardless of how tall the window is or how far the user
+    // has scrolled.
+    <main className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex-1 overflow-y-auto px-10 pt-10">
+        <div className="mx-auto w-full max-w-[640px]">
+          <ProfileDetailHeader profile={profile} onEdit={onEdit} />
 
-        <div className="mb-6 grid grid-cols-1 gap-3.5 lg:grid-cols-2">
-          {/* Re-keying on profile.id ensures the loaded paths state doesn't
-              leak across profile switches — suspends fresh for each one. */}
-          <Suspense key={profile.id} fallback={<SurfaceCardsFallback profile={profile} />}>
-            <SurfaceCardsLoaded profile={profile} onError={setActionError} />
-          </Suspense>
+          <div className="mb-6 grid grid-cols-1 gap-3.5 lg:grid-cols-2">
+            {/* Re-keying on profile.id ensures the loaded paths state doesn't
+                leak across profile switches — suspends fresh for each one. */}
+            <Suspense key={profile.id} fallback={<SurfaceCardsFallback profile={profile} />}>
+              <SurfaceCardsLoaded profile={profile} onError={setActionError} />
+            </Suspense>
+          </div>
+
+          {actionError ? (
+            <p role="alert" className="mb-4 text-meta text-red">
+              {actionError}
+            </p>
+          ) : null}
+
+          <ProfileDetailRecentActivity profileId={profile.id} />
+          <ProfileDetailDangerLink onDelete={onDelete} />
         </div>
-
-        {actionError ? <p className="mb-4 text-meta text-red">{actionError}</p> : null}
-
-        <ProfileDetailRecentActivity profileId={profile.id} />
-        <ProfileDetailDangerLink onDelete={onDelete} />
       </div>
       <ProfileDetailHintStrip />
     </main>

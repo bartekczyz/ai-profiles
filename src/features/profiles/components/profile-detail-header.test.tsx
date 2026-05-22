@@ -47,12 +47,8 @@ describe('ProfileDetailHeader', () => {
     expect(onEdit).toHaveBeenCalledTimes(1)
   })
 
-  it('More button carries a ⌘M title and fires onMore', async () => {
-    const onMore = vi.fn()
-    render(<ProfileDetailHeader profile={fixture()} onEdit={vi.fn()} onMore={onMore} />)
-    const more = screen.getByRole('button', { name: 'More actions' })
-    expect(more.getAttribute('title')).toBe('More (⌘M)')
-    await userEvent.setup().click(more)
-    expect(onMore).toHaveBeenCalledTimes(1)
+  it('does not render the legacy "More actions" button (removed in Phase 15)', () => {
+    render(<ProfileDetailHeader profile={fixture()} onEdit={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /More actions/i })).not.toBeInTheDocument()
   })
 })

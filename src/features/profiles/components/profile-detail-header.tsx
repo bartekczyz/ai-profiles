@@ -1,22 +1,19 @@
 import type { Profile } from '@/lib/types'
 
 import { formatDistanceToNow } from 'date-fns'
-import { MoreHorizontal } from 'lucide-react'
 
-import { Button, Kbd } from '@/design'
+import { ariaKeyshortcutsFor, Button, Kbd } from '@/design'
 
 type Props = {
   profile: Profile
   onEdit: () => void
-  onMore?: () => void
 }
 
 /**
  * Header block: 44×44 inset-glossed swatch, profile name in display
- * weight, mono slug + last-used line, ghost Edit button (⌘E), and a
- * 3-dot More button (⌘M; tooltip only — menu lands later).
+ * weight, mono slug + last-used line, and a ghost Edit button (⌘E).
  */
-export function ProfileDetailHeader({ profile, onEdit, onMore }: Props) {
+export function ProfileDetailHeader({ profile, onEdit }: Props) {
   return (
     <header className="mb-5 flex items-start gap-4 border-b border-border-soft pb-5">
       <ProfileSwatch color={profile.color} />
@@ -29,18 +26,15 @@ export function ProfileDetailHeader({ profile, onEdit, onMore }: Props) {
         </p>
       </div>
       <div className="flex items-center gap-1 pt-1">
-        <Button variant="ghost" size="sm" trailingKbd={<Kbd shortcutId="edit-selected" />} onClick={onEdit}>
+        <Button
+          variant="ghost"
+          size="sm"
+          trailingKbd={<Kbd shortcutId="edit-selected" />}
+          aria-keyshortcuts={ariaKeyshortcutsFor('edit-selected')}
+          onClick={onEdit}
+        >
           Edit
         </Button>
-        <button
-          type="button"
-          onClick={onMore}
-          aria-label="More actions"
-          title="More (⌘M)"
-          className="grid h-7 w-7 cursor-pointer place-items-center rounded-sm text-muted transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-cream-2 hover:text-ink"
-        >
-          <MoreHorizontal className="h-[15px] w-[15px]" strokeWidth={1.75} />
-        </button>
       </div>
     </header>
   )

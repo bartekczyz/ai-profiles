@@ -1,6 +1,6 @@
 import { Plus } from 'lucide-react'
 
-import { Button, Kbd } from '@/design'
+import { ariaKeyshortcutsFor, Button, Kbd } from '@/design'
 
 import { EmptyStateBlobs } from './empty-state-blobs'
 
@@ -32,6 +32,7 @@ export function EmptyStateScreen({ onCreate }: Props) {
         size="md"
         leadingIcon={<Plus className="h-3.5 w-3.5" strokeWidth={2.25} />}
         trailingKbd={<Kbd variant="onOrange" shortcutId="open-create-profile" />}
+        aria-keyshortcuts={ariaKeyshortcutsFor('open-create-profile')}
         onClick={onCreate}
       >
         New profile

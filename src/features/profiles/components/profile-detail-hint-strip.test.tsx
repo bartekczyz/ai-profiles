@@ -4,12 +4,18 @@ import { describe, expect, it } from 'vitest'
 import { ProfileDetailHintStrip } from './profile-detail-hint-strip'
 
 describe('ProfileDetailHintStrip', () => {
-  it('renders each global shortcut hint', () => {
+  it('renders each global shortcut hint that maps to a working binding', () => {
     render(<ProfileDetailHintStrip />)
-    const labels = ['navigate', 'open', 'copy', 'new', 'commands', 'help']
+    const labels = ['open', 'copy', 'new', 'commands']
     for (const label of labels) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
+  })
+
+  it('does not advertise bindings we do not implement (navigate ↑↓, help ⌘?)', () => {
+    render(<ProfileDetailHintStrip />)
+    expect(screen.queryByText('navigate')).not.toBeInTheDocument()
+    expect(screen.queryByText('help')).not.toBeInTheDocument()
   })
 
   it('renders the ⌘K kbd chip', () => {

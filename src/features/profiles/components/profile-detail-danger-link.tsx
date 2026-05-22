@@ -1,4 +1,4 @@
-import { Kbd } from '@/design'
+import { ariaKeyshortcutsFor, Kbd } from '@/design'
 
 type Props = {
   onDelete: () => void
@@ -15,6 +15,7 @@ export function ProfileDetailDangerLink({ onDelete }: Props) {
       <button
         type="button"
         onClick={onDelete}
+        aria-keyshortcuts={ariaKeyshortcutsFor('delete-selected')}
         className="inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 font-medium text-red border-b border-dashed border-red/35 pb-px outline-none hover:text-red hover:border-red/65"
       >
         <span>Delete this profile</span>

@@ -32,7 +32,12 @@ export function ColorSwatchPicker({ value, onChange }: Props) {
         value={value}
         placeholder={presetColors[0]}
         onChange={(event) => onChange(event.target.value)}
+        aria-label="Custom hex color"
         aria-invalid={!isValidHexColor(value)}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         className="ml-1 h-8 w-[110px] appearance-none rounded-md border border-border bg-white px-2 font-mono text-[12px] text-ink outline-none transition-colors focus:border-orange aria-[invalid=true]:border-red dark:bg-cream-2"
       />
     </div>

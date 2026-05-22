@@ -60,7 +60,11 @@ export function SortableProfileRow({ profile, index, selected, onSelect }: Props
         type="button"
         data-active={selected ? 'true' : 'false'}
         onClick={onSelect}
-        className="group/row grid w-full grid-cols-[14px_1fr_auto_auto] items-center gap-2.5 rounded-md py-[7px] pr-2.5 pl-[22px] text-left cursor-pointer transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-white/45 dark:hover:bg-white/[0.04] data-[active=true]:bg-white/72 data-[active=true]:shadow-[0_1px_2px_rgba(40,30,20,0.04),inset_0_0_0_1px_rgba(229,224,210,0.55)] dark:data-[active=true]:bg-white/[0.08] dark:data-[active=true]:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_0_0_1px_rgba(255,255,255,0.05)]"
+        aria-keyshortcuts={index < 9 ? `Meta+${index + 1}` : undefined}
+        // See sibling `sidebar-profile-row` for the `transform-gpu` rationale:
+        // pins the row on its own GPU layer so contained icons don't
+        // sub-pixel jitter during the hover/active background transition.
+        className="group/row grid w-full transform-gpu grid-cols-[14px_1fr_auto_auto] items-center gap-2.5 rounded-md py-[7px] pr-2.5 pl-[22px] text-left cursor-pointer transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-white/45 dark:hover:bg-white/[0.04] data-[active=true]:bg-white/72 data-[active=true]:shadow-[0_1px_2px_rgba(40,30,20,0.04),inset_0_0_0_1px_rgba(229,224,210,0.55)] dark:data-[active=true]:bg-white/[0.08] dark:data-[active=true]:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_0_0_1px_rgba(255,255,255,0.05)]"
       >
         <span
           aria-hidden
@@ -69,9 +73,12 @@ export function SortableProfileRow({ profile, index, selected, onSelect }: Props
         />
         <span className="truncate text-[13px] font-medium tracking-[-0.005em] text-ink">{profile.name}</span>
         <SidebarSurfaceIcons surfaces={profile.surfaces} />
-        <span className="transition-opacity opacity-40 group-hover/row:opacity-100 group-data-[active=true]/row:opacity-100">
-          <Kbd>⌘{index + 1}</Kbd>
-        </span>
+        {index < 9 ? (
+          // See sibling `sidebar-profile-row` for the wrapper-flex rationale.
+          <span className="inline-flex items-center transition-opacity opacity-40 group-hover/row:opacity-100 group-data-[active=true]/row:opacity-100">
+            <Kbd>⌘{index + 1}</Kbd>
+          </span>
+        ) : null}
       </button>
       {/* Grip — absolute on the row's left edge inside the padded gutter.
           Owns the drag listeners so dragging it doesn't fire the button
@@ -79,9 +86,12 @@ export function SortableProfileRow({ profile, index, selected, onSelect }: Props
           full opacity on hover/focus. */}
       <button
         type="button"
-        aria-label={`Reorder ${profile.name}`}
         {...attributes}
         {...listeners}
+        // aria-label must come AFTER the dnd-kit attribute spread so our
+        // per-row label ("Reorder Personal") wins over the generic
+        // role/aria-roledescription dnd-kit attaches to every sortable.
+        aria-label={`Reorder ${profile.name}`}
         className={cn(
           'absolute top-1/2 left-1 grid h-6 w-4 -translate-y-1/2 cursor-grab place-items-center text-muted-strong outline-none',
           'opacity-45 transition-opacity duration-(--duration-snap) ease-(--ease-natural)',

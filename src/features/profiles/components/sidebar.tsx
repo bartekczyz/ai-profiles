@@ -15,7 +15,7 @@ import {
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { Cog, Plus } from 'lucide-react'
 
-import { Button, Kbd } from '@/design'
+import { ariaKeyshortcutsFor, Button, Kbd } from '@/design'
 
 import { SidebarBrandMark } from './sidebar-brand-mark'
 import { SidebarProfileRow } from './sidebar-profile-row'
@@ -118,7 +118,7 @@ export function Sidebar({ profiles, selectedId, onSelect, onCreate, onSettings, 
           }}
         >
           <SortableContext items={profiles.map((profile) => profile.id)} strategy={verticalListSortingStrategy}>
-            <ul className="flex flex-1 flex-col gap-px overflow-y-auto pr-0.5">
+            <ul aria-label="Profiles" className="flex flex-1 flex-col gap-px overflow-y-auto pr-0.5">
               {profiles.map((profile, index) => (
                 <li key={profile.id}>
                   <SortableProfileRow
@@ -156,6 +156,7 @@ export function Sidebar({ profiles, selectedId, onSelect, onCreate, onSettings, 
           className="flex-1 rounded-full"
           leadingIcon={<Plus className="h-3.5 w-3.5" strokeWidth={2.25} />}
           trailingKbd={<Kbd variant="onOrange" shortcutId="open-create-profile" />}
+          aria-keyshortcuts={ariaKeyshortcutsFor('open-create-profile')}
           onClick={onCreate}
         >
           New profile
@@ -164,6 +165,7 @@ export function Sidebar({ profiles, selectedId, onSelect, onCreate, onSettings, 
           type="button"
           onClick={onSettings}
           aria-label="Open settings"
+          aria-keyshortcuts={ariaKeyshortcutsFor('toggle-settings')}
           title="Settings (⌘,)"
           className="grid h-7 w-[30px] cursor-pointer place-items-center rounded-sm border border-border bg-white/60 text-muted transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-white hover:text-ink dark:bg-white/[0.04] dark:hover:bg-white/[0.08] dark:hover:text-ink"
         >
