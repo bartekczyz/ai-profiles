@@ -10,7 +10,7 @@ import { useProfiles } from '@/features/profiles/api/use-profiles'
 import { CreateProfileModal } from '@/features/profiles/components/create-profile-modal'
 import { DeleteProfileDialog } from '@/features/profiles/components/delete-profile-dialog'
 import { EditProfileModal } from '@/features/profiles/components/edit-profile-modal'
-import { EmptyState } from '@/features/profiles/components/empty-state'
+import { EmptyStateScreen } from '@/features/profiles/components/empty-state-screen'
 import { ProfileDetail } from '@/features/profiles/components/profile-detail'
 import { ProfileDetailSkeleton } from '@/features/profiles/components/profile-detail-skeleton'
 import { Sidebar } from '@/features/profiles/components/sidebar'
@@ -124,6 +124,11 @@ function AppContent() {
     )
   }
 
+  // The empty-state screen owns the whole window when there are no profiles
+  // yet — no sidebar, no panes. As soon as the first profile lands, the
+  // sidebar appears and the detail pane takes over.
+  const isEmpty = profiles.profiles.length === 0
+
   return (
     <div className="flex h-full flex-col">
       {shouldShowPathBanner ? (
@@ -136,54 +141,54 @@ function AppContent() {
           }}
         />
       ) : null}
-      <div className="flex min-h-0 flex-1">
-        <Sidebar
-          profiles={profiles.profiles}
-          selectedId={profiles.selectedId}
-          onSelect={(id) => {
-            profiles.select(id)
-            setRightPane({ kind: 'profile' })
-          }}
-          onCreate={() => setModal({ kind: 'create' })}
-          onSettings={() => setRightPane({ kind: 'settings' })}
-        />
-        {/* Activity keeps the off-screen pane mounted so toggling gear ↔ profile
-            never re-fetches dependencies/backups or re-runs profile-detail effects.
-            Empty state stays conditionally rendered — it has no data load to preserve. */}
-        <Activity mode={rightPane.kind === 'profile' && selected !== null ? 'visible' : 'hidden'}>
-          {selected ? (
-            <Suspense fallback={<ProfileDetailSkeleton />}>
+      {isEmpty ? (
+        <EmptyStateScreen onCreate={() => setModal({ kind: 'create' })} />
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          <Sidebar
+            profiles={profiles.profiles}
+            selectedId={profiles.selectedId}
+            onSelect={(id) => {
+              profiles.select(id)
+              setRightPane({ kind: 'profile' })
+            }}
+            onCreate={() => setModal({ kind: 'create' })}
+            onSettings={() => setRightPane({ kind: 'settings' })}
+          />
+          {/* Activity keeps the off-screen pane mounted so toggling gear ↔ profile
+              never re-fetches dependencies/backups or re-runs profile-detail effects. */}
+          <Activity mode={rightPane.kind === 'profile' && selected !== null ? 'visible' : 'hidden'}>
+            {selected ? (
+              <Suspense fallback={<ProfileDetailSkeleton />}>
+                <QueryErrorBoundary>
+                  <ProfileDetail
+                    profile={selected}
+                    onEdit={() => setModal({ kind: 'edit' })}
+                    onDelete={() => setModal({ kind: 'delete' })}
+                    onToggle={async (surface, enabled) => {
+                      await profiles.toggle({ id: selected.id, surface, enabled })
+                    }}
+                  />
+                </QueryErrorBoundary>
+              </Suspense>
+            ) : null}
+          </Activity>
+          <Activity mode={rightPane.kind === 'settings' ? 'visible' : 'hidden'}>
+            <Suspense fallback={<SettingsViewSkeleton />}>
               <QueryErrorBoundary>
-                <ProfileDetail
-                  profile={selected}
-                  onEdit={() => setModal({ kind: 'edit' })}
-                  onDelete={() => setModal({ kind: 'delete' })}
-                  onToggle={async (surface, enabled) => {
-                    await profiles.toggle({ id: selected.id, surface, enabled })
+                <SettingsView
+                  onClose={() => setRightPane({ kind: 'profile' })}
+                  onOpenMigration={async () => {
+                    await migration.refresh()
+                    setRightPane({ kind: 'profile' })
+                    setForceMigrationOpen(true)
                   }}
                 />
               </QueryErrorBoundary>
             </Suspense>
-          ) : null}
-        </Activity>
-        <Activity mode={rightPane.kind === 'settings' ? 'visible' : 'hidden'}>
-          <Suspense fallback={<SettingsViewSkeleton />}>
-            <QueryErrorBoundary>
-              <SettingsView
-                onClose={() => setRightPane({ kind: 'profile' })}
-                onOpenMigration={async () => {
-                  await migration.refresh()
-                  setRightPane({ kind: 'profile' })
-                  setForceMigrationOpen(true)
-                }}
-              />
-            </QueryErrorBoundary>
-          </Suspense>
-        </Activity>
-        {rightPane.kind === 'profile' && selected === null ? (
-          <EmptyState onCreate={() => setModal({ kind: 'create' })} />
-        ) : null}
-      </div>
+          </Activity>
+        </div>
+      )}
 
       <CreateProfileModal
         open={modal.kind === 'create'}
