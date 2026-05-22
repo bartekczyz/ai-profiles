@@ -1,13 +1,23 @@
 import type { ReactNode } from 'react'
 
+import { formatShortcut } from '@/design/keyboard/format-shortcut'
+import { getShortcut, type ShortcutId } from '@/design/keyboard/shortcuts'
 import { cn } from '@/design/lib/cn'
 
 type KbdVariant = 'default' | 'onOrange' | 'subtle'
 
 type KbdProps = {
   variant?: KbdVariant
+  /**
+   * Render the key for a registered shortcut. The chip then stays in
+   * lockstep with the registry — renaming `Mod+K` → `Mod+Shift+K`
+   * updates the chip everywhere automatically.
+   *
+   * When omitted, `children` is rendered as-is (ad-hoc chips).
+   */
+  shortcutId?: ShortcutId
   className?: string
-  children: ReactNode
+  children?: ReactNode
 }
 
 const variantClasses: Record<KbdVariant, string> = {
@@ -17,7 +27,8 @@ const variantClasses: Record<KbdVariant, string> = {
   subtle: 'text-muted-strong bg-transparent border border-border/70 dark:border-white/10',
 }
 
-export function Kbd({ variant = 'default', className, children }: KbdProps) {
+export function Kbd({ variant = 'default', shortcutId, className, children }: KbdProps) {
+  const content = shortcutId ? formatShortcut(getShortcut(shortcutId).keys) : children
   return (
     <kbd
       className={cn(
@@ -26,7 +37,7 @@ export function Kbd({ variant = 'default', className, children }: KbdProps) {
         className,
       )}
     >
-      {children}
+      {content}
     </kbd>
   )
 }

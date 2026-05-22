@@ -6,6 +6,7 @@
  * packages/design-system/src` plus a tsconfig path edit.
  */
 
+export type { Scope, ShortcutDefinition, ShortcutId } from './keyboard/shortcuts'
 export type { ButtonProps, ButtonSize, ButtonVariant } from './primitives/button'
 export type { CardProps, CardRowProps } from './primitives/card'
 export type { DialogProps } from './primitives/dialog'
@@ -16,6 +17,9 @@ export type { StatusDotProps, StatusTone } from './primitives/status-dot'
 export type { PulseTone, StatusPulseProps } from './primitives/status-pulse'
 export type { ResolvedTheme, ThemeMode } from './theme/theme-provider'
 
+export { formatShortcut } from './keyboard/format-shortcut'
+export { getShortcut, shortcuts } from './keyboard/shortcuts'
+export { useShortcut } from './keyboard/use-shortcut'
 export { cn } from './lib/cn'
 export { Button } from './primitives/button'
 export { Card, CardRow } from './primitives/card'

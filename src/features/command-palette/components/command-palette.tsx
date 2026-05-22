@@ -1,11 +1,9 @@
 import type { Dependencies, Profile } from '@/lib/types'
 
-import { useEffect } from 'react'
-
 import { Command } from 'cmdk'
 import { CornerDownLeft, Download, Plus, Search, Settings as SettingsIcon, Terminal } from 'lucide-react'
 
-import { cn, Kbd } from '@/design'
+import { cn, Kbd, useShortcut } from '@/design'
 
 type CommandPaletteProps = {
   open: boolean
@@ -45,17 +43,9 @@ export function CommandPalette({
   onSettings,
   onImport,
 }: CommandPaletteProps) {
-  useEffect(() => {
-    // TODO(phase-11): replace with useShortcut('toggle-palette', onToggle)
-    function handleKeydown(event: KeyboardEvent) {
-      if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault()
-        onToggle()
-      }
-    }
-    window.addEventListener('keydown', handleKeydown)
-    return () => window.removeEventListener('keydown', handleKeydown)
-  }, [onToggle])
+  useShortcut('toggle-palette', () => {
+    onToggle()
+  })
 
   // Active profile's rows first so ⏎ on first open does the obvious thing.
   const ordered = [...profiles].sort((a, b) => {

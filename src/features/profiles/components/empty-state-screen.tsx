@@ -31,7 +31,7 @@ export function EmptyStateScreen({ onCreate }: Props) {
         variant="primary"
         size="md"
         leadingIcon={<Plus className="h-3.5 w-3.5" strokeWidth={2.25} />}
-        trailingKbd={<Kbd variant="onOrange">⌘N</Kbd>}
+        trailingKbd={<Kbd variant="onOrange" shortcutId="open-create-profile" />}
         onClick={onCreate}
       >
         New profile

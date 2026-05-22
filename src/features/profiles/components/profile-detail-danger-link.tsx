@@ -18,7 +18,7 @@ export function ProfileDetailDangerLink({ onDelete }: Props) {
         className="inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 font-medium text-red border-b border-dashed border-red/35 pb-px outline-none hover:text-red hover:border-red/65"
       >
         <span>Delete this profile</span>
-        <Kbd variant="subtle">⌘⌫</Kbd>
+        <Kbd variant="subtle" shortcutId="delete-selected" />
       </button>
       <span className="text-muted-strong">Removes launchers, keeps the isolated data on disk.</span>
     </div>

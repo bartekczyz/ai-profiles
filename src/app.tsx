@@ -1,6 +1,8 @@
 import { Activity, Suspense, useEffect, useState } from 'react'
 
-import { useTheme } from '@/design'
+import { useHotkey } from '@tanstack/react-hotkeys'
+
+import { useShortcut, useTheme } from '@/design'
 import { CommandPalette } from '@/features/command-palette/components/command-palette'
 import { useCommandPalette } from '@/features/command-palette/use-command-palette'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
@@ -46,6 +48,32 @@ function AppShellSkeleton() {
   )
 }
 
+const profileIndexKeys = ['Mod+1', 'Mod+2', 'Mod+3', 'Mod+4', 'Mod+5', 'Mod+6', 'Mod+7', 'Mod+8', 'Mod+9'] as const
+
+type SelectByIndexHotkeyProps = {
+  index: number
+  enabled: boolean
+  onSelect: (index: number) => void
+}
+
+/**
+ * One Mod+N binding per profile slot. Each instance registers a single
+ * hotkey — kept as a child component so we can map over indices without
+ * violating the rules-of-hooks ban on conditional/looped hook calls.
+ * The discrete `profileIndexKeys` tuple keeps the keys narrowly typed
+ * (`Mod+${number}` is too broad for the library's Hotkey union).
+ */
+function SelectByIndexHotkey({ index, enabled, onSelect }: SelectByIndexHotkeyProps) {
+  useHotkey(
+    profileIndexKeys[index],
+    () => {
+      onSelect(index)
+    },
+    { enabled },
+  )
+  return null
+}
+
 function AppContent() {
   const profiles = useProfiles()
   const migration = useMigration()
@@ -89,6 +117,66 @@ function AppContent() {
     dependencies.deps.localBinOnPath === false &&
     anyCliProfile &&
     !pathBannerDismissedRecently
+
+  const dialogOpen = dialog.kind !== 'none'
+  const overlayOpen = dialogOpen || palette.open || showMigration
+  const detailEnabled = rightPane.kind === 'profile' && selected !== null && !overlayOpen
+
+  // Global shortcuts — suppressed when a blocking overlay (dialog,
+  // palette, migration prompt) is on top.
+  useShortcut('open-create-profile', () => setDialog({ kind: 'create' }), { enabled: !overlayOpen })
+  useShortcut(
+    'toggle-settings',
+    () => setRightPane((current) => (current.kind === 'settings' ? { kind: 'profile' } : { kind: 'settings' })),
+    { enabled: !overlayOpen },
+  )
+  useShortcut(
+    'open-detect-import',
+    () => {
+      void migration.refresh().then(() => setForceMigrationOpen(true))
+    },
+    { enabled: !overlayOpen },
+  )
+
+  // Detail-scope shortcuts — gated on a profile being selected, the
+  // detail pane being on top, and no overlay (dialog/palette/migration)
+  // covering it.
+  useShortcut(
+    'edit-selected',
+    () => {
+      if (selected) {
+        setDialog({ kind: 'edit' })
+      }
+    },
+    { enabled: detailEnabled },
+  )
+  useShortcut(
+    'delete-selected',
+    () => {
+      if (selected) {
+        setDialog({ kind: 'delete' })
+      }
+    },
+    { enabled: detailEnabled },
+  )
+  useShortcut(
+    'open-selected-desktop',
+    () => {
+      if (selected?.surfaces.gui) {
+        void usage.launchDesktop(selected.id)
+      }
+    },
+    { enabled: detailEnabled },
+  )
+  useShortcut(
+    'copy-selected-cli',
+    () => {
+      if (selected?.surfaces.cli) {
+        void usage.copyCli({ profileId: selected.id, command: `claude-${selected.slug}` })
+      }
+    },
+    { enabled: detailEnabled },
+  )
 
   async function handleCreate(input: Parameters<typeof profiles.create>[0]) {
     setSubmitting(true)
@@ -253,6 +341,21 @@ function AppContent() {
           }}
         />
       ) : null}
+
+      {/* Mod+1..Mod+9 — one binding per visible profile slot. Disabled when
+          any overlay is open to avoid stealing keystrokes from the
+          dialog/palette/migration prompt. */}
+      {profiles.profiles.slice(0, 9).map((profile, index) => (
+        <SelectByIndexHotkey
+          key={profile.id}
+          index={index}
+          enabled={!overlayOpen}
+          onSelect={() => {
+            profiles.select(profile.id)
+            setRightPane({ kind: 'profile' })
+          }}
+        />
+      ))}
 
       <CommandPalette
         open={palette.open}

@@ -2,6 +2,7 @@ import type { Profile, Surface } from '@/lib/types'
 
 import { Suspense, useState } from 'react'
 
+import { useShortcut } from '@/design'
 // cross-feature: detail pane reads dependency state to drive surface-card status lines
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
 import { openInFinder } from '@/lib/commands'
@@ -90,6 +91,23 @@ function SurfaceCardsLoaded({ profile, onError }: SurfaceCardsLoadedProps) {
       onError(caught instanceof Error ? caught.message : String(caught))
     }
   }
+
+  // Reveal-in-Finder shortcuts live here because they need `paths`. The
+  // mount/unmount of effects via React 19's <Activity> means these
+  // bindings drop automatically when the detail pane hides (e.g. user
+  // switches to Settings) — no manual scope gate needed for that case.
+  useShortcut('reveal-gui-data', () => safeRun(() => openInFinder(paths.guiDataDir)), {
+    enabled: profile.surfaces.gui,
+  })
+  useShortcut('reveal-gui-launcher', () => safeRun(() => openInFinder(paths.guiLauncherPath)), {
+    enabled: profile.surfaces.gui,
+  })
+  useShortcut('reveal-cli-config', () => safeRun(() => openInFinder(paths.cliConfigDir)), {
+    enabled: profile.surfaces.cli,
+  })
+  useShortcut('reveal-cli-wrapper', () => safeRun(() => openInFinder(paths.cliWrapperPath)), {
+    enabled: profile.surfaces.cli,
+  })
 
   const cliStatusDetail = dependencies.deps.localBinOnPath
     ? `Wrapper installed · ${basename(paths.cliWrapperPath)} on PATH`

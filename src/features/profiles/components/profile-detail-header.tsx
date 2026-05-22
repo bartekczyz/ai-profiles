@@ -29,7 +29,7 @@ export function ProfileDetailHeader({ profile, onEdit, onMore }: Props) {
         </p>
       </div>
       <div className="flex items-center gap-1 pt-1">
-        <Button variant="ghost" size="sm" trailingKbd={<Kbd>⌘E</Kbd>} onClick={onEdit}>
+        <Button variant="ghost" size="sm" trailingKbd={<Kbd shortcutId="edit-selected" />} onClick={onEdit}>
           Edit
         </Button>
         <button
