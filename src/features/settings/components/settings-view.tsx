@@ -12,6 +12,8 @@ import { MigrationBackupsList } from '@/features/migration/components/migration-
 import { useAppState } from '@/lib/app-state/use-app-state'
 import { detectExistingClaudeInstall, detectShell, installPathHook } from '@/lib/commands'
 
+import { AppearanceSection } from './appearance-section'
+
 type Props = {
   onClose: () => void
   onOpenMigration: () => void
@@ -88,6 +90,8 @@ export function SettingsView({ onClose, onOpenMigration }: Props) {
           Done
         </Button>
       </header>
+
+      <AppearanceSection />
 
       <section className="mb-6">
         <h3 className="mb-2 text-sm font-semibold">App</h3>

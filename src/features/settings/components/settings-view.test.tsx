@@ -1,11 +1,18 @@
+import type { ReactElement } from 'react'
+
 import { invoke } from '@tauri-apps/api/core'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { ThemeProvider } from '@/design'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import { SettingsView } from './settings-view'
+
+function renderSettings(ui: ReactElement) {
+  return renderWithQuery(<ThemeProvider defaultMode="system">{ui}</ThemeProvider>)
+}
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/api/app', () => ({ getVersion: vi.fn().mockResolvedValue('0.1.0') }))
@@ -63,13 +70,13 @@ function primeInitialLoads({
 describe('SettingsView', () => {
   it('renders the app version from getVersion()', async () => {
     primeInitialLoads()
-    renderWithQuery(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} />)
+    renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} />)
     expect(await screen.findByText(/claude-profiles 0\.1\.0/)).toBeInTheDocument()
   })
 
   it('shows green checks for all-installed dependencies', async () => {
     primeInitialLoads()
-    renderWithQuery(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} />)
+    renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} />)
     await waitFor(() => expect(screen.getByText(/Claude Desktop:/)).toBeInTheDocument())
     expect(screen.getByText(/Claude Desktop: ✓ installed/)).toBeInTheDocument()
     expect(screen.getByText(/Claude Code CLI: ✓ installed/)).toBeInTheDocument()
@@ -77,14 +84,14 @@ describe('SettingsView', () => {
 
   it('shows the empty-state for migration backups when there are none', async () => {
     primeInitialLoads({ backups: [] })
-    renderWithQuery(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} />)
+    renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} />)
     expect(await screen.findByText(/No migration backups/)).toBeInTheDocument()
   })
 
   it('opens migration dialog and clears prior dismissal when detect-and-import finds installs', async () => {
     primeInitialLoads()
     const onOpenMigration = vi.fn()
-    renderWithQuery(<SettingsView onClose={vi.fn()} onOpenMigration={onOpenMigration} />)
+    renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={onOpenMigration} />)
     await waitFor(() => expect(screen.getByText(/Claude Desktop:/)).toBeInTheDocument())
 
     // After initial loads, swap to one-shot mocks for the action flow.
@@ -110,7 +117,7 @@ describe('SettingsView', () => {
   it('shows the "no existing installs" message when detect returns empty', async () => {
     primeInitialLoads()
     const onOpenMigration = vi.fn()
-    renderWithQuery(<SettingsView onClose={vi.fn()} onOpenMigration={onOpenMigration} />)
+    renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={onOpenMigration} />)
     await waitFor(() => expect(screen.getByText(/Claude Desktop:/)).toBeInTheDocument())
 
     mockInvoke.mockReset()
@@ -128,7 +135,7 @@ describe('SettingsView', () => {
 
   it('reset button calls update_app_state with welcomeShown:false + clear flags', async () => {
     primeInitialLoads()
-    renderWithQuery(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} />)
+    renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} />)
     await waitFor(() => expect(screen.getByText(/Claude Desktop:/)).toBeInTheDocument())
 
     mockInvoke.mockReset()
@@ -149,5 +156,24 @@ describe('SettingsView', () => {
       },
     })
     expect(await screen.findByText(/Onboarding flags reset/)).toBeInTheDocument()
+  })
+
+  it('appearance segmented control persists the theme via update_app_state', async () => {
+    primeInitialLoads()
+    renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText(/Claude Desktop:/)).toBeInTheDocument())
+
+    mockInvoke.mockReset()
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'update_app_state') {
+        return { ...DEFAULT_STATE, themeMode: 'dark' }
+      }
+      throw new Error(`unexpected command in test: ${command}`)
+    })
+
+    await userEvent.setup().click(screen.getByRole('radio', { name: /Dark theme/ }))
+
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('update_app_state', { patch: { themeMode: 'dark' } }))
+    expect(screen.getByTestId('theme-helper')).toHaveTextContent('Currently: dark (explicit)')
   })
 })
