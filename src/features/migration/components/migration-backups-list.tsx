@@ -2,7 +2,7 @@ import type { MigrationBackupInfo } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@/design/ui/button'
 
 type Props = {
   backups: Array<MigrationBackupInfo>

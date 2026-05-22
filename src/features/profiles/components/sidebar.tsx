@@ -2,7 +2,7 @@ import type { Profile } from '@/lib/types'
 
 import { Cog } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@/design/ui/button'
 
 import { ProfileList } from './profile-list'
 

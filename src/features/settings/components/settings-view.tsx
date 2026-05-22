@@ -4,13 +4,13 @@ import { useEffect, useState } from 'react'
 
 import { getVersion } from '@tauri-apps/api/app'
 
-import { Button } from '@/components/ui/button'
-import { useAppState } from '@/hooks/use-app-state'
-import { useDependencies } from '@/hooks/use-dependencies'
-import { useMigrationBackups } from '@/hooks/use-migration-backups'
+import { Button } from '@/design/ui/button'
+// cross-feature: settings reaches into dependencies + migration features for status + backup listing
+import { useDependencies } from '@/features/dependencies/api/use-dependencies'
+import { useMigrationBackups } from '@/features/migration/api/use-migration-backups'
+import { MigrationBackupsList } from '@/features/migration/components/migration-backups-list'
+import { useAppState } from '@/lib/app-state/use-app-state'
 import { detectExistingClaudeInstall, detectShell, installPathHook } from '@/lib/commands'
-
-import { MigrationBackupsList } from './migration-backups-list'
 
 type Props = {
   onClose: () => void

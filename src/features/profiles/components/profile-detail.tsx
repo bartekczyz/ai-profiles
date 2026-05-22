@@ -2,7 +2,7 @@ import type { Profile, ProfilePaths, Surface } from '@/lib/types'
 
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@/design/ui/button'
 import { copyToClipboard, profilePaths as fetchProfilePaths, openInFinder, openProfileInApp } from '@/lib/commands'
 
 import { DeepLinkInfo } from './deep-link-info'

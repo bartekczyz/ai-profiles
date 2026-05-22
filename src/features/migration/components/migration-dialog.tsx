@@ -2,20 +2,13 @@ import type { ExistingInstallInfo, ImportExistingInput, Profile } from '@/lib/ty
 
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Button } from '@/design/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/design/ui/dialog'
+import { Input } from '@/design/ui/input'
+import { Label } from '@/design/ui/label'
+// cross-feature: migration dialog reuses the profile color picker for the imported profile
+import { ColorSwatchPicker } from '@/features/profiles/components/color-swatch-picker'
 import { isValidHexColor, presetColors } from '@/lib/colors'
-
-import { ColorSwatchPicker } from './color-swatch-picker'
 
 type Props = {
   open: boolean

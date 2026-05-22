@@ -2,7 +2,7 @@ import type { Shell } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@/design/ui/button'
 import { detectShell, installPathHook } from '@/lib/commands'
 
 type Props = {

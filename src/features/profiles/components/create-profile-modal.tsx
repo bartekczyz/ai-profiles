@@ -2,17 +2,10 @@ import type { Dependencies, Surfaces } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Button } from '@/design/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/design/ui/dialog'
+import { Input } from '@/design/ui/input'
+import { Label } from '@/design/ui/label'
 import { isValidHexColor, presetColors } from '@/lib/colors'
 
 import { ColorSwatchPicker } from './color-swatch-picker'

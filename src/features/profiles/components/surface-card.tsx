@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@/design/ui/button'
 
 type Props = {
   title: string
