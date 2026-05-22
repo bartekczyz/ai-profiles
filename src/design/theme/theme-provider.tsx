@@ -42,6 +42,24 @@ function getServerSnapshot(): ResolvedTheme {
   return 'light'
 }
 
+const STORAGE_KEY = 'claude-profiles:theme'
+
+// Mirror the user's mode to localStorage so the inline script in index.html
+// can read it synchronously on next launch — that's what eliminates the
+// brief flash of the default theme before React mounts. This is the
+// next-themes pattern: a tiny synchronous bootstrap + a single React effect
+// for ongoing changes.
+function writeStoredMode(mode: ThemeMode) {
+  if (typeof window === 'undefined') {
+    return
+  }
+  try {
+    window.localStorage.setItem(STORAGE_KEY, mode)
+  } catch {
+    // private mode / quota — nothing to do; first paint next launch will fall back to system
+  }
+}
+
 /**
  * Controls the active theme.
  *
@@ -73,6 +91,7 @@ export function ThemeProvider({ children, mode, defaultMode = 'system', onModeCh
     if (!isControlled) {
       setInternalMode(next)
     }
+    writeStoredMode(next)
     if (onModeChange) {
       onModeChange(next)
     }

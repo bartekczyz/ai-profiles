@@ -9,6 +9,21 @@
 
   <body>
     <div id="root"></div>
+    <!-- Initial theme paint — runs synchronously before React mounts so the cream/ink palette
+         is correct on first paint. ThemeProvider mirrors mode→localStorage on every change. -->
+    <script>
+      (() => {
+        try {
+          const stored = localStorage.getItem('claude-profiles:theme') || 'system'
+          const resolved = stored === 'system'
+            ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+            : stored
+          document.documentElement.setAttribute('data-theme', resolved)
+        } catch {
+          /* private mode, no localStorage — leave attribute unset, CSS falls back to light */
+        }
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
