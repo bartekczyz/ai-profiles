@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react'
 
 export type ThemeMode = 'light' | 'system' | 'dark'
 export type ResolvedTheme = 'light' | 'dark'
@@ -20,33 +20,36 @@ type ThemeProviderProps = {
   onModeChange?: (mode: ThemeMode) => void
 }
 
-function resolveSystem(): ResolvedTheme {
+// prefers-color-scheme is an external store; useSyncExternalStore is the
+// supported way to subscribe to it (no effect-managed state, no tear).
+function subscribePrefersColorScheme(callback: () => void): () => void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return () => {}
+  }
+  const media = window.matchMedia('(prefers-color-scheme: dark)')
+  media.addEventListener('change', callback)
+  return () => media.removeEventListener('change', callback)
+}
+
+function readPrefersColorScheme(): ResolvedTheme {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
     return 'light'
   }
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
-function resolveMode(mode: ThemeMode): ResolvedTheme {
-  if (mode === 'system') {
-    return resolveSystem()
-  }
-  return mode
-}
-
-function applyResolved(resolved: ResolvedTheme) {
-  if (typeof document === 'undefined') {
-    return
-  }
-  document.documentElement.setAttribute('data-theme', resolved)
+function getServerSnapshot(): ResolvedTheme {
+  return 'light'
 }
 
 /**
  * Controls the active theme.
  *
  * - `mode` is the user's choice: 'light' | 'system' | 'dark'.
- * - When mode is 'system', the provider mirrors `prefers-color-scheme` to
- *   `[data-theme]`, so downstream CSS only needs to read that attribute.
+ * - When mode is 'system', the resolved theme tracks `prefers-color-scheme`
+ *   via useSyncExternalStore — no effect plumbing, no first-render tear.
+ * - The provider writes `[data-theme]` on the html element so downstream
+ *   CSS only needs to read that attribute.
  * - Pass `mode` to control externally (e.g., from app-state). When `mode`
  *   is omitted the provider keeps its own internal state, seeded by
  *   `defaultMode` (defaults to 'system').
@@ -55,32 +58,16 @@ export function ThemeProvider({ children, mode, defaultMode = 'system', onModeCh
   const isControlled = mode !== undefined
   const [internalMode, setInternalMode] = useState<ThemeMode>(defaultMode)
   const activeMode = isControlled ? mode : internalMode
-  const [resolved, setResolved] = useState<ResolvedTheme>(() => resolveMode(activeMode))
+
+  const systemResolved = useSyncExternalStore(subscribePrefersColorScheme, readPrefersColorScheme, getServerSnapshot)
+  const resolved: ResolvedTheme = activeMode === 'system' ? systemResolved : activeMode
 
   useEffect(() => {
-    setResolved(resolveMode(activeMode))
-  }, [activeMode])
-
-  useEffect(() => {
-    applyResolved(resolved)
+    if (typeof document === 'undefined') {
+      return
+    }
+    document.documentElement.setAttribute('data-theme', resolved)
   }, [resolved])
-
-  useEffect(() => {
-    if (activeMode !== 'system') {
-      return
-    }
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-      return
-    }
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    function handleChange() {
-      setResolved(media.matches ? 'dark' : 'light')
-    }
-    media.addEventListener('change', handleChange)
-    return () => {
-      media.removeEventListener('change', handleChange)
-    }
-  }, [activeMode])
 
   function setMode(next: ThemeMode) {
     if (!isControlled) {

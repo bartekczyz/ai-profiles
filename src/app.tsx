@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from 'react'
+import { Activity, Suspense, useEffect, useState } from 'react'
 
 import { useTheme } from '@/design'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
@@ -147,7 +147,26 @@ function AppContent() {
           onCreate={() => setModal({ kind: 'create' })}
           onSettings={() => setRightPane({ kind: 'settings' })}
         />
-        {rightPane.kind === 'settings' ? (
+        {/* Activity keeps the off-screen pane mounted so toggling gear ↔ profile
+            never re-fetches dependencies/backups or re-runs profile-detail effects.
+            Empty state stays conditionally rendered — it has no data load to preserve. */}
+        <Activity mode={rightPane.kind === 'profile' && selected !== null ? 'visible' : 'hidden'}>
+          {selected ? (
+            <Suspense fallback={<ProfileDetailSkeleton />}>
+              <QueryErrorBoundary>
+                <ProfileDetail
+                  profile={selected}
+                  onEdit={() => setModal({ kind: 'edit' })}
+                  onDelete={() => setModal({ kind: 'delete' })}
+                  onToggle={async (surface, enabled) => {
+                    await profiles.toggle({ id: selected.id, surface, enabled })
+                  }}
+                />
+              </QueryErrorBoundary>
+            </Suspense>
+          ) : null}
+        </Activity>
+        <Activity mode={rightPane.kind === 'settings' ? 'visible' : 'hidden'}>
           <Suspense fallback={<SettingsViewSkeleton />}>
             <QueryErrorBoundary>
               <SettingsView
@@ -160,22 +179,10 @@ function AppContent() {
               />
             </QueryErrorBoundary>
           </Suspense>
-        ) : selected ? (
-          <Suspense fallback={<ProfileDetailSkeleton />}>
-            <QueryErrorBoundary>
-              <ProfileDetail
-                profile={selected}
-                onEdit={() => setModal({ kind: 'edit' })}
-                onDelete={() => setModal({ kind: 'delete' })}
-                onToggle={async (surface, enabled) => {
-                  await profiles.toggle({ id: selected.id, surface, enabled })
-                }}
-              />
-            </QueryErrorBoundary>
-          </Suspense>
-        ) : (
+        </Activity>
+        {rightPane.kind === 'profile' && selected === null ? (
           <EmptyState onCreate={() => setModal({ kind: 'create' })} />
-        )}
+        ) : null}
       </div>
 
       <CreateProfileModal
