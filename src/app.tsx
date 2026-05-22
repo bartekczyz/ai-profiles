@@ -1,11 +1,14 @@
 import { Activity, Suspense, useEffect, useState } from 'react'
 
 import { useTheme } from '@/design'
+import { CommandPalette } from '@/features/command-palette/components/command-palette'
+import { useCommandPalette } from '@/features/command-palette/use-command-palette'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
 import { useMigration } from '@/features/migration/api/use-migration'
 import { MigrationDialog } from '@/features/migration/components/migration-dialog'
 import { PathSetupBanner } from '@/features/onboarding/components/path-setup-banner'
 import { WelcomeDialog } from '@/features/onboarding/components/welcome-dialog'
+import { useProfileUsage } from '@/features/profiles/api/use-profile-usage'
 import { useProfiles } from '@/features/profiles/api/use-profiles'
 import { CreateProfileDialog } from '@/features/profiles/components/create-profile-dialog'
 import { DeleteProfileDialog } from '@/features/profiles/components/delete-profile-dialog'
@@ -48,6 +51,8 @@ function AppContent() {
   const migration = useMigration()
   const appState = useAppState()
   const dependencies = useDependencies()
+  const usage = useProfileUsage()
+  const palette = useCommandPalette()
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' })
   const [submitting, setSubmitting] = useState(false)
   const [rightPane, setRightPane] = useState<RightPane>({ kind: 'profile' })
@@ -248,6 +253,31 @@ function AppContent() {
           }}
         />
       ) : null}
+
+      <CommandPalette
+        open={palette.open}
+        profiles={profiles.profiles}
+        selectedId={profiles.selectedId}
+        dependencies={dependencies.deps}
+        onClose={palette.close}
+        onToggle={palette.toggle}
+        onSwitch={(id) => {
+          profiles.select(id)
+          setRightPane({ kind: 'profile' })
+        }}
+        onLaunch={(id) => {
+          void usage.launchDesktop(id)
+        }}
+        onCopy={(profile) => {
+          void usage.copyCli({ profileId: profile.id, command: `claude-${profile.slug}` })
+        }}
+        onCreate={() => setDialog({ kind: 'create' })}
+        onSettings={() => setRightPane({ kind: 'settings' })}
+        onImport={async () => {
+          await migration.refresh()
+          setForceMigrationOpen(true)
+        }}
+      />
     </div>
   )
 }
