@@ -27,6 +27,7 @@ import { Sidebar } from '@/features/profiles/components/sidebar'
 import { SidebarSkeleton } from '@/features/profiles/components/sidebar-skeleton'
 import { SettingsView } from '@/features/settings/components/settings-view'
 import { SettingsViewSkeleton } from '@/features/settings/components/settings-view-skeleton'
+import { UpdateToastTrigger } from '@/features/updater/components/update-toast-trigger'
 import { useAppState } from '@/lib/app-state/use-app-state'
 import { QueryErrorBoundary } from '@/lib/query/error-boundary'
 
@@ -331,6 +332,7 @@ function AppContent() {
             pane's `pt-10`/`py-9` top padding, so no interactive content
             is obscured. */}
       <div ref={dragStripRef} aria-hidden className="absolute inset-x-0 top-0 z-10 h-7" />
+      <UpdateToastTrigger />
       {shouldShowPathBanner ? (
         <PathSetupBanner
           onFixed={async () => {
