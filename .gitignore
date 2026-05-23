@@ -9,3 +9,11 @@ vite.config.js
 plans/
 prompt.md
 prototypes/
+.agents/
+
+# Signing keys — never commit. The matching public key lives inside
+# src-tauri/tauri.conf.json under plugins.updater.pubkey, so we only
+# need to keep the private key from leaking. The .key.pub allowance is
+# defensive in case someone drops the public key into the repo.
+*.key
+!**/*.key.pub
