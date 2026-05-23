@@ -23,10 +23,10 @@ brew install --cask claude-profiles
 git clone https://github.com/bartekczyz/claude-profiles.git
 cd claude-profiles
 pnpm install
-pnpm tauri build
+pnpm --filter claude-profiles tauri build
 ```
 
-The `.dmg` lands in `src-tauri/target/release/bundle/dmg/`. macOS will warn on first launch because the local build isn't notarized — right-click the `.app` → Open → Open to bypass Gatekeeper.
+The `.dmg` lands in `apps/claude-profiles/src-tauri/target/release/bundle/dmg/`. macOS will warn on first launch because the local build isn't notarized — right-click the `.app` → Open → Open to bypass Gatekeeper.
 
 ## How it works
 
