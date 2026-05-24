@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.1](https://github.com/bartekczyz/claude-profiles/compare/v0.1.0...v0.1.1) (2026-05-24)
+
+
+* release 0.1.1 ([8dfbb73](https://github.com/bartekczyz/claude-profiles/commit/8dfbb73423d39595a644d6a4deaf4a9c68cb7287))
+
 ## 0.1.0 (2026-05-24)
 
 
