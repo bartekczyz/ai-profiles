@@ -17,13 +17,6 @@ The marketing landing page lives in [`apps/landing/`](apps/landing/README.md) (A
 
 Download the latest `.dmg` from [Releases](https://github.com/bartekczyz/claude-profiles/releases/latest). Open it, drag `claude-profiles.app` to `/Applications`. Launch.
 
-### Homebrew
-
-```sh
-# placeholder — Homebrew cask coming after v0.1.0 ships
-brew install --cask claude-profiles
-```
-
 ### Build from source
 
 ```sh

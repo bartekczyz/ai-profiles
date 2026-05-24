@@ -11,12 +11,6 @@ interface Row {
 const rows: ReadonlyArray<Row> = [
   { id: 'install-download', label: 'Direct download', cmd: defaultDmgFilename, kind: 'download' },
   {
-    id: 'install-homebrew',
-    label: 'Homebrew (coming soon)',
-    cmd: 'brew install --cask claude-profiles',
-    kind: 'command',
-  },
-  {
     id: 'install-source',
     label: 'Build from source',
     cmd: 'git clone https://github.com/bartekczyz/claude-profiles',
