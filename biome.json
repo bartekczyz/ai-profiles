@@ -15,6 +15,7 @@
       "!**/.astro",
       "!**/src-tauri/target",
       "!**/src-tauri/gen",
+      "!**/src-tauri/tauri.conf.json",
       "!prototypes",
       "!**/*.tsbuildinfo",
       "!**/*.css"
