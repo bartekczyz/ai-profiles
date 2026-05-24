@@ -21,3 +21,7 @@ pre-push:
     - name: cargo test
       glob: "apps/claude-profiles/src-tauri/**/*.{rs,toml}"
       run: PATH="$HOME/.cargo/bin:$PATH" cargo test --manifest-path apps/claude-profiles/src-tauri/Cargo.toml
+
+    - name: landing test
+      glob: "apps/landing/**/*.{ts,tsx}"
+      run: pnpm --filter landing test

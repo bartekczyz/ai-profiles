@@ -4,6 +4,10 @@
 
 ![screenshot placeholder](docs/screenshot.png)
 
+## Landing page
+
+The marketing landing page lives in [`apps/landing/`](apps/landing/README.md) (Astro + Tailwind, deployed to Vercel).
+
 ## Install
 
 ### Download
