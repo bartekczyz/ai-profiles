@@ -29,6 +29,22 @@ body {
 
 @import "./cookie-banner.css";
 
+/* Animate <details>/<summary> open/close. Modern browsers only;
+   older browsers fall back to instant toggle (acceptable). */
+@supports (interpolate-size: allow-keywords) {
+  :root {
+    interpolate-size: allow-keywords;
+  }
+  details::details-content {
+    block-size: 0;
+    overflow: clip;
+    transition: block-size 220ms var(--ease-natural, ease), content-visibility 220ms allow-discrete;
+  }
+  details[open]::details-content {
+    block-size: auto;
+  }
+}
+
 /* Theme toggle icon visibility */
 #theme-icon-sun { display: none; }
 :root[data-theme="dark"] #theme-icon-sun { display: block; }
