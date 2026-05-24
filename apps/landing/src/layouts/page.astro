@@ -1,0 +1,29 @@
+---
+import '../styles/global.css'
+import { themeScript } from '../lib/theme'
+
+interface Props {
+  title: string
+  description: string
+}
+
+const { title, description } = Astro.props
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1714" media="(prefers-color-scheme: dark)" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <script is:inline set:html={themeScript} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body class="min-h-screen flex flex-col">
+    <slot />
+  </body>
+</html>

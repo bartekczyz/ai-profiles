@@ -1,17 +1,16 @@
 ---
-import '../styles/global.css'
+import Footer from '../components/footer.astro'
+import TopBar from '../components/top-bar.astro'
+import PageLayout from '../layouts/page.astro'
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>claude-profiles</title>
-  </head>
-  <body>
-    <main class="flex min-h-screen items-center justify-center">
-      <p class="text-2xl font-semibold">claude-profiles</p>
-    </main>
-  </body>
-</html>
+<PageLayout
+  title="claude-profiles — run multiple Claude accounts on one Mac"
+  description="Free, open-source profile manager for the Claude desktop app and the Claude Code CLI. Switch Claude accounts on macOS without logging out."
+>
+  <TopBar />
+  <main class="flex-1 mx-auto max-w-[1080px] w-full px-14 py-24">
+    <p class="text-center text-muted text-sm">Page sections land in the next phases.</p>
+  </main>
+  <Footer />
+</PageLayout>

@@ -81,6 +81,19 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["**/*.astro"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedImports": "off",
+            "noUnusedVariables": "off"
+          }
+        }
+      }
+    }
+  ],
   "assist": {
     "enabled": true,
     "actions": {

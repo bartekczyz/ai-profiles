@@ -1,0 +1,22 @@
+---
+---
+<footer class="mt-auto w-full border-t border-border">
+  <div class="mx-auto flex max-w-[1080px] items-baseline justify-between px-14 py-8 text-xs text-muted">
+    <span>claude-profiles  ·  v1.0  ·  MIT</span>
+    <span class="flex gap-2">
+      <a href="https://github.com/bartekczyz/claude-profiles" class="underline decoration-border-strong underline-offset-4 hover:decoration-ink">GitHub</a>
+      <span>·</span>
+      <a href="https://github.com/bartekczyz/claude-profiles/issues" class="underline decoration-border-strong underline-offset-4 hover:decoration-ink">Issues</a>
+      <span>·</span>
+      <a href="https://github.com/bartekczyz/claude-profiles/releases" class="underline decoration-border-strong underline-offset-4 hover:decoration-ink">Releases</a>
+      <span>·</span>
+      <button type="button" id="open-cookie-banner" aria-haspopup="dialog" class="cursor-pointer underline decoration-border-strong underline-offset-4 hover:decoration-ink">Privacy &amp; cookies</button>
+    </span>
+  </div>
+</footer>
+
+<script is:inline>
+  document.getElementById('open-cookie-banner')?.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('cookie-banner:open'))
+  })
+</script>
