@@ -28,3 +28,8 @@ body {
 }
 
 @import "./cookie-banner.css";
+
+/* Theme toggle icon visibility */
+#theme-icon-sun { display: none; }
+:root[data-theme="dark"] #theme-icon-sun { display: block; }
+:root[data-theme="dark"] #theme-icon-moon { display: none; }
