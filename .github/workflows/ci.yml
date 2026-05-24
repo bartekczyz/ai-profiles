@@ -40,9 +40,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # No `version:` here on purpose — `packageManager` in root
+      # package.json is the source of truth and pnpm/action-setup@v4
+      # errors out if both are set.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v6
         with:
