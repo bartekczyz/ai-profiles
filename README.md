@@ -41,6 +41,50 @@ Already using Claude Desktop or Claude Code? On first launch the app offers to i
 
 Deleting a profile from its detail view removes the launcher and CLI wrapper; the profile's data either goes to the Trash or is deleted outright, your choice.
 
+## Onboarding
+
+**First launch.** A welcome dialog appears once; after that you land on the empty state with a single "+ New profile" CTA. There is no auto-prompt — the next step is on you.
+
+**Creating your first profile when you already have Claude installed.** Clicking "+ New profile" opens a fork dialog with two paths:
+
+- **Just add a new profile, keep existing Claude as-is** (default — press Enter). Leaves your existing install untouched. `claude` keeps working with your current account. The new profile is fully separate and accessed via `claude-<slug>`.
+- **Migrate existing Claude into a profile.** Adopts your existing `~/.claude` (and `~/Library/Application Support/Claude` if Claude Desktop is installed) as your first profile. See "What migrate does" below.
+
+### What migrate does
+
+Three steps, in order:
+
+1. **Copies** your existing data into the new profile dir under `~/Library/Application Support/claude-profiles/profiles/<id>/`.
+2. **Moves** the originals (`~/.claude` and/or `~/Library/Application Support/Claude`) into a timestamped backup dir under `~/Library/Application Support/claude-profiles/migration-backup-<timestamp>/`.
+3. **Generates** the per-profile launcher (`Claude (<Name>).app`) and CLI wrapper (`claude-<slug>` in `~/.local/bin`).
+
+### After migrating
+
+- Use `claude-<slug>` instead of `claude` to reach your old account. The wrapper sets `CLAUDE_CONFIG_DIR` to the profile dir.
+- The plain `claude` command still works, but with no `~/.claude` present it'll start a fresh install dir on next invocation. It's not broken — it just sees an empty config.
+- You'll be prompted to log in once. macOS Keychain service names are derived from `CLAUDE_CONFIG_DIR`, so credentials don't carry across.
+- Settings, history, MCP config, and project memory all come with the migration.
+
+### Reverting a migration
+
+Backups stay on disk for 7 days, then auto-delete. To roll back manually before then:
+
+```sh
+# 1. Delete the profile from claude-profiles (Trash or keep, your choice).
+# 2. Restore the originals from the backup dir:
+mv ~/Library/Application\ Support/claude-profiles/migration-backup-<timestamp>/.claude ~/.claude
+mv ~/Library/Application\ Support/claude-profiles/migration-backup-<timestamp>/Claude ~/Library/Application\ Support/Claude
+# 3. Open Claude. It'll see your old config again.
+```
+
+### Triggering migration later
+
+If you picked "just add a new profile" but later change your mind, open **Settings → Data → Re-import…** (or press ⌘I). The same migration flow runs.
+
+### Resetting onboarding
+
+**Settings → Reset onboarding flags** shows the welcome dialog (and the fork dialog) again on next launch. It does not touch profiles, backups, or your theme.
+
 ## FAQ
 
 **Why do I have to log in to Claude Code again after importing my existing install?**

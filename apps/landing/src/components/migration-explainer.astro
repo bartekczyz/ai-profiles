@@ -1,0 +1,39 @@
+---
+---
+<section
+  aria-labelledby="migration-heading"
+  class="mx-auto max-w-[680px] px-4 pt-12 pb-4 sm:px-14"
+>
+  <h2
+    id="migration-heading"
+    class="m-0 mb-[18px] text-[22px] font-semibold tracking-[-0.014em]"
+  >
+    Already using Claude?
+  </h2>
+  <p class="m-0 mb-4 text-[15.5px] leading-[1.65] text-ink-soft">
+    On first launch, claude-profiles asks how you want to start. You pick
+    between two paths:
+  </p>
+  <ul class="m-0 mb-4 space-y-3 pl-5 text-[15.5px] leading-[1.65] text-ink-soft">
+    <li class="list-disc">
+      <strong>Keep separate</strong> (default). Your existing Claude stays put. Your new
+      profile lives alongside it. Both work independently — the new one is reached via
+      <code class="rounded bg-cream-2 px-1.5 py-px font-mono text-[0.88em]">claude-&lt;slug&gt;</code>.
+    </li>
+    <li class="list-disc">
+      <strong>Migrate.</strong> Your existing
+      <code class="rounded bg-cream-2 px-1.5 py-px font-mono text-[0.88em]">~/.claude</code>
+      becomes your first profile. From then on, use
+      <code class="rounded bg-cream-2 px-1.5 py-px font-mono text-[0.88em]">claude-&lt;slug&gt;</code>
+      — plain <code class="rounded bg-cream-2 px-1.5 py-px font-mono text-[0.88em]">claude</code>
+      will start a fresh install dir. Originals move to a 7-day backup you can restore from.
+    </li>
+  </ul>
+  <p class="m-0 text-[15.5px] leading-[1.65] text-ink-soft">
+    Either way, claude-profiles never reads or copies your Keychain
+    credentials. You'll log in once per migrated profile — that's a Claude
+    Code constraint (Keychain service names derive from
+    <code class="rounded bg-cream-2 px-1.5 py-px font-mono text-[0.88em]">CLAUDE_CONFIG_DIR</code>),
+    not ours.
+  </p>
+</section>

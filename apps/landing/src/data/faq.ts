@@ -17,7 +17,12 @@ export const faqEntries: ReadonlyArray<FaqEntry> = [
   {
     question: 'What if I already have Claude installed?',
     answer:
-      'On first launch, claude-profiles offers to import your existing install as a named profile so you do not lose history. You can skip this and migrate later from Settings.',
+      'On first launch, claude-profiles asks: (a) keep your existing Claude separate and start a new profile alongside it (default — press Enter), or (b) migrate your existing install into your first profile. The default leaves your current setup untouched and adds a separate profile reached via claude-<slug>. If you choose migrate, the data is copied into the profile dir and the originals are moved to a 7-day backup. You can trigger migration later from Settings → Data → Re-import.',
+  },
+  {
+    question: "What does 'migrate' actually do to my data?",
+    answer:
+      'Three things, in order: (1) copies ~/.claude and ~/Library/Application Support/Claude into the new profile directory under ~/Library/Application Support/claude-profiles/profiles/<id>/; (2) moves the originals into a 7-day backup dir under migration-backup-<timestamp>/; (3) generates a claude-<slug> CLI wrapper and a Claude (<Name>).app launcher. To revert: copy the backup folder contents back to their original locations.',
   },
   {
     question: 'Is it affiliated with Anthropic?',
