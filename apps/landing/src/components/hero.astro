@@ -43,6 +43,10 @@ const repoUrl = 'https://github.com/bartekczyz/claude-profiles'
         if (installRow) {
           installRow.textContent = dmg.name
         }
+        const downloadLink = document.getElementById('install-download-link')
+        if (downloadLink) {
+          downloadLink.setAttribute('href', dmg.browser_download_url)
+        }
         const fineprint = document.getElementById('fineprint')
         if (fineprint) {
           const sizeMb = Math.round(dmg.size / (1024 * 1024))

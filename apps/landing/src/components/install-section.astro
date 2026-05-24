@@ -3,29 +3,41 @@ interface Row {
   id: string
   label: string
   cmd: string
+  kind: 'download' | 'command'
 }
 
 const rows: ReadonlyArray<Row> = [
-  { id: 'install-download', label: 'Direct download', cmd: 'claude-profiles-1.0.0.dmg' },
-  { id: 'install-homebrew', label: 'Homebrew (coming soon)', cmd: 'brew install --cask claude-profiles' },
-  { id: 'install-source', label: 'Build from source', cmd: 'git clone https://github.com/bartekczyz/claude-profiles' },
+  { id: 'install-download', label: 'Direct download', cmd: 'claude-profiles-0.1.0.dmg', kind: 'download' },
+  { id: 'install-homebrew', label: 'Homebrew (coming soon)', cmd: 'brew install --cask claude-profiles', kind: 'command' },
+  { id: 'install-source', label: 'Build from source', cmd: 'git clone https://github.com/bartekczyz/claude-profiles', kind: 'command' },
 ]
 ---
 <section id="download" aria-labelledby="install-heading" class="mx-auto max-w-[680px] px-4 pt-8 pb-4 sm:px-14">
   <h2 id="install-heading" class="m-0 mb-[18px] text-[22px] font-semibold tracking-[-0.014em]">Install</h2>
-  {rows.map(({ id, label, cmd }) => (
+  {rows.map(({ id, label, cmd, kind }) => (
     <div class="mb-4">
       <p class="mb-1.5 text-[13px] text-muted">{label}</p>
       <div class="flex items-center justify-between rounded-lg border border-border bg-cream-2 px-[14px] py-[11px] font-mono text-[12.5px] text-ink">
         <span data-install-cmd={id}>{cmd}</span>
-        <button
-          type="button"
-          data-copy-target={id}
-          aria-label={`Copy ${label} command`}
-          class="cursor-pointer text-[11px] text-muted hover:text-ink"
-        >
-          copy
-        </button>
+        {kind === 'download' ? (
+          <a
+            id="install-download-link"
+            href="https://github.com/bartekczyz/claude-profiles/releases/latest"
+            aria-label={`Download ${cmd}`}
+            class="cursor-pointer text-[11px] text-orange-deep hover:text-orange"
+          >
+            download
+          </a>
+        ) : (
+          <button
+            type="button"
+            data-copy-target={id}
+            aria-label={`Copy ${label} command`}
+            class="cursor-pointer text-[11px] text-muted hover:text-ink"
+          >
+            copy
+          </button>
+        )}
       </div>
     </div>
   ))}
