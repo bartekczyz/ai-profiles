@@ -2,7 +2,10 @@
 
 > Run multiple Anthropic Claude accounts on one Mac — the desktop app and the Claude Code CLI, side by side. Free and open-source.
 
-![screenshot placeholder](docs/screenshot.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="apps/landing/public/screenshot-dark.png">
+  <img alt="claude-profiles app" src="apps/landing/public/screenshot-light.png">
+</picture>
 
 ## Landing page
 

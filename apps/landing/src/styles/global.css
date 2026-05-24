@@ -49,3 +49,7 @@ body {
 #theme-icon-sun { display: none; }
 :root[data-theme="dark"] #theme-icon-sun { display: block; }
 :root[data-theme="dark"] #theme-icon-moon { display: none; }
+
+/* App screenshot — show light variant in light theme, dark in dark. */
+:root[data-theme="dark"] .screenshot-light { display: none; }
+:root:not([data-theme="dark"]) .screenshot-dark { display: none; }
