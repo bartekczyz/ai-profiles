@@ -1,22 +1,26 @@
 ---
+// Per-theme app screenshot. PNGs ship with transparent rounded corners,
+// so the wrapper just constrains width and the natural aspect handles the rest.
 ---
 <div class="mx-auto max-w-[920px] px-4 pt-12 pb-4 sm:px-14">
-  <img
-    src="/screenshot-light.png"
-    alt="claude-profiles app"
-    width="2292"
-    height="1788"
-    loading="lazy"
-    decoding="async"
-    class="screenshot-light block h-auto w-full"
-  />
-  <img
-    src="/screenshot-dark.png"
-    alt="claude-profiles app"
-    width="2292"
-    height="1788"
-    loading="lazy"
-    decoding="async"
-    class="screenshot-dark block h-auto w-full"
-  />
+  <div class="relative aspect-2398/1560 w-full">
+    <img
+      src="/screenshot-light.png"
+      alt="claude-profiles app"
+      width="2398"
+      height="1560"
+      loading="lazy"
+      decoding="async"
+      class="screenshot-light"
+    />
+    <img
+      src="/screenshot-dark.png"
+      alt="claude-profiles app"
+      width="2398"
+      height="1560"
+      loading="lazy"
+      decoding="async"
+      class="screenshot-dark"
+    />
+  </div>
 </div>
