@@ -11,6 +11,7 @@ prompt.md
 prototypes/
 .agents/
 .turbo/
+.superpowers/
 
 # Signing keys — never commit. The matching public key lives inside
 # src-tauri/tauri.conf.json under plugins.updater.pubkey, so we only
@@ -18,3 +19,4 @@ prototypes/
 # defensive in case someone drops the public key into the repo.
 *.key
 !**/*.key.pub
+

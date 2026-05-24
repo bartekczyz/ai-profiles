@@ -1,0 +1,13 @@
+{
+  "extends": ["@claude-profiles/tsconfig/base.json", "astro/tsconfigs/strict"],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "jsx": "preserve",
+    "moduleResolution": "bundler"
+  },
+  "include": ["src/**/*", "astro.config.mjs"],
+  "exclude": ["dist", ".astro"]
+}

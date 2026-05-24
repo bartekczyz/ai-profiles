@@ -1,0 +1,29 @@
+{
+  "name": "landing",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "typecheck": "astro check",
+    "lint": "biome check",
+    "format": "biome format --write",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@claude-profiles/design-tokens": "workspace:*",
+    "@fontsource-variable/geist": "5.2.9",
+    "@fontsource-variable/geist-mono": "5.2.8",
+    "astro": "6.3.7"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.9",
+    "@claude-profiles/tsconfig": "workspace:*",
+    "@tailwindcss/vite": "4.3.0",
+    "tailwindcss": "4.3.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
+  }
+}

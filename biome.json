@@ -12,6 +12,7 @@
       "!**/node_modules",
       "!**/dist",
       "!**/.turbo",
+      "!**/.astro",
       "!**/src-tauri/target",
       "!**/src-tauri/gen",
       "!prototypes",
