@@ -11,6 +11,7 @@ export const queryKeys = {
     detail: (id: string) => ['profiles', id] as const,
     paths: (id: string) => ['profiles', id, 'paths'] as const,
     activity: (id: string) => ['profiles', id, 'activity'] as const,
+    usage: (id: string) => ['profiles', id, 'usage'] as const,
   },
   dependencies: ['dependencies'] as const,
   migration: {
