@@ -13,6 +13,7 @@ mod profiles;
 mod slug;
 #[cfg(test)]
 mod test_support;
+mod usage;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Emitter;
