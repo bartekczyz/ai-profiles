@@ -43,6 +43,16 @@ const DEFAULT_EXISTING = {
   claudeCodeSizeBytes: null,
 }
 
+const DEFAULT_METADATA = {
+  name: 'claude-profiles',
+  version: '0.1.0',
+  description: 'Test description',
+  authors: ['Bartek Czyż <bartek@czyz.it>'],
+  repository: null,
+  homepage: null,
+  license: 'MIT',
+}
+
 beforeEach(() => {
   mockInvoke.mockReset()
 })
@@ -56,12 +66,14 @@ function primeInitialLoads({
   state = DEFAULT_STATE,
   shell = 'zsh',
   existing = DEFAULT_EXISTING,
+  metadata = DEFAULT_METADATA,
 }: {
   deps?: unknown
   backups?: Array<unknown>
   state?: unknown
   shell?: string
   existing?: unknown
+  metadata?: unknown
 } = {}) {
   mockInvoke.mockImplementation(async (command: string) => {
     if (command === 'check_dependencies') {
@@ -78,6 +90,9 @@ function primeInitialLoads({
     }
     if (command === 'detect_existing_claude_install') {
       return existing
+    }
+    if (command === 'get_app_metadata') {
+      return metadata
     }
     throw new Error(`unexpected command in test: ${command}`)
   })

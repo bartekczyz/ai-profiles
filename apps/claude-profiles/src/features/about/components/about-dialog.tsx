@@ -30,8 +30,7 @@ export function AboutDialog({ open, onClose }: Props) {
   return (
     <Dialog
       open={open}
-      title={metadata.name}
-      description={metadata.description}
+      title="About claude-profiles"
       onClose={onClose}
       foot={
         <Button variant="primary" size="sm" trailingKbd={<Kbd variant="onOrange">⎋</Kbd>} onClick={onClose}>

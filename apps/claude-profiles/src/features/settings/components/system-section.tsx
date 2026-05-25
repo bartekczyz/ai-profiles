@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { RotateCw } from 'lucide-react'
 
 import { Button, Skeleton, StatusDot } from '@/design'
+import { useAppMetadata } from '@/features/about/api/use-app-metadata'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
 import { type UpdaterStatus, useUpdater } from '@/features/updater/api/use-updater'
 import { detectShell, installPathHook } from '@/lib/commands'
@@ -20,6 +21,7 @@ type Row = {
   label: string
   tone: StatusTone
   detail: string
+  aux?: string
 }
 
 function describeUpdaterStatus(status: UpdaterStatus): { tone: StatusTone; detail: string } {
@@ -50,6 +52,7 @@ function buildRows(
   deps: { claudeAppInstalled: boolean; claudeCliInstalled: boolean; localBinOnPath: boolean },
   shell: Shell | null,
   updater: { tone: StatusTone; detail: string },
+  version: string,
 ): Array<Row> {
   return [
     {
@@ -71,6 +74,7 @@ function buildRows(
       label: 'Updates',
       tone: updater.tone,
       detail: updater.detail,
+      aux: `v${version}`,
     },
   ]
 }
@@ -93,6 +97,7 @@ function buildRows(
 export function SystemSection() {
   const dependencies = useDependencies()
   const updater = useUpdater()
+  const { version } = useAppMetadata()
   const [shell, setShell] = useState<Shell | null>(null)
   const [hookMessage, setHookMessage] = useState<string | null>(null)
   const [hookError, setHookError] = useState<string | null>(null)
@@ -149,7 +154,7 @@ export function SystemSection() {
   }
 
   const updaterDescription = describeUpdaterStatus(updater.status)
-  const rows = buildRows(dependencies.deps, shell, updaterDescription)
+  const rows = buildRows(dependencies.deps, shell, updaterDescription, version)
   const hookInstalled = dependencies.deps.localBinOnPath && shell !== null
   const updateCheckBusy = updater.status.kind === 'checking' || updater.status.kind === 'installing'
   const updateActionLabel = updater.status.kind === 'available' ? 'Restart and install' : 'Check now'
@@ -184,7 +189,10 @@ export function SystemSection() {
             className="grid grid-cols-[7px_1fr_auto] items-center gap-3 border-b border-border-soft px-4 py-3 text-[13px] tracking-[-0.003em] text-ink-soft last:border-b-0"
           >
             <StatusDot tone={row.tone} pulse />
-            <span>{row.label}</span>
+            <span>
+              {row.label}
+              {row.aux ? <span className="ml-2 font-mono text-[11.5px] text-muted">{row.aux}</span> : null}
+            </span>
             <span className="font-mono text-[11.5px] text-muted">{row.detail}</span>
           </div>
         ))}
