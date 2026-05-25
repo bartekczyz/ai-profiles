@@ -18,9 +18,10 @@ vi.mock('../api/use-profile-usage', () => ({
 function makeUsage(overrides: Partial<ProfileUsage> = {}): ProfileUsage {
   return {
     quota: {
-      fiveHour: { utilization: 0.63, resetsAt: null },
-      sevenDay: { utilization: 0.21, resetsAt: null },
-      sevenDaySonnet: { utilization: 0.08, resetsAt: null },
+      // Utilization is a 0..=100 percentage — matches Anthropic's response.
+      fiveHour: { utilization: 63, resetsAt: null },
+      sevenDay: { utilization: 21, resetsAt: null },
+      sevenDaySonnet: { utilization: 8, resetsAt: null },
     },
     quotaError: null,
     fetchedAt: '2099-01-01T00:00:00Z',
@@ -54,8 +55,8 @@ describe('ProfileDetailUsageCard', () => {
       data: makeUsage({
         quota: {
           fiveHour: { utilization: null, resetsAt: null },
-          sevenDay: { utilization: 0.21, resetsAt: null },
-          sevenDaySonnet: { utilization: 0.08, resetsAt: null },
+          sevenDay: { utilization: 21, resetsAt: null },
+          sevenDaySonnet: { utilization: 8, resetsAt: null },
         },
       }),
       isLoading: false,

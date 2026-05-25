@@ -103,9 +103,14 @@ fn parse_body(body: &[u8]) -> Result<QuotaUsage, QuotaError> {
     Ok(usage)
 }
 
+/// Anthropic returns `utilization` as a percentage on a 0..=100 scale
+/// (e.g. `42.0` means 42%). We accept any finite non-negative value
+/// without an upper clamp — values above 100 are unusual but legitimate
+/// (over-limit) and we'd rather show "105%" than drop the data. The
+/// UI is responsible for capping the visual bar fill at 100%.
 fn into_window(raw: ApiWindow) -> Window {
     let utilization = match raw.utilization {
-        Some(value) if value.is_finite() && (0.0..=1.0).contains(&value) => Some(value),
+        Some(value) if value.is_finite() && value >= 0.0 => Some(value),
         _ => None,
     };
     Window {
@@ -179,17 +184,19 @@ mod tests {
     #[tokio::test]
     async fn happy_path_parses_all_windows() {
         let dir = dir_with_token();
+        // Utilization is a percentage on the 0..=100 scale, matching
+        // Anthropic's actual response (verified against the live endpoint).
         let body = br#"{
-            "five_hour": {"utilization": 0.63, "resets_at": "2099-01-01T00:00:00Z"},
-            "seven_day": {"utilization": 0.21, "resets_at": null},
-            "seven_day_sonnet": {"utilization": 0.08, "resets_at": null}
+            "five_hour": {"utilization": 63.0, "resets_at": "2099-01-01T00:00:00Z"},
+            "seven_day": {"utilization": 21.0, "resets_at": null},
+            "seven_day_sonnet": {"utilization": 8.0, "resets_at": null}
         }"#;
         let client = StubClient {
             status: 200,
             body: body.to_vec(),
         };
         let usage = fetch_quota(dir.path(), &client).await.unwrap();
-        assert!((usage.five_hour.unwrap().utilization.unwrap() - 0.63).abs() < 1e-4);
+        assert!((usage.five_hour.unwrap().utilization.unwrap() - 63.0).abs() < 1e-4);
         assert_eq!(usage.seven_day.unwrap().resets_at, None);
     }
 
@@ -311,12 +318,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn out_of_range_or_nan_utilization_is_dropped() {
+    async fn negative_or_null_utilization_is_dropped() {
         let dir = dir_with_token();
+        // Only negative and explicit null values are dropped now —
+        // values above 100 are allowed since Anthropic can return
+        // over-limit percentages (e.g. 105% when overused).
         let body = br#"{
-            "five_hour": {"utilization": 1.7},
-            "seven_day": {"utilization": -0.2},
-            "seven_day_sonnet": {"utilization": null}
+            "five_hour": {"utilization": -0.5},
+            "seven_day": {"utilization": null},
+            "seven_day_sonnet": {"utilization": -10.0}
         }"#;
         let client = StubClient {
             status: 200,
@@ -326,6 +336,18 @@ mod tests {
         assert!(usage.five_hour.unwrap().utilization.is_none());
         assert!(usage.seven_day.unwrap().utilization.is_none());
         assert!(usage.seven_day_sonnet.unwrap().utilization.is_none());
+    }
+
+    #[tokio::test]
+    async fn over_one_hundred_utilization_is_preserved() {
+        let dir = dir_with_token();
+        let body = br#"{"five_hour":{"utilization":105.0,"resets_at":null}}"#;
+        let client = StubClient {
+            status: 200,
+            body: body.to_vec(),
+        };
+        let usage = fetch_quota(dir.path(), &client).await.unwrap();
+        assert_eq!(usage.five_hour.unwrap().utilization, Some(105.0));
     }
 
     #[tokio::test]

@@ -41,4 +41,22 @@ describe('narrowProfileUsage', () => {
     })
     expect(result.quotaError).toBe('unknown')
   })
+
+  it('preserves utilization values above 100 (over-limit users)', () => {
+    const result = narrowProfileUsage({
+      quota: { fiveHour: { utilization: 105, resetsAt: null }, sevenDay: null, sevenDaySonnet: null },
+      quotaError: null,
+      fetchedAt: 'x',
+    })
+    expect(result.quota?.fiveHour?.utilization).toBe(105)
+  })
+
+  it('drops negative utilization to null', () => {
+    const result = narrowProfileUsage({
+      quota: { fiveHour: { utilization: -1, resetsAt: null }, sevenDay: null, sevenDaySonnet: null },
+      quotaError: null,
+      fetchedAt: 'x',
+    })
+    expect(result.quota?.fiveHour?.utilization).toBeNull()
+  })
 })

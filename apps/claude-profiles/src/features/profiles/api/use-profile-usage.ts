@@ -64,8 +64,11 @@ function narrowWindow(input: unknown): UsageWindow | null {
   if (!isRecord(input)) {
     return null
   }
+  // Utilization is a percentage on the 0..=100 scale. We don't clamp
+  // the upper bound — over-limit values (e.g. 105%) are legitimate and
+  // the renderer caps the visual bar separately.
   const raw = input.utilization
-  const utilization = typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : null
+  const utilization = typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : null
   const resetsAt = typeof input.resetsAt === 'string' ? input.resetsAt : null
   return { utilization, resetsAt }
 }

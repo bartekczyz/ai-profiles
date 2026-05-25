@@ -134,8 +134,12 @@ function Meter({
   shortLabel: string
   meterWindow: UsageWindow | null
 }) {
+  // utilization comes from the API on a 0..=100 percentage scale and
+  // may exceed 100 when the user is over-limit. We show the literal
+  // value in the label but cap the visual bar fill at 100%.
   const utilization = meterWindow?.utilization ?? null
-  const percent = utilization === null ? null : Math.round(utilization * 100)
+  const percent = utilization === null ? null : Math.round(utilization)
+  const fillPercent = percent === null ? 0 : Math.min(100, Math.max(0, percent))
   const tone = percent === null ? 'muted' : percent < 50 ? 'ok' : percent < 80 ? 'warn' : 'crit'
   const barClass =
     tone === 'ok' ? 'bg-green' : tone === 'warn' ? 'bg-amber' : tone === 'crit' ? 'bg-red' : 'bg-muted-strong'
@@ -155,7 +159,7 @@ function Meter({
         aria-label={label}
         className="h-2 overflow-hidden rounded bg-cream-2"
       >
-        <div className={`h-full ${barClass}`} style={{ width: percent === null ? 0 : `${percent}%` }} />
+        <div className={`h-full ${barClass}`} style={{ width: `${fillPercent}%` }} />
       </div>
       <span className="text-right font-mono text-mono tabular-nums text-muted-strong">
         {percent === null ? '—' : `${percent}%`}
