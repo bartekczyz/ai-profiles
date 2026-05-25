@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2](https://github.com/bartekczyz/claude-profiles/compare/v0.2.1...v0.2.2) (2026-05-25)
+
+
+### Fixed
+
+* **updater:** relaunch the app after downloadAndInstall ([689b6c1](https://github.com/bartekczyz/claude-profiles/commit/689b6c18e74b03999e63a201632f3012632a798b))
+* **updater:** relaunch the app after downloadAndInstall ([7bfd98f](https://github.com/bartekczyz/claude-profiles/commit/7bfd98fbd5a3faf0cde4d3c170a3864db66e2c4d))
+
 ## [0.2.1](https://github.com/bartekczyz/claude-profiles/compare/v0.2.0...v0.2.1) (2026-05-25)
 
 
