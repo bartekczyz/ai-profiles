@@ -15,6 +15,7 @@ export const queryKeys = {
   dependencies: ['dependencies'] as const,
   migration: {
     existing: ['migration', 'existing'] as const,
+    sizes: ['migration', 'sizes'] as const,
     backups: ['migration', 'backups'] as const,
   },
   appState: ['app-state'] as const,

@@ -96,6 +96,7 @@ pub fn run() {
             commands::open_in_finder,
             commands::profile_paths,
             commands::detect_existing_claude_install,
+            commands::detect_existing_claude_sizes,
             commands::import_existing_install,
             commands::list_migration_backups,
             commands::delete_migration_backup,

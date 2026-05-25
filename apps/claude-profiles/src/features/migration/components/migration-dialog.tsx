@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 
 import { Button, Dialog, Kbd, StatusDot } from '@/design'
+import { useMigrationSizes } from '@/features/migration/api/use-migration'
 // cross-feature: migration dialog reuses the profile color picker for the imported profile
 import { ColorSwatchPicker } from '@/features/profiles/components/color-swatch-picker'
 import { slugifyPreview } from '@/features/profiles/components/profile-form-fields'
@@ -27,6 +28,10 @@ function shorten(absolutePath: string): string {
 }
 
 export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
+  // Size walks happen off the boot critical path — this hook only fires
+  // while the dialog is open, so the size column populates a beat after
+  // the dialog appears rather than blocking app startup.
+  const sizes = useMigrationSizes(open)
   const [name, setName] = useState('Default')
   const [color, setColor] = useState<string>(presetColors[0])
   const [includeGui, setIncludeGui] = useState(existing.claudeDesktopPath !== null)
@@ -86,14 +91,14 @@ export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
                 <DetectedRow
                   label="Claude Desktop"
                   path={existing.claudeDesktopPath}
-                  sizeBytes={existing.claudeDesktopSizeBytes}
+                  sizeBytes={sizes.claudeDesktopSizeBytes}
                 />
               ) : null}
               {existing.claudeCodePath ? (
                 <DetectedRow
                   label="Claude Code CLI"
                   path={existing.claudeCodePath}
-                  sizeBytes={existing.claudeCodeSizeBytes}
+                  sizeBytes={sizes.claudeCodeSizeBytes}
                 />
               ) : null}
             </ul>

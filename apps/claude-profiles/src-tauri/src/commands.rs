@@ -4,7 +4,9 @@ use crate::activity::{self, Activity, ActivityKind};
 use crate::app_state::{self, AppState, AppStatePatch};
 use crate::deps::{self, Dependencies};
 use crate::error::{AppError, AppResult};
-use crate::migration::{self, ExistingInstall, ImportParams, MigrationBackupInfo};
+use crate::migration::{
+    self, ExistingInstall, ExistingInstallSizes, ImportParams, MigrationBackupInfo,
+};
 use crate::path_setup::{self, PathHookOutcome, Shell};
 use crate::paths::{
     activity_log_path, claude_code_install_path, claude_desktop_install_path, gui_launcher_path,
@@ -206,6 +208,18 @@ pub fn detect_existing_claude_install() -> AppResult<ExistingInstall> {
     let desktop = claude_desktop_install_path()?;
     let code = claude_code_install_path()?;
     Ok(migration::detect(&desktop, &code))
+}
+
+/// Lazy companion to `detect_existing_claude_install`. The boot-time
+/// detection skips the recursive directory walks because they can take
+/// 0.5–1s on a large `~/.claude`; the MigrationDialog calls this when
+/// it opens so the size column populates a beat later instead of
+/// blocking the whole app shell.
+#[tauri::command]
+pub fn detect_existing_claude_sizes() -> AppResult<ExistingInstallSizes> {
+    let desktop = claude_desktop_install_path()?;
+    let code = claude_code_install_path()?;
+    Ok(migration::detect_sizes(&desktop, &code))
 }
 
 #[derive(serde::Deserialize)]
