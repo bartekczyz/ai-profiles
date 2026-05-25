@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
@@ -19,12 +20,38 @@ pub struct Dependencies {
 
 pub fn check_dependencies() -> AppResult<Dependencies> {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-    let shell_path = get_shell_path().unwrap_or_default();
+    let shell_path = cached_shell_path(&home);
     Ok(Dependencies {
         claude_app_installed: claude_app_exists(),
         claude_cli_installed: find_claude_in_path(&shell_path, &home),
         local_bin_on_path: is_local_bin_in_path(&shell_path, &home),
     })
+}
+
+/// Process-lifetime cache for the resolved shell `PATH`. Spawning the
+/// interactive login shell to read `$PATH` costs 0.5–2 seconds on most
+/// macOS setups (NVM, brew, etc. all source on `-l`), so we only do it
+/// once per app launch.
+static SHELL_PATH_CACHE: OnceLock<String> = OnceLock::new();
+
+fn cached_shell_path(home: &Path) -> String {
+    SHELL_PATH_CACHE
+        .get_or_init(|| resolve_shell_path(home))
+        .clone()
+}
+
+/// Resolve the shell `PATH`. Fast path: if the process-inherited `PATH`
+/// already contains `~/.local/bin`, use that — Tauri tends to inherit a
+/// useful PATH on macOS unless the user launched the app from Finder
+/// before configuring their shell. Slow path: spawn the interactive
+/// login shell.
+fn resolve_shell_path(home: &Path) -> String {
+    if let Ok(process_path) = std::env::var("PATH") {
+        if is_local_bin_in_path(&process_path, home) {
+            return process_path;
+        }
+    }
+    get_shell_path().unwrap_or_default()
 }
 
 pub fn is_local_bin_in_path(path_string: &str, home: &Path) -> bool {
