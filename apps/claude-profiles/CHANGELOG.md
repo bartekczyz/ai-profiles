@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.1](https://github.com/bartekczyz/claude-profiles/compare/v0.2.0...v0.2.1) (2026-05-25)
+
+
+### Fixed
+
+* **boot:** paint brand background + loader before the JS bundle runs ([0d32ff3](https://github.com/bartekczyz/claude-profiles/commit/0d32ff30701a2c25066c24938433669aef25d173))
+
+
+### Performance
+
+* **deps:** cache shell-PATH lookup and short-circuit via process env ([7b2135e](https://github.com/bartekczyz/claude-profiles/commit/7b2135e18c9b254fe35072fac690e8b92dfe6f4e))
+* faster, less ugly app startup ([19225da](https://github.com/bartekczyz/claude-profiles/commit/19225da82f6fe6443f0afee4d12467378ed9cd89))
+* **migration:** defer the directory-size walks off the boot path ([718fe9e](https://github.com/bartekczyz/claude-profiles/commit/718fe9efb0b8fb4fc70b1074df29ba2d014cfa98))
+
 ## [0.2.0](https://github.com/bartekczyz/claude-profiles/compare/v0.1.1...v0.2.0) (2026-05-25)
 
 
