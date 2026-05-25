@@ -12,15 +12,51 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    # Expose release-please's per-package outputs to downstream jobs.
+    # The package path lives at `apps/claude-profiles` (see
+    # release-please-config.json), so the output keys are namespaced
+    # accordingly. Bracket syntax is required because the keys contain
+    # `/` and `--`.
+    outputs:
+      release_created: ${{ steps.release.outputs['apps/claude-profiles--release_created'] }}
+      tag_name: ${{ steps.release.outputs['apps/claude-profiles--tag_name'] }}
+      sha: ${{ steps.release.outputs['apps/claude-profiles--sha'] }}
     steps:
       # `token:` MUST be a PAT (or GitHub App token) — not the default
       # GITHUB_TOKEN. GitHub deliberately doesn't fire downstream
       # workflows for tags pushed under GITHUB_TOKEN, so release.yml
-      # would never run on the v* tag release-please creates. A PAT
+      # would never run on the v* tag pushed by the next job. A PAT
       # bypasses that. See:
       # https://github.com/googleapis/release-please-action#github-credentials
-      - uses: googleapis/release-please-action@v4
+      - id: release
+        uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  push-release-tag:
+    # release-please creates the GitHub Release as a draft (configured
+    # via "draft": true in release-please-config.json) so users never
+    # see a release without its .dmg attached. The catch: a draft
+    # release does not create the underlying git tag, so release.yml's
+    # `push: tags` trigger never fires on its own.
+    #
+    # Push the missing tag here, using the PAT so downstream workflows
+    # do trigger. release.yml then builds the .dmg, uploads it to the
+    # existing draft, and flips the draft to published — completing the
+    # "merge release PR → published release with assets" loop.
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          # The default fetch-depth=1 is fine — we only need the
+          # release commit to tag.
+      - name: Push release tag
+        run: |
+          git tag "${{ needs.release-please.outputs.tag_name }}"
+          git push origin "${{ needs.release-please.outputs.tag_name }}"
