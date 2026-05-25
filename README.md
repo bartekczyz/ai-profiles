@@ -41,6 +41,14 @@ Already using Claude Desktop or Claude Code? On first launch the app offers to i
 
 Deleting a profile from its detail view removes the launcher and CLI wrapper; the profile's data either goes to the Trash or is deleted outright, your choice.
 
+### Usage stats
+
+Each profile's detail page shows that profile's current Claude utilization — the same numbers you'd see in `/usage` inside Claude Code, but visible alongside the launcher and CLI wrapper buttons. Three meters: the rolling 5-hour window, the 7-day window, and the 7-day Sonnet sub-window, each with a percentage and a relative reset time. A small countdown tells you when the next auto-refresh will fire (every 5 minutes while the card is visible), or you can hit the ↻ button to refresh on demand.
+
+Under the hood the card calls Anthropic's `/api/oauth/usage` endpoint using the profile's own OAuth token, read from the macOS Keychain entry Claude Code created when you signed in.
+
+Same caveat as the rest of the app: the quota endpoint and the Keychain naming convention are undocumented Anthropic internals. If either changes, the meters may show `—` until we ship a patch.
+
 ## Onboarding
 
 **First launch.** A welcome dialog appears once; after that you land on the empty state with a single "+ New profile" CTA. There is no auto-prompt — the next step is on you.
@@ -104,6 +112,9 @@ Yes — Settings → Data → "Detect and import…".
 
 **Is this safe? What about my Keychain credentials?**
 Each profile gets a separate Keychain entry derived from its config directory. We don't read or copy your credentials; Claude Code handles all of that. The CLI isolation behavior depends on undocumented Claude Code internals (its SHA-256 service-name derivation), and could break in a future Claude Code release. If it does we'll patch.
+
+**The usage meters on the profile detail page show `—` instead of numbers — what's wrong?**
+The card calls Anthropic's `/api/oauth/usage` endpoint, which is undocumented and may change shape without notice. If the response stops matching what we parse, the affected meters render as `—` rather than crashing. The local token breakdown disclosure underneath the meters keeps working regardless — it's derived from your CLI transcripts on disk. If you see persistent dashes, file an issue and we'll patch. Note that the first refresh after a fresh install triggers a macOS Keychain access prompt — click "Always Allow" so it doesn't recur.
 
 **Why "Settings" instead of "Preferences"?**
 macOS deprecated "Preferences" in favor of "Settings" in Ventura. We follow the current convention.
