@@ -365,7 +365,11 @@ function AppContent() {
         />
       ) : null}
       {isEmpty ? (
-        <EmptyStateScreen onCreate={requestCreateProfile} />
+        <EmptyStateScreen
+          dependencies={dependencies.deps}
+          onCreate={requestCreateProfile}
+          onRefresh={dependencies.refresh}
+        />
       ) : (
         <div className="flex min-h-0 flex-1">
           <Sidebar
