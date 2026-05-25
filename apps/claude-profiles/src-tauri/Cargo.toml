@@ -1,6 +1,6 @@
 [package]
 name = "claude-profiles"
-version = "0.1.0"
+version = "0.2.2"
 description = "Run multiple Claude accounts on one Mac, each with its own isolated Desktop launcher and CLI wrapper."
 authors = ["Bartek Czyż <bartek@czyz.it>"]
 repository = "https://github.com/bartekczyz/claude-profiles"
