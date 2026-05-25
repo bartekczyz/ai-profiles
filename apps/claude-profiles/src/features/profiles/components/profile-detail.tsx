@@ -7,8 +7,8 @@ import { useShortcut } from '@/design'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
 import { openInFinder } from '@/lib/commands'
 
+import { useProfileLastUsed } from '../api/use-profile-last-used'
 import { useProfilePaths } from '../api/use-profile-paths'
-import { useProfileUsage } from '../api/use-profile-usage'
 import { DeepLinkInfo } from './deep-link-info'
 import { ProfileDetailDangerLink } from './profile-detail-danger-link'
 import { ProfileDetailHeader } from './profile-detail-header'
@@ -91,7 +91,7 @@ type SurfaceCardsLoadedProps = {
 function SurfaceCardsLoaded({ profile, onError }: SurfaceCardsLoadedProps) {
   const paths = useProfilePaths(profile.id)
   const dependencies = useDependencies()
-  const usage = useProfileUsage()
+  const lastUsed = useProfileLastUsed()
 
   async function safeRun(action: () => Promise<unknown>) {
     try {
@@ -137,7 +137,7 @@ function SurfaceCardsLoaded({ profile, onError }: SurfaceCardsLoadedProps) {
           { label: 'Reveal app', kbd: '⌥1', onClick: () => safeRun(() => openInFinder(paths.guiDataDir)) },
           { label: 'Launcher', kbd: '⌥2', onClick: () => safeRun(() => openInFinder(paths.guiLauncherPath)) },
         ]}
-        onPrimary={() => safeRun(() => usage.launchDesktop(profile.id))}
+        onPrimary={() => safeRun(() => lastUsed.launchDesktop(profile.id))}
       />
       <ProfileDetailSurfaceCard
         variant="cli"
@@ -154,14 +154,14 @@ function SurfaceCardsLoaded({ profile, onError }: SurfaceCardsLoadedProps) {
           { label: 'Config', kbd: '⌥3', onClick: () => safeRun(() => openInFinder(paths.cliConfigDir)) },
           { label: 'Wrapper', kbd: '⌥4', onClick: () => safeRun(() => openInFinder(paths.cliWrapperPath)) },
         ]}
-        onPrimary={() => safeRun(() => usage.copyCli({ profileId: profile.id, command: `claude-${profile.slug}` }))}
+        onPrimary={() => safeRun(() => lastUsed.copyCli({ profileId: profile.id, command: `claude-${profile.slug}` }))}
       />
     </>
   )
 }
 
 function SurfaceCardsFallback({ profile }: { profile: Profile }) {
-  const usage = useProfileUsage()
+  const lastUsed = useProfileLastUsed()
   return (
     <>
       <ProfileDetailSurfaceCard
@@ -174,7 +174,7 @@ function SurfaceCardsFallback({ profile }: { profile: Profile }) {
           { label: 'Reveal app', kbd: '⌥1' },
           { label: 'Launcher', kbd: '⌥2' },
         ]}
-        onPrimary={() => usage.launchDesktop(profile.id)}
+        onPrimary={() => lastUsed.launchDesktop(profile.id)}
       />
       <ProfileDetailSurfaceCard
         variant="cli"
@@ -189,7 +189,7 @@ function SurfaceCardsFallback({ profile }: { profile: Profile }) {
           { label: 'Config', kbd: '⌥3' },
           { label: 'Wrapper', kbd: '⌥4' },
         ]}
-        onPrimary={() => usage.copyCli({ profileId: profile.id, command: `claude-${profile.slug}` })}
+        onPrimary={() => lastUsed.copyCli({ profileId: profile.id, command: `claude-${profile.slug}` })}
       />
     </>
   )
