@@ -57,10 +57,18 @@ export type ExistingInstallInfo = {
   claudeCodePath: string | null
   /**
    * Bytes on disk for each detected install. `null` when the corresponding
-   * path is also `null` (nothing detected); permission-denied subpaths
-   * during the walk are silently skipped on the Rust side, so the value is
+   * path is also `null` (nothing detected) OR when the size walk hasn't
+   * run yet — the boot-time `detect_existing_claude_install` IPC returns
+   * `null` here to keep startup fast; sizes arrive later via
+   * `detect_existing_claude_sizes`. Permission-denied subpaths during the
+   * walk are silently skipped on the Rust side, so the eventual value is
    * best-effort.
    */
+  claudeDesktopSizeBytes: number | null
+  claudeCodeSizeBytes: number | null
+}
+
+export type ExistingInstallSizes = {
   claudeDesktopSizeBytes: number | null
   claudeCodeSizeBytes: number | null
 }

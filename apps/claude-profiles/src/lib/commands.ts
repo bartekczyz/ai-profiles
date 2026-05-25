@@ -6,6 +6,7 @@ import type {
   AppStatePatch,
   Dependencies,
   ExistingInstallInfo,
+  ExistingInstallSizes,
   ImportExistingInput,
   MigrationBackupInfo,
   PathHookOutcome,
@@ -74,6 +75,10 @@ export function copyToClipboard(text: string): Promise<void> {
 
 export function detectExistingClaudeInstall(): Promise<ExistingInstallInfo> {
   return invoke<ExistingInstallInfo>('detect_existing_claude_install')
+}
+
+export function detectExistingClaudeSizes(): Promise<ExistingInstallSizes> {
+  return invoke<ExistingInstallSizes>('detect_existing_claude_sizes')
 }
 
 export function importExistingInstall(input: ImportExistingInput): Promise<Profile> {

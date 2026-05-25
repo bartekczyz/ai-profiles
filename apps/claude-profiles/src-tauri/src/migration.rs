@@ -30,17 +30,39 @@ impl ExistingInstall {
     }
 }
 
-/// Pure: check the two well-known paths, report which exist, and walk
-/// each to compute its on-disk size. Production callers pass the real
-/// macOS paths; tests pass tempdir paths.
+/// Pure: check the two well-known paths and report which exist. Sizes
+/// are deliberately left `None` — this is the boot-critical-path entry
+/// and walking the trees synchronously can take a second or more on a
+/// large `~/.claude`. Use [`detect_sizes`] from a lazy IPC once the
+/// MigrationDialog opens.
 pub fn detect(claude_desktop_path: &Path, claude_code_path: &Path) -> ExistingInstall {
     let desktop_exists = claude_desktop_path.exists();
     let cli_exists = claude_code_path.exists();
     ExistingInstall {
         claude_desktop_path: desktop_exists.then(|| claude_desktop_path.display().to_string()),
         claude_code_path: cli_exists.then(|| claude_code_path.display().to_string()),
-        claude_desktop_size_bytes: desktop_exists.then(|| directory_size(claude_desktop_path)),
-        claude_code_size_bytes: cli_exists.then(|| directory_size(claude_code_path)),
+        claude_desktop_size_bytes: None,
+        claude_code_size_bytes: None,
+    }
+}
+
+/// Sizes-only side-table for [`detect`]. Walks each tree once; returns
+/// `None` for paths that don't exist.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExistingInstallSizes {
+    pub claude_desktop_size_bytes: Option<u64>,
+    pub claude_code_size_bytes: Option<u64>,
+}
+
+pub fn detect_sizes(claude_desktop_path: &Path, claude_code_path: &Path) -> ExistingInstallSizes {
+    ExistingInstallSizes {
+        claude_desktop_size_bytes: claude_desktop_path
+            .exists()
+            .then(|| directory_size(claude_desktop_path)),
+        claude_code_size_bytes: claude_code_path
+            .exists()
+            .then(|| directory_size(claude_code_path)),
     }
 }
 
@@ -360,15 +382,26 @@ mod tests {
     }
 
     #[test]
-    fn detect_computes_sizes_for_existing_installs() {
+    fn detect_leaves_sizes_none_so_boot_path_stays_fast() {
+        let scratch = tempdir().unwrap();
+        let desktop = scratch.path().join("Claude");
+        fs::create_dir_all(&desktop).unwrap();
+        fs::write(desktop.join("a.json"), b"0123456789").unwrap();
+        let info = detect(&desktop, &scratch.path().join("missing"));
+        assert_eq!(info.claude_desktop_size_bytes, None);
+        assert_eq!(info.claude_code_size_bytes, None);
+    }
+
+    #[test]
+    fn detect_sizes_walks_existing_trees() {
         let scratch = tempdir().unwrap();
         let desktop = scratch.path().join("Claude");
         fs::create_dir_all(desktop.join("nested")).unwrap();
         fs::write(desktop.join("a.json"), b"0123456789").unwrap(); // 10 bytes
         fs::write(desktop.join("nested/b.log"), b"abc").unwrap(); // 3 bytes
-        let info = detect(&desktop, &scratch.path().join("missing"));
-        assert_eq!(info.claude_desktop_size_bytes, Some(13));
-        assert_eq!(info.claude_code_size_bytes, None);
+        let sizes = detect_sizes(&desktop, &scratch.path().join("missing"));
+        assert_eq!(sizes.claude_desktop_size_bytes, Some(13));
+        assert_eq!(sizes.claude_code_size_bytes, None);
     }
 
     #[test]

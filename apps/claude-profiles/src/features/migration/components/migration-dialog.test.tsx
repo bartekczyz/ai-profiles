@@ -1,10 +1,21 @@
 import type { ExistingInstallInfo, Profile } from '@/lib/types'
 
-import { render, screen } from '@testing-library/react'
+import { invoke } from '@tauri-apps/api/core'
+import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { renderWithQuery } from '@/test/render-with-query'
 
 import { MigrationDialog } from './migration-dialog'
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+
+const mockInvoke = vi.mocked(invoke)
+
+beforeEach(() => {
+  mockInvoke.mockReset()
+})
 
 const FAKE_PROFILE: Profile = {
   id: '1',
@@ -28,9 +39,17 @@ function existing(overrides: Partial<ExistingInstallInfo> = {}): ExistingInstall
 }
 
 function setup(detected: ExistingInstallInfo, overrides: Partial<Parameters<typeof MigrationDialog>[0]> = {}) {
+  // The dialog's lazy size query fires once it opens; resolve it
+  // immediately with the sizes the caller embedded in `existing`. Tests
+  // that override these (e.g. "omits the size span when size is missing")
+  // get the matching pre-stocked response.
+  mockInvoke.mockResolvedValue({
+    claudeDesktopSizeBytes: detected.claudeDesktopSizeBytes,
+    claudeCodeSizeBytes: detected.claudeCodeSizeBytes,
+  })
   const onClose = vi.fn()
   const onImport = vi.fn().mockResolvedValue(FAKE_PROFILE)
-  render(<MigrationDialog open existing={detected} onClose={onClose} onImport={onImport} {...overrides} />)
+  renderWithQuery(<MigrationDialog open existing={detected} onClose={onClose} onImport={onImport} {...overrides} />)
   return { onClose, onImport, user: userEvent.setup() }
 }
 
@@ -52,10 +71,12 @@ describe('MigrationDialog', () => {
     expect(screen.getByLabelText(/Claude Code CLI config/i)).toBeChecked()
   })
 
-  it('shows formatted sizes alongside each detected path', () => {
+  it('shows formatted sizes alongside each detected path', async () => {
     setup(existing())
-    expect(screen.getByText(/248 MB/)).toBeInTheDocument()
-    expect(screen.getByText(/4\.0 MB/)).toBeInTheDocument()
+    // Sizes arrive via the lazy `detect_existing_claude_sizes` query
+    // that fires when the dialog opens — wait for it.
+    expect(await screen.findByText(/248 MB/)).toBeInTheDocument()
+    expect(await screen.findByText(/4\.0 MB/)).toBeInTheDocument()
   })
 
   it('omits the size span when size is missing', () => {
@@ -87,9 +108,10 @@ describe('MigrationDialog', () => {
   })
 
   it('surfaces backend errors without closing', async () => {
+    mockInvoke.mockResolvedValue({ claudeDesktopSizeBytes: null, claudeCodeSizeBytes: null })
     const onImport = vi.fn().mockRejectedValue(new Error('disk full'))
     const onClose = vi.fn()
-    render(
+    renderWithQuery(
       <MigrationDialog
         open
         existing={existing({ claudeCodePath: null, claudeCodeSizeBytes: null })}

@@ -1,8 +1,8 @@
-import type { ExistingInstallInfo, ImportExistingInput, Profile } from '@/lib/types'
+import type { ExistingInstallInfo, ExistingInstallSizes, ImportExistingInput, Profile } from '@/lib/types'
 
-import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
-import { detectExistingClaudeInstall, importExistingInstall } from '@/lib/commands'
+import { detectExistingClaudeInstall, detectExistingClaudeSizes, importExistingInstall } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 
 type UseMigrationResult = {
@@ -37,4 +37,22 @@ export function useMigration(): UseMigrationResult {
       await queryClient.invalidateQueries({ queryKey: queryKeys.migration.existing })
     },
   }
+}
+
+/**
+ * Lazy companion to `useMigration`. The path-existence query above runs
+ * at boot; this one only fires when something subscribes — typically the
+ * MigrationDialog when it opens — so the recursive `directory_size`
+ * walks happen off the boot critical path. Returns `null` for both
+ * sizes until the IPC resolves; the dialog shows the path without a
+ * size in the meantime.
+ */
+export function useMigrationSizes(enabled: boolean): ExistingInstallSizes {
+  const { data } = useQuery({
+    queryKey: queryKeys.migration.sizes,
+    queryFn: detectExistingClaudeSizes,
+    enabled,
+    staleTime: 60_000,
+  })
+  return data ?? { claudeDesktopSizeBytes: null, claudeCodeSizeBytes: null }
 }
