@@ -26,7 +26,6 @@ struct ClaudeOauth {
 /// Reads the access token from `<cli_config_dir>/.credentials.json`.
 /// On any failure (missing file, oversized, unreadable, malformed JSON,
 /// empty token) returns a categorised `QuotaError`. Never panics.
-#[allow(dead_code)]
 pub fn read_access_token(cli_config_dir: &Path) -> Result<String, QuotaError> {
     let path = cli_config_dir.join(".credentials.json");
     let metadata = match std::fs::metadata(&path) {
