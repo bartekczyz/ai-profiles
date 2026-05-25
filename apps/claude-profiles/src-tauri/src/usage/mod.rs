@@ -1,4 +1,5 @@
 pub(crate) mod credentials;
+pub(crate) mod quota;
 
 use serde::Serialize;
 
