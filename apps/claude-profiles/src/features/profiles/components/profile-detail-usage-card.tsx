@@ -132,8 +132,8 @@ function Meters({ quota }: { quota: ProfileUsage['quota'] }) {
   return (
     <div className="flex flex-col gap-2">
       <Meter label="5-hour window" shortLabel="5h" meterWindow={quota?.fiveHour ?? null} />
-      <Meter label="Weekly" shortLabel="W" meterWindow={quota?.sevenDay ?? null} />
-      <Meter label="Weekly Sonnet" shortLabel="WS" meterWindow={quota?.sevenDaySonnet ?? null} />
+      <Meter showDailySegments label="Weekly" shortLabel="W" meterWindow={quota?.sevenDay ?? null} />
+      <Meter showDailySegments label="Weekly Sonnet" shortLabel="WS" meterWindow={quota?.sevenDaySonnet ?? null} />
     </div>
   )
 }
@@ -149,10 +149,12 @@ function Meter({
   label,
   shortLabel,
   meterWindow,
+  showDailySegments = false,
 }: {
   label: string
   shortLabel: string
   meterWindow: UsageWindow | null
+  showDailySegments?: boolean
 }) {
   // utilization comes from the API on a 0..=100 percentage scale and
   // may exceed 100 when the user is over-limit. We show the literal
@@ -164,6 +166,7 @@ function Meter({
   const barClass =
     tone === 'ok' ? 'bg-green' : tone === 'warn' ? 'bg-amber' : tone === 'crit' ? 'bg-red' : 'bg-muted-strong'
   const resetsLabel = formatReset(meterWindow?.resetsAt ?? null)
+  const pacePercent = showDailySegments ? computeWeeklyPacePercent(meterWindow?.resetsAt ?? null) : null
 
   return (
     <div className={meterGridClass}>
@@ -171,15 +174,19 @@ function Meter({
         <span className="lg:hidden">{shortLabel}</span>
         <span className="hidden lg:inline">{label}</span>
       </span>
-      <div
-        role="progressbar"
-        aria-valuenow={percent ?? undefined}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={label}
-        className="h-2 overflow-hidden rounded bg-cream-2"
-      >
-        <div className={`h-full ${barClass}`} style={{ width: `${fillPercent}%` }} />
+      <div className="relative">
+        <div
+          role="progressbar"
+          aria-valuenow={percent ?? undefined}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={label}
+          className="relative h-2 overflow-hidden rounded bg-cream-2"
+        >
+          <div className={`h-full ${barClass}`} style={{ width: `${fillPercent}%` }} />
+          {showDailySegments ? <DaySeparators /> : null}
+        </div>
+        {pacePercent === null ? null : <PaceMarker percent={pacePercent} />}
       </div>
       <span className="text-right font-mono text-mono tabular-nums text-muted-strong">
         {percent === null ? '—' : `${percent}%`}
@@ -187,6 +194,62 @@ function Meter({
       </span>
     </div>
   )
+}
+
+function DaySeparators() {
+  return (
+    <>
+      {[1, 2, 3, 4, 5, 6].map((day) => (
+        <div
+          key={day}
+          aria-hidden
+          className="pointer-events-none absolute top-0 h-full w-px bg-ink/10"
+          style={{ left: `${(day / 7) * 100}%` }}
+        />
+      ))}
+    </>
+  )
+}
+
+function PaceMarker({ percent }: { percent: number }) {
+  const clamped = Math.min(100, Math.max(0, percent))
+  return (
+    <div
+      className="group absolute -top-0.5 flex h-3 w-3 items-center justify-center"
+      style={{ left: `calc(${clamped}% - 6px)` }}
+    >
+      <div aria-hidden className="pointer-events-none h-full w-0.5 rounded-sm bg-ink" />
+      <div
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded bg-ink px-2 py-1 font-mono text-mono text-cream opacity-0 shadow-md transition-opacity group-hover:opacity-100"
+      >
+        Even daily pace · {Math.round(clamped)}%
+      </div>
+    </div>
+  )
+}
+
+// Weekly limits reset at a fixed time on a 7-day cycle, so the "expected"
+// burn position is just how far we've travelled from the previous reset
+// (resetsAt - 7d) toward the next one. Returns null when the input is
+// missing or out of range.
+function computeWeeklyPacePercent(resetsAt: string | null): number | null {
+  if (!resetsAt) {
+    return null
+  }
+  const resetTime = new Date(resetsAt).getTime()
+  if (Number.isNaN(resetTime)) {
+    return null
+  }
+  const windowMs = 7 * 24 * 60 * 60 * 1000
+  const timeRemaining = resetTime - Date.now()
+  if (timeRemaining <= 0) {
+    return 100
+  }
+  if (timeRemaining >= windowMs) {
+    return 0
+  }
+  return ((windowMs - timeRemaining) / windowMs) * 100
 }
 
 function formatReset(resetsAt: string | null): string | null {
