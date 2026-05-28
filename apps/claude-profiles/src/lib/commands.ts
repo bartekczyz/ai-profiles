@@ -13,6 +13,7 @@ import type {
   Profile,
   ProfilePatch,
   ProfilePaths,
+  ProfileUsage,
   Shell,
   Surface,
   Surfaces,
@@ -119,4 +120,8 @@ export function getAppMetadata(): Promise<AppMetadata> {
 
 export function openExternalUrl(url: string): Promise<void> {
   return invoke('open_external_url', { url })
+}
+
+export function getProfileUsage(profileId: string): Promise<ProfileUsage> {
+  return invoke<ProfileUsage>('get_profile_usage', { profileId })
 }

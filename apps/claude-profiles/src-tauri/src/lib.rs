@@ -13,6 +13,7 @@ mod profiles;
 mod slug;
 #[cfg(test)]
 mod test_support;
+mod usage;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Emitter;
@@ -112,6 +113,7 @@ pub fn run() {
             commands::list_activity,
             commands::record_activity,
             commands::get_app_metadata,
+            commands::get_profile_usage,
             commands::open_external_url,
         ])
         .run(tauri::generate_context!())

@@ -33,4 +33,9 @@ export const faqEntries: ReadonlyArray<FaqEntry> = [
     answer:
       'Each profile gets its own Keychain entry, derived from the per-profile config directory. claude-profiles does not read or copy your credentials — Claude Code handles all of that itself. The isolation depends on undocumented Claude Code internals and could break in a future Claude Code release; if it does, we will patch.',
   },
+  {
+    question: 'How does the per-profile usage card work?',
+    answer:
+      "Each profile's detail page shows that profile's 5-hour, 7-day, and 7-day Sonnet utilization — the same numbers /usage shows inside Claude Code. The card reads the profile's OAuth token from its dedicated Keychain entry, calls Anthropic's /api/oauth/usage endpoint, and auto-refreshes every 5 minutes. The quota endpoint is undocumented Anthropic internals — same caveat as Keychain isolation — so the meters may render as dashes if the response shape changes.",
+  },
 ]

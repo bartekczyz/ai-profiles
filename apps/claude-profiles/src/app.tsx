@@ -16,7 +16,7 @@ import { ChooseStartDialog } from '@/features/migration/components/choose-start-
 import { MigrationDialog } from '@/features/migration/components/migration-dialog'
 import { PathSetupBanner } from '@/features/onboarding/components/path-setup-banner'
 import { WelcomeDialog } from '@/features/onboarding/components/welcome-dialog'
-import { useProfileUsage } from '@/features/profiles/api/use-profile-usage'
+import { useProfileLastUsed } from '@/features/profiles/api/use-profile-last-used'
 import { useProfiles } from '@/features/profiles/api/use-profiles'
 import { CreateProfileDialog } from '@/features/profiles/components/create-profile-dialog'
 import { DeleteProfileDialog } from '@/features/profiles/components/delete-profile-dialog'
@@ -92,7 +92,7 @@ function AppContent() {
   const migration = useMigration()
   const appState = useAppState()
   const dependencies = useDependencies()
-  const usage = useProfileUsage()
+  const lastUsed = useProfileLastUsed()
   const palette = useCommandPalette()
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' })
   const [submitting, setSubmitting] = useState(false)
@@ -254,7 +254,7 @@ function AppContent() {
     'open-selected-desktop',
     () => {
       if (selected?.surfaces.gui) {
-        void usage.launchDesktop(selected.id)
+        void lastUsed.launchDesktop(selected.id)
       }
     },
     { enabled: detailEnabled },
@@ -263,7 +263,7 @@ function AppContent() {
     'copy-selected-cli',
     () => {
       if (selected?.surfaces.cli) {
-        void usage.copyCli({ profileId: selected.id, command: `claude-${selected.slug}` })
+        void lastUsed.copyCli({ profileId: selected.id, command: `claude-${selected.slug}` })
       }
     },
     { enabled: detailEnabled },
@@ -506,10 +506,10 @@ function AppContent() {
           setRightPane({ kind: 'profile' })
         }}
         onLaunch={(id) => {
-          void usage.launchDesktop(id)
+          void lastUsed.launchDesktop(id)
         }}
         onCopy={(profile) => {
-          void usage.copyCli({ profileId: profile.id, command: `claude-${profile.slug}` })
+          void lastUsed.copyCli({ profileId: profile.id, command: `claude-${profile.slug}` })
         }}
         onCreate={requestCreateProfile}
         onSettings={() => setRightPane({ kind: 'settings' })}

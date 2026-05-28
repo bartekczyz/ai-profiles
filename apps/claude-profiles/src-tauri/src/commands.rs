@@ -1,4 +1,5 @@
 use std::process::Command;
+use std::sync::OnceLock;
 
 use crate::activity::{self, Activity, ActivityKind};
 use crate::app_state::{self, AppState, AppStatePatch};
@@ -13,6 +14,7 @@ use crate::paths::{
     next_migration_backup_dir, profile_dir as profile_data_dir,
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
+use crate::usage::{self, quota::ReqwestUsageClient, ProfileUsage};
 
 /// Append an activity entry to the profile's log. Failures are logged
 /// but do not propagate — the log is best-effort, not load-bearing.
@@ -405,4 +407,21 @@ pub fn get_app_metadata() -> AppMetadata {
         homepage: optional(env!("CARGO_PKG_HOMEPAGE")),
         license: optional(env!("CARGO_PKG_LICENSE")),
     }
+}
+
+/// One shared refresher across all `get_profile_usage` invocations so
+/// its per-profile mutex + backoff registry survives across calls.
+/// A new instance per command would defeat both: two simultaneous
+/// commands on the same profile would race, and a 5-minute auto-refetch
+/// would never see the previous "tried at" timestamp.
+static REFRESHER: OnceLock<usage::refresh::ClaudeCliRefresher> = OnceLock::new();
+
+#[tauri::command]
+pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
+    let profile_root = profile_data_dir(&profile_id)?;
+    let cli_config = profile_root.join("cli-config");
+    let client = ReqwestUsageClient::new(format!("claude-profiles/{}", env!("CARGO_PKG_VERSION")))
+        .map_err(|_| AppError::Io(std::io::Error::other("could not build HTTP client")))?;
+    let refresher = REFRESHER.get_or_init(usage::refresh::ClaudeCliRefresher::new);
+    Ok(usage::build_with_cli_refresh(&cli_config, &client, refresher).await)
 }

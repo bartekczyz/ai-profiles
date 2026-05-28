@@ -132,3 +132,22 @@ export type AppMetadata = {
   homepage: string | null
   license: string | null
 }
+
+export type UsageWindow = {
+  utilization: number | null
+  resetsAt: string | null
+}
+
+export type QuotaUsage = {
+  fiveHour: UsageWindow | null
+  sevenDay: UsageWindow | null
+  sevenDaySonnet: UsageWindow | null
+}
+
+export type QuotaError = 'no_credentials' | 'unauthorized' | 'rate_limited' | 'network' | 'unknown'
+
+export type ProfileUsage = {
+  quota: QuotaUsage | null
+  quotaError: QuotaError | null
+  fetchedAt: string
+}
