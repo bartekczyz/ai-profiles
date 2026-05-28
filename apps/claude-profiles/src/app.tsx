@@ -14,7 +14,6 @@ import { CommandPalette } from '@/features/command-palette/components/command-pa
 import { useCommandPalette } from '@/features/command-palette/use-command-palette'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
 import { useMigration } from '@/features/migration/api/use-migration'
-import { ChooseStartDialog } from '@/features/migration/components/choose-start-dialog'
 import { MigrationDialog } from '@/features/migration/components/migration-dialog'
 import { PathSetupBanner } from '@/features/onboarding/components/path-setup-banner'
 import { WelcomeDialog } from '@/features/onboarding/components/welcome-dialog'
@@ -37,13 +36,7 @@ import { UpdateToastTrigger } from '@/features/updater/components/update-toast-t
 import { useAppState } from '@/lib/app-state/use-app-state'
 import { QueryErrorBoundary } from '@/lib/query/error-boundary'
 
-type DialogState =
-  | { kind: 'none' }
-  | { kind: 'choose-start' }
-  | { kind: 'create' }
-  | { kind: 'edit' }
-  | { kind: 'delete' }
-  | { kind: 'about' }
+type DialogState = { kind: 'none' } | { kind: 'create' } | { kind: 'edit' } | { kind: 'delete' } | { kind: 'about' }
 
 type RightPane = { kind: 'profile' } | { kind: 'settings' }
 
@@ -320,10 +313,6 @@ function AppContent() {
   }
 
   function requestCreateProfile() {
-    if (profiles.profiles.length === 0 && migration.anyDetected) {
-      setDialog({ kind: 'choose-start' })
-      return
-    }
     setDialog({ kind: 'create' })
   }
 
@@ -471,16 +460,6 @@ function AppContent() {
         <AboutDialog open={dialog.kind === 'about'} onClose={() => setDialog({ kind: 'none' })} />
       </Suspense>
 
-      <ChooseStartDialog
-        open={dialog.kind === 'choose-start'}
-        onMigrate={() => {
-          setDialog({ kind: 'none' })
-          setForceMigrationOpen(true)
-        }}
-        onCreate={() => setDialog({ kind: 'create' })}
-        onClose={() => setDialog({ kind: 'none' })}
-      />
-
       {showMigration ? (
         <MigrationDialog
           open
@@ -519,7 +498,7 @@ function AppContent() {
 
       <CommandPalette
         open={palette.open}
-        profiles={profiles.profiles}
+        entries={entries}
         selectedId={selection.selectedId}
         dependencies={dependencies.deps}
         onClose={palette.close}
@@ -527,8 +506,8 @@ function AppContent() {
           selection.select(id)
           setRightPane({ kind: 'profile' })
         }}
-        onLaunch={(id) => {
-          void lastUsed.launchDesktop(id)
+        onLaunch={(profileId) => {
+          void lastUsed.launchDesktop(profileId)
         }}
         onCopy={(profile) => {
           void lastUsed.copyCli({ profileId: profile.id, command: `claude-${profile.slug}` })

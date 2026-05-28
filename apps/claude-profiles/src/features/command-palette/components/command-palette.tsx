@@ -1,17 +1,19 @@
-import type { Dependencies, Profile } from '@/lib/types'
+import type { ReactNode } from 'react'
+import type { DefaultEntry, Dependencies, Profile, SidebarEntry } from '@/lib/types'
 
 import { Command } from 'cmdk'
 import { CornerDownLeft, Download, Plus, Search, Settings as SettingsIcon, Terminal } from 'lucide-react'
 
 import { cn, Kbd } from '@/design'
+import { OutlinedSwatch } from '@/features/profiles/components/outlined-swatch'
 
 type CommandPaletteProps = {
   open: boolean
-  profiles: Array<Profile>
+  entries: Array<SidebarEntry>
   selectedId: string | null
   dependencies: Dependencies
   onClose: () => void
-  onSwitch: (profileId: string) => void
+  onSwitch: (id: string) => void
   onLaunch: (profileId: string) => void
   onCopy: (profile: Profile) => void
   onCreate: () => void
@@ -31,7 +33,7 @@ type CommandPaletteProps = {
  */
 export function CommandPalette({
   open,
-  profiles,
+  entries,
   selectedId,
   dependencies,
   onClose,
@@ -42,12 +44,14 @@ export function CommandPalette({
   onSettings,
   onImport,
 }: CommandPaletteProps) {
-  // Active profile's rows first so ⏎ on first open does the obvious thing.
-  const ordered = [...profiles].sort((a, b) => {
-    if (a.id === selectedId) {
+  // Active entry's rows first so ⏎ on first open does the obvious thing.
+  const ordered = [...entries].sort((entryA, entryB) => {
+    const idA = entryA.kind === 'managed' ? entryA.profile.id : entryA.entry.id
+    const idB = entryB.kind === 'managed' ? entryB.profile.id : entryB.entry.id
+    if (idA === selectedId) {
       return -1
     }
-    if (b.id === selectedId) {
+    if (idB === selectedId) {
       return 1
     }
     return 0
@@ -87,16 +91,24 @@ export function CommandPalette({
       </div>
       <Command.List className="overflow-y-auto p-1 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pt-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-eyebrow [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.1em] [&_[cmdk-group-heading]]:text-muted-strong">
         <Command.Empty className="px-3 py-6 text-center text-meta text-muted-strong">No matches.</Command.Empty>
-        {/* Profile rows: flat list (no per-profile heading), one row per surface + a switch row. */}
-        {ordered.map((profile) => (
-          <ProfileRows
-            key={profile.id}
-            profile={profile}
-            onLaunch={() => runAndClose(() => onLaunch(profile.id))}
-            onCopy={() => runAndClose(() => onCopy(profile))}
-            onSwitch={() => runAndClose(() => onSwitch(profile.id))}
-          />
-        ))}
+        {/* Entry rows: flat list (no per-entry heading), one row per surface + a switch row. */}
+        {ordered.map((entry) =>
+          entry.kind === 'managed' ? (
+            <ProfileRows
+              key={entry.profile.id}
+              profile={entry.profile}
+              onLaunch={() => runAndClose(() => onLaunch(entry.profile.id))}
+              onCopy={() => runAndClose(() => onCopy(entry.profile))}
+              onSwitch={() => runAndClose(() => onSwitch(entry.profile.id))}
+            />
+          ) : (
+            <DefaultRow
+              key={entry.entry.id}
+              entry={entry.entry}
+              onSwitch={() => runAndClose(() => onSwitch(entry.entry.id))}
+            />
+          ),
+        )}
         <Command.Separator className="my-1 h-px bg-border-soft" />
         <Command.Group heading="Actions">
           <PaletteItem
@@ -123,7 +135,11 @@ export function CommandPalette({
             kbd="⌘I"
             onSelect={() => runAndClose(onImport)}
             leading={<Download className="h-3.5 w-3.5 text-muted" strokeWidth={1.85} />}
-            disabled={profiles.length > 0 && !dependencies.claudeAppInstalled && !dependencies.claudeCliInstalled}
+            disabled={
+              entries.some((entry) => entry.kind === 'managed') &&
+              !dependencies.claudeAppInstalled &&
+              !dependencies.claudeCliInstalled
+            }
           >
             Detect and import…
           </PaletteItem>
@@ -194,14 +210,33 @@ function ProfileRows({ profile, onLaunch, onCopy, onSwitch }: ProfileRowsProps) 
   )
 }
 
+type DefaultRowProps = {
+  entry: DefaultEntry
+  onSwitch: () => void
+}
+
+function DefaultRow({ entry, onSwitch }: DefaultRowProps) {
+  return (
+    <PaletteItem
+      value={`switch-${entry.id}`}
+      keywords={['switch', 'select', 'default', entry.name]}
+      kbd="→"
+      onSelect={onSwitch}
+      leading={<OutlinedSwatch size={10} />}
+    >
+      Switch to {entry.name}
+    </PaletteItem>
+  )
+}
+
 type PaletteItemProps = {
   value: string
   keywords?: ReadonlyArray<string>
-  kbd: string | React.ReactNode
+  kbd: string | ReactNode
   disabled?: boolean
-  leading?: React.ReactNode
+  leading?: ReactNode
   onSelect: () => void
-  children: React.ReactNode
+  children: ReactNode
 }
 
 function PaletteItem({ value, keywords, kbd, disabled, leading, onSelect, children }: PaletteItemProps) {

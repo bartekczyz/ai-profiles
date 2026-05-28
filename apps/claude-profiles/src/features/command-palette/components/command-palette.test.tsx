@@ -1,4 +1,4 @@
-import type { Dependencies, Profile } from '@/lib/types'
+import type { Dependencies, Profile, SidebarEntry } from '@/lib/types'
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -16,6 +16,22 @@ function profile(overrides: Partial<Profile> = {}): Profile {
     lastUsedAt: null,
     surfaces: { gui: true, cli: true },
     ...overrides,
+  }
+}
+
+function managedEntry(overrides: Partial<Profile> = {}): SidebarEntry {
+  return { kind: 'managed', profile: profile(overrides) }
+}
+
+function defaultEntry(): SidebarEntry {
+  return {
+    kind: 'default',
+    entry: {
+      id: 'default:claude',
+      app: 'claude',
+      name: 'Default',
+      surfaces: { gui: true, cli: true },
+    },
   }
 }
 
@@ -37,13 +53,15 @@ function setup(props: RenderProps = {}) {
     onSettings: vi.fn(),
     onImport: vi.fn(),
   }
-  render(<CommandPalette open profiles={[profile()]} selectedId="1" dependencies={DEPS} {...handlers} {...props} />)
+  render(<CommandPalette open entries={[managedEntry()]} selectedId="1" dependencies={DEPS} {...handlers} {...props} />)
   return { ...handlers, user: userEvent.setup() }
 }
 
 describe('CommandPalette', () => {
   it('renders one launch, copy, and switch row per profile (flat — no per-profile heading)', () => {
-    setup({ profiles: [profile({ id: '1', name: 'Personal' }), profile({ id: '2', name: 'Work', slug: 'work' })] })
+    setup({
+      entries: [managedEntry({ id: '1', name: 'Personal' }), managedEntry({ id: '2', name: 'Work', slug: 'work' })],
+    })
     // Launch rows include the profile name in the label (one row per profile).
     expect(screen.getAllByText(/Launch desktop app/)).toHaveLength(2)
     expect(screen.getByText(/claude-personal/)).toBeInTheDocument()
@@ -53,19 +71,19 @@ describe('CommandPalette', () => {
   })
 
   it('hides launch when GUI surface is off', () => {
-    setup({ profiles: [profile({ surfaces: { gui: false, cli: true } })] })
+    setup({ entries: [managedEntry({ surfaces: { gui: false, cli: true } })] })
     expect(screen.queryByText(/Launch desktop app/)).not.toBeInTheDocument()
     expect(screen.getByText(/claude-personal/)).toBeInTheDocument()
   })
 
   it('hides copy when CLI surface is off', () => {
-    setup({ profiles: [profile({ surfaces: { gui: true, cli: false } })] })
+    setup({ entries: [managedEntry({ surfaces: { gui: true, cli: false } })] })
     expect(screen.queryByText(/claude-personal/)).not.toBeInTheDocument()
     expect(screen.getByText(/Launch desktop app/)).toBeInTheDocument()
   })
 
   it('always shows the three global actions', () => {
-    setup({ profiles: [] })
+    setup({ entries: [] })
     expect(screen.getByText('Create new profile')).toBeInTheDocument()
     expect(screen.getByText('Open settings')).toBeInTheDocument()
     expect(screen.getByText('Detect and import…')).toBeInTheDocument()
@@ -73,7 +91,7 @@ describe('CommandPalette', () => {
 
   it('clicking switch fires onSwitch and onClose', async () => {
     const { onSwitch, onClose, user } = setup({
-      profiles: [profile({ id: '7', name: 'Side Project', slug: 'side' })],
+      entries: [managedEntry({ id: '7', name: 'Side Project', slug: 'side' })],
       selectedId: null,
     })
     await user.click(screen.getByText('Switch to Side Project'))
@@ -83,7 +101,7 @@ describe('CommandPalette', () => {
 
   it('filters items by typing into the search input', async () => {
     const { user } = setup({
-      profiles: [profile({ id: '1', name: 'Personal' }), profile({ id: '2', name: 'Work', slug: 'work' })],
+      entries: [managedEntry({ id: '1', name: 'Personal' }), managedEntry({ id: '2', name: 'Work', slug: 'work' })],
     })
     await user.type(screen.getByPlaceholderText(/Type a command/), 'work')
     expect(screen.queryByText('Switch to Personal')).not.toBeInTheDocument()
@@ -91,7 +109,7 @@ describe('CommandPalette', () => {
   })
 
   it('typing "cli" surfaces the CLI copy item via keywords', async () => {
-    const { user } = setup({ profiles: [profile()] })
+    const { user } = setup({ entries: [managedEntry()] })
     await user.type(screen.getByPlaceholderText(/Type a command/), 'cli')
     expect(screen.getByText(/claude-personal/)).toBeInTheDocument()
   })
@@ -99,5 +117,24 @@ describe('CommandPalette', () => {
   it('renders the magnifier glyph and esc chip in the search row', () => {
     setup()
     expect(screen.getByText('esc')).toBeInTheDocument()
+  })
+
+  it('renders a "Switch to Default" row when a default entry is present', () => {
+    setup({ entries: [defaultEntry(), managedEntry({ id: '1', name: 'Personal' })] })
+    expect(screen.getByText('Switch to Default')).toBeInTheDocument()
+  })
+
+  it('does NOT render launch or copy rows for the default entry', () => {
+    setup({ entries: [defaultEntry()] })
+    // Default has no managed-launch or copy-cli row.
+    expect(screen.queryByText(/Launch desktop app/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/claude-/)).not.toBeInTheDocument()
+  })
+
+  it('clicking switch on the default entry fires onSwitch with default:claude', async () => {
+    const { onSwitch, onClose, user } = setup({ entries: [defaultEntry()], selectedId: null })
+    await user.click(screen.getByText('Switch to Default'))
+    expect(onSwitch).toHaveBeenCalledWith('default:claude')
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
