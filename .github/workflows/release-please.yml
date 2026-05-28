@@ -22,6 +22,32 @@ jobs:
       tag_name: ${{ steps.release.outputs['apps/claude-profiles--tag_name'] }}
       sha: ${{ steps.release.outputs['apps/claude-profiles--sha'] }}
     steps:
+      # Guard against the race where release-please runs while the
+      # previous release's binaries are still building. During that
+      # window the latest GitHub release is still a draft, and
+      # release-please excludes drafts from its "latest release"
+      # baseline lookup — so it walks history from the previous
+      # published release and proposes a nonsensical version. See PR
+      # #19 retrospective. Skipping here lets the next push (or a
+      # manual workflow_dispatch after the build publishes the
+      # release) generate the correct release PR.
+      - name: Skip if latest release is still a draft
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          latest=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName,isDraft -q '.[0]')
+          if [ -z "$latest" ]; then
+            echo "No releases yet — proceeding."
+            exit 0
+          fi
+          tag=$(echo "$latest" | jq -r .tagName)
+          is_draft=$(echo "$latest" | jq -r .isDraft)
+          if [ "$is_draft" = "true" ]; then
+            echo "::notice::Latest release $tag is still a draft (binaries still building?). Skipping release-please run."
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # `token:` MUST be a PAT (or GitHub App token) — not the default
       # GITHUB_TOKEN. GitHub deliberately doesn't fire downstream
       # workflows for tags pushed under GITHUB_TOKEN, so release.yml
@@ -29,6 +55,7 @@ jobs:
       # bypasses that. See:
       # https://github.com/googleapis/release-please-action#github-credentials
       - id: release
+        if: steps.gate.outputs.skipped != 'true'
         uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
