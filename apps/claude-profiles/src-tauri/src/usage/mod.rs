@@ -38,6 +38,7 @@ pub enum QuotaError {
 }
 
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 
@@ -69,7 +70,14 @@ pub async fn build_with_cli_refresh(
     if !matches!(first.quota_error, Some(QuotaError::Unauthorized)) {
         return first;
     }
+    // Capture the pre-refresh token so we can wait for it to actually
+    // change before retrying. `claude` may exit on stdin-EOF before its
+    // async token-persistence write has fsynced; without this poll a
+    // fast retry would read the stale token and surface Unauthorized
+    // again as if recovery were impossible.
+    let token_before = credentials::read_access_token(cli_config_dir).ok();
     refresher.try_refresh(cli_config_dir).await;
+    wait_for_token_change(cli_config_dir, token_before.as_deref()).await;
     let retry = quota::fetch_quota(cli_config_dir, client).await;
     let (quota, quota_error) = match retry {
         Ok(value) => (Some(value), None),
@@ -82,10 +90,35 @@ pub async fn build_with_cli_refresh(
     }
 }
 
+/// Bound on how long we'll wait for the credentials store to reflect a
+/// new token after the refresher returned. A token-persistence write
+/// from `claude` typically lands in well under 100 ms on warm disks;
+/// 1 s is a generous ceiling for cold/sandboxed cases.
+const TOKEN_CHANGE_DEADLINE: Duration = Duration::from_millis(1000);
+const TOKEN_CHANGE_POLL: Duration = Duration::from_millis(50);
+
+/// Polls the credentials store until the access token differs from
+/// `before`, or until the deadline passes. Returns immediately if the
+/// store can't be read at all (treated as "changed", since the retry
+/// will surface the read failure itself).
+async fn wait_for_token_change(cli_config_dir: &Path, before: Option<&str>) {
+    let deadline = Instant::now() + TOKEN_CHANGE_DEADLINE;
+    loop {
+        let current = credentials::read_access_token(cli_config_dir).ok();
+        if current.as_deref() != before {
+            return;
+        }
+        if Instant::now() >= deadline {
+            return;
+        }
+        tokio::time::sleep(TOKEN_CHANGE_POLL).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::Mutex;
 
     use async_trait::async_trait;
@@ -134,21 +167,25 @@ mod tests {
     }
 
     struct RecordingRefresher {
-        calls: Mutex<u32>,
+        calls: Mutex<Vec<PathBuf>>,
     }
 
     impl RecordingRefresher {
         fn new() -> Self {
             Self {
-                calls: Mutex::new(0),
+                calls: Mutex::new(Vec::new()),
             }
+        }
+
+        fn call_count(&self) -> usize {
+            self.calls.lock().unwrap().len()
         }
     }
 
     #[async_trait]
     impl CliRefresher for RecordingRefresher {
-        async fn try_refresh(&self, _: &Path) {
-            *self.calls.lock().unwrap() += 1;
+        async fn try_refresh(&self, dir: &Path) {
+            self.calls.lock().unwrap().push(dir.to_path_buf());
         }
     }
 
@@ -203,7 +240,7 @@ mod tests {
         let result = build_with_cli_refresh(dir.path(), &client, &refresher).await;
         assert!(result.quota.is_some());
         assert!(result.quota_error.is_none());
-        assert_eq!(*refresher.calls.lock().unwrap(), 0);
+        assert_eq!(refresher.call_count(), 0);
         assert_eq!(*client.calls.lock().unwrap(), 1);
     }
 
@@ -216,7 +253,7 @@ mod tests {
         let refresher = RecordingRefresher::new();
         let result = build_with_cli_refresh(dir.path(), &client, &refresher).await;
         assert!(matches!(result.quota_error, Some(QuotaError::Network)));
-        assert_eq!(*refresher.calls.lock().unwrap(), 0);
+        assert_eq!(refresher.call_count(), 0);
     }
 
     #[tokio::test]
@@ -235,7 +272,7 @@ mod tests {
         let result = build_with_cli_refresh(dir.path(), &client, &refresher).await;
         assert!(result.quota.is_some(), "expected recovered quota");
         assert!(result.quota_error.is_none());
-        assert_eq!(*refresher.calls.lock().unwrap(), 1);
+        assert_eq!(refresher.call_count(), 1);
         assert_eq!(*client.calls.lock().unwrap(), 2);
     }
 
@@ -250,7 +287,60 @@ mod tests {
         let result = build_with_cli_refresh(dir.path(), &client, &refresher).await;
         assert!(matches!(result.quota_error, Some(QuotaError::Unauthorized)));
         assert!(result.quota.is_none());
-        assert_eq!(*refresher.calls.lock().unwrap(), 1);
+        assert_eq!(refresher.call_count(), 1);
         assert_eq!(*client.calls.lock().unwrap(), 2);
+    }
+
+    // --- wait_for_token_change ---
+
+    #[tokio::test]
+    async fn wait_for_token_change_returns_quickly_when_token_changes() {
+        let dir = dir_with_token();
+        let path = dir.path().to_path_buf();
+        let writer = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(80)).await;
+            fs::write(
+                path.join(".credentials.json"),
+                r#"{"claudeAiOauth":{"accessToken":"sk-fresh"}}"#,
+            )
+            .unwrap();
+        });
+        let started = Instant::now();
+        wait_for_token_change(dir.path(), Some("sk-test")).await;
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "expected return shortly after token changed, took {:?}",
+            started.elapsed(),
+        );
+        writer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn wait_for_token_change_returns_at_deadline_when_unchanged() {
+        let dir = dir_with_token();
+        let started = Instant::now();
+        wait_for_token_change(dir.path(), Some("sk-test")).await;
+        let elapsed = started.elapsed();
+        // Should have waited approximately TOKEN_CHANGE_DEADLINE (1 s).
+        assert!(
+            elapsed >= Duration::from_millis(900),
+            "expected ≥ ~900ms wait, got {elapsed:?}",
+        );
+        assert!(
+            elapsed < Duration::from_millis(1500),
+            "expected ≤ ~1500ms wait, got {elapsed:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_for_token_change_returns_when_credentials_disappear() {
+        // If the credentials file vanishes between calls, treat that as
+        // "changed" — read_access_token returning Err means `current` is
+        // None which differs from a Some(_) baseline, so we exit.
+        let dir = dir_with_token();
+        fs::remove_file(dir.path().join(".credentials.json")).unwrap();
+        let started = Instant::now();
+        wait_for_token_change(dir.path(), Some("sk-test")).await;
+        assert!(started.elapsed() < Duration::from_millis(200));
     }
 }

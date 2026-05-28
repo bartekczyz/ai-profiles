@@ -1,4 +1,5 @@
 use std::process::Command;
+use std::sync::OnceLock;
 
 use crate::activity::{self, Activity, ActivityKind};
 use crate::app_state::{self, AppState, AppStatePatch};
@@ -408,12 +409,19 @@ pub fn get_app_metadata() -> AppMetadata {
     }
 }
 
+/// One shared refresher across all `get_profile_usage` invocations so
+/// its per-profile mutex + backoff registry survives across calls.
+/// A new instance per command would defeat both: two simultaneous
+/// commands on the same profile would race, and a 5-minute auto-refetch
+/// would never see the previous "tried at" timestamp.
+static REFRESHER: OnceLock<usage::refresh::ClaudeCliRefresher> = OnceLock::new();
+
 #[tauri::command]
 pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
     let profile_root = profile_data_dir(&profile_id)?;
     let cli_config = profile_root.join("cli-config");
     let client = ReqwestUsageClient::new(format!("claude-profiles/{}", env!("CARGO_PKG_VERSION")))
         .map_err(|_| AppError::Io(std::io::Error::other("could not build HTTP client")))?;
-    let refresher = usage::refresh::ClaudeCliRefresher;
-    Ok(usage::build_with_cli_refresh(&cli_config, &client, &refresher).await)
+    let refresher = REFRESHER.get_or_init(usage::refresh::ClaudeCliRefresher::new);
+    Ok(usage::build_with_cli_refresh(&cli_config, &client, refresher).await)
 }

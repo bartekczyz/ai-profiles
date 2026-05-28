@@ -22,15 +22,24 @@
 //! the wait at 8s (matching the quota fetch timeout) and `kill_on_drop`
 //! ensures the child is reaped if our timeout fires.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
+use std::sync::{Arc, Mutex as StdMutex};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use tokio::sync::Mutex as TokioMutex;
 
 /// How long we'll wait for the spawned `claude` to finish refreshing
 /// its token before giving up. Matches the quota fetch timeout.
 const REFRESH_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// After a refresh attempt completes, skip further attempts for the
+/// same profile inside this window. Without this, a profile whose
+/// refresh token is permanently invalid would spawn `claude` on every
+/// 5-minute refetch tick — many subprocesses per workday for no gain.
+const REFRESH_BACKOFF: Duration = Duration::from_secs(60);
 
 #[async_trait]
 pub trait CliRefresher: Send + Sync {
@@ -40,29 +49,102 @@ pub trait CliRefresher: Send + Sync {
     async fn try_refresh(&self, cli_config_dir: &Path);
 }
 
-/// Production refresher. Spawns the real `claude` binary.
-pub struct ClaudeCliRefresher;
+/// Tracks per-profile refresh state across calls so:
+///   - two concurrent refreshes on the same profile serialise (the
+///     second waits for the first instead of racing the same refresh
+///     token through Anthropic's OAuth endpoint twice in parallel);
+///   - a profile that just attempted a refresh is skipped for
+///     `REFRESH_BACKOFF` so a permanently-broken profile doesn't spawn
+///     `claude` on every refetch tick.
+#[derive(Default)]
+struct RefreshRegistry {
+    inflight: StdMutex<HashMap<PathBuf, Arc<TokioMutex<()>>>>,
+    last_attempt: StdMutex<HashMap<PathBuf, Instant>>,
+}
+
+impl RefreshRegistry {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the async mutex for `key`, creating it if needed. The
+    /// caller awaits `.lock()` on the returned mutex; concurrent calls
+    /// on the same `key` serialise on it.
+    fn slot(&self, key: &Path) -> Arc<TokioMutex<()>> {
+        let mut map = self.inflight.lock().unwrap();
+        map.entry(key.to_path_buf())
+            .or_insert_with(|| Arc::new(TokioMutex::new(())))
+            .clone()
+    }
+
+    fn should_skip(&self, key: &Path) -> bool {
+        let map = self.last_attempt.lock().unwrap();
+        match map.get(key) {
+            Some(at) => at.elapsed() < REFRESH_BACKOFF,
+            None => false,
+        }
+    }
+
+    fn mark_attempted(&self, key: &Path) {
+        let mut map = self.last_attempt.lock().unwrap();
+        map.insert(key.to_path_buf(), Instant::now());
+    }
+}
+
+/// Production refresher. Spawns the real `claude` binary, with a
+/// per-profile mutex + 60 s backoff so it never races itself or
+/// hammers a permanently-broken profile.
+pub struct ClaudeCliRefresher {
+    registry: RefreshRegistry,
+}
+
+impl ClaudeCliRefresher {
+    pub fn new() -> Self {
+        Self {
+            registry: RefreshRegistry::new(),
+        }
+    }
+}
+
+impl Default for ClaudeCliRefresher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait]
 impl CliRefresher for ClaudeCliRefresher {
     async fn try_refresh(&self, cli_config_dir: &Path) {
-        let Some(binary) = find_claude_binary() else {
+        let slot = self.registry.slot(cli_config_dir);
+        let _guard = slot.lock().await;
+        // Re-check the backoff *after* acquiring the lock — another task
+        // may have just finished a refresh on this profile while we were
+        // waiting; if so we want to inherit its result, not re-spawn.
+        if self.registry.should_skip(cli_config_dir) {
             return;
-        };
-        let mut command = tokio::process::Command::new(&binary);
-        command
-            .env("CLAUDE_CONFIG_DIR", cli_config_dir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        let Ok(mut child) = command.spawn() else {
-            return;
-        };
-        // We don't care about the exit status. If the timeout fires, the
-        // future is dropped and `kill_on_drop` reaps the child.
-        let _ = tokio::time::timeout(REFRESH_TIMEOUT, child.wait()).await;
+        }
+        self.registry.mark_attempted(cli_config_dir);
+        spawn_claude(cli_config_dir).await;
     }
+}
+
+async fn spawn_claude(cli_config_dir: &Path) {
+    let Some(binary) = find_claude_binary() else {
+        return;
+    };
+    let mut command = tokio::process::Command::new(&binary);
+    command
+        .env("CLAUDE_CONFIG_DIR", cli_config_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let Ok(mut child) = command.spawn() else {
+        return;
+    };
+    // We don't care about the exit status. If the timeout fires, the
+    // future is dropped and `kill_on_drop` reaps the child.
+    let _ = tokio::time::timeout(REFRESH_TIMEOUT, child.wait()).await;
 }
 
 /// Locate the `claude` binary. Tauri apps launched from Finder/Dock have
@@ -179,4 +261,90 @@ mod tests {
     // No "returns None when nothing found" test — `/opt/homebrew/bin/claude`
     // and `/usr/local/bin/claude` are real paths that may exist on the
     // test runner and we don't want a system-state-dependent flake.
+
+    // --- RefreshRegistry primitives ---
+
+    #[test]
+    fn registry_does_not_skip_first_attempt() {
+        let registry = RefreshRegistry::new();
+        let dir = PathBuf::from("/tmp/test-prof-fresh");
+        assert!(!registry.should_skip(&dir));
+    }
+
+    #[test]
+    fn registry_skips_within_backoff_window() {
+        let registry = RefreshRegistry::new();
+        let dir = PathBuf::from("/tmp/test-prof-recent");
+        registry.mark_attempted(&dir);
+        assert!(registry.should_skip(&dir));
+    }
+
+    #[test]
+    fn registry_tracks_per_profile_independently() {
+        let registry = RefreshRegistry::new();
+        let dir_a = PathBuf::from("/tmp/test-prof-a");
+        let dir_b = PathBuf::from("/tmp/test-prof-b");
+        registry.mark_attempted(&dir_a);
+        assert!(registry.should_skip(&dir_a));
+        assert!(!registry.should_skip(&dir_b));
+    }
+
+    #[tokio::test]
+    async fn registry_slot_serialises_same_profile() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let registry = Arc::new(RefreshRegistry::new());
+        let counter = Arc::new(AtomicU32::new(0));
+        let max_observed = Arc::new(AtomicU32::new(0));
+        let dir = PathBuf::from("/tmp/test-prof-serialise");
+
+        let mut tasks = Vec::new();
+        for _ in 0..5 {
+            let registry = registry.clone();
+            let counter = counter.clone();
+            let max_observed = max_observed.clone();
+            let dir = dir.clone();
+            tasks.push(tokio::spawn(async move {
+                let slot = registry.slot(&dir);
+                let _guard = slot.lock().await;
+                let inflight = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                max_observed.fetch_max(inflight, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                counter.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+        for task in tasks {
+            task.await.unwrap();
+        }
+        // At most one holder of the slot lock at any time.
+        assert_eq!(max_observed.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn registry_slot_does_not_serialise_different_profiles() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let registry = Arc::new(RefreshRegistry::new());
+        let counter = Arc::new(AtomicU32::new(0));
+        let max_observed = Arc::new(AtomicU32::new(0));
+
+        let mut tasks = Vec::new();
+        for index in 0..4 {
+            let registry = registry.clone();
+            let counter = counter.clone();
+            let max_observed = max_observed.clone();
+            let dir = PathBuf::from(format!("/tmp/test-prof-parallel-{index}"));
+            tasks.push(tokio::spawn(async move {
+                let slot = registry.slot(&dir);
+                let _guard = slot.lock().await;
+                let inflight = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                max_observed.fetch_max(inflight, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                counter.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+        for task in tasks {
+            task.await.unwrap();
+        }
+        // Different profiles can run concurrently, so we should see >1.
+        assert!(max_observed.load(Ordering::SeqCst) > 1);
+    }
 }
