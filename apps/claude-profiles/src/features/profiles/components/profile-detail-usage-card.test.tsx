@@ -263,6 +263,44 @@ describe('ProfileDetailUsageCard', () => {
     expect(tooltips).toHaveLength(2)
   })
 
+  it('hides the Weekly Sonnet row when its utilization is zero', () => {
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: makeUsage({
+        quota: {
+          fiveHour: { utilization: 40, resetsAt: null },
+          sevenDay: { utilization: 10, resetsAt: null },
+          sevenDaySonnet: { utilization: 0, resetsAt: null },
+        },
+      }),
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })
+    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    // Only 5-hour and weekly bars render; Weekly Sonnet is suppressed.
+    expect(screen.getAllByRole('progressbar')).toHaveLength(2)
+  })
+
+  it('keeps the Weekly Sonnet row visible when its utilization is unknown (null)', () => {
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: makeUsage({
+        quota: {
+          fiveHour: { utilization: 40, resetsAt: null },
+          sevenDay: { utilization: 10, resetsAt: null },
+          sevenDaySonnet: { utilization: null, resetsAt: null },
+        },
+      }),
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })
+    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    // Unknown utilization is not the same as zero — we still surface
+    // the row (with a "—" placeholder) so the user can tell data is
+    // missing rather than confused with "no usage this week".
+    expect(screen.getAllByRole('progressbar')).toHaveLength(3)
+  })
+
   it('omits the reset tooltip when resetsAt is null', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
       data: makeUsage({

@@ -138,11 +138,20 @@ function quotaErrorMessage(quotaError: ProfileUsage['quotaError'], quota: Profil
 }
 
 function Meters({ quota }: { quota: ProfileUsage['quota'] }) {
+  const sevenDaySonnet = quota?.sevenDaySonnet ?? null
+  // Sonnet is the niche meter — most users live in the 5-hour and
+  // weekly windows. Skip the row when the user hasn't touched Sonnet
+  // this window (utilization explicitly 0) so the card stays focused.
+  // Unknown utilization (null) is kept visible — we'd rather show a
+  // placeholder than silently drop a window we don't have data for.
+  const showSonnet = sevenDaySonnet !== null && sevenDaySonnet.utilization !== 0
   return (
     <div className="flex flex-col gap-2">
       <Meter label="5-hour window" shortLabel="5h" meterWindow={quota?.fiveHour ?? null} />
       <Meter showDailySegments label="Weekly" shortLabel="W" meterWindow={quota?.sevenDay ?? null} />
-      <Meter showDailySegments label="Weekly Sonnet" shortLabel="WS" meterWindow={quota?.sevenDaySonnet ?? null} />
+      {showSonnet ? (
+        <Meter showDailySegments label="Weekly Sonnet" shortLabel="WS" meterWindow={sevenDaySonnet} />
+      ) : null}
     </div>
   )
 }
