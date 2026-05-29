@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/bartekczyz/claude-profiles/compare/v0.4.0...v0.5.0) (2026-05-29)
+
+
+### Added
+
+* default profile row + usage-card polish ([#21](https://github.com/bartekczyz/claude-profiles/issues/21)) ([7df9dc4](https://github.com/bartekczyz/claude-profiles/commit/7df9dc4242cdafc747b046a28e6a495f56dcf439))
+
 ## [0.4.0](https://github.com/bartekczyz/claude-profiles/compare/v0.3.0...v0.4.0) (2026-05-28)
 
 
