@@ -72,7 +72,7 @@ fn read_from_file(path: &Path) -> Result<String, QuotaError> {
 
 #[cfg(target_os = "macos")]
 fn read_from_keychain(cli_config_dir: &Path) -> Result<String, QuotaError> {
-    let service = keychain_service_name(cli_config_dir);
+    let service = keychain_service_for(cli_config_dir);
     // Account name is the current macOS user. Fall back to the empty
     // string if USER isn't set — `security` will then return whatever
     // first matching entry it finds, which may be enough.
@@ -105,6 +105,20 @@ fn read_from_keychain(cli_config_dir: &Path) -> Result<String, QuotaError> {
         Err(_) => return Err(QuotaError::Unknown),
     };
     extract_token(raw.trim())
+}
+
+/// Picks the macOS Keychain service name Claude Code actually wrote to for
+/// this `cli_config_dir`:
+/// - Stock install (no `CLAUDE_CONFIG_DIR` — our synthetic default profile,
+///   `$HOME/.claude`) → bare `Claude Code-credentials`.
+/// - Anything else (managed profile via wrapper, or any explicit
+///   `CLAUDE_CONFIG_DIR`) → hashed `Claude Code-credentials-<sha256(dir)[:8]>`.
+fn keychain_service_for(cli_config_dir: &Path) -> String {
+    if crate::usage::is_stock_default_cli_config_dir(cli_config_dir) {
+        "Claude Code-credentials".to_string()
+    } else {
+        keychain_service_name(cli_config_dir)
+    }
 }
 
 /// Non-macOS stub: there's no Apple Keychain to query, so if the

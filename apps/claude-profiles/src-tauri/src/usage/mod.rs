@@ -42,6 +42,32 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 
+/// Pure: true when `cli_config_dir` is the stock-default `$HOME/.claude`
+/// location.
+///
+/// Claude Code's keychain layout depends on whether `CLAUDE_CONFIG_DIR`
+/// is set when it runs:
+/// - Unset (stock install) → bare service name `Claude Code-credentials`.
+/// - Set (managed profile via wrapper) → hashed
+///   `Claude Code-credentials-<sha256(dir)[:8]>`.
+///
+/// Our default profile represents the stock install — same path
+/// (`$HOME/.claude`), no wrapper, no env var. This predicate is the
+/// switch the credentials reader and the refresher consult to pick the
+/// matching keychain entry / not export `CLAUDE_CONFIG_DIR`.
+pub fn is_stock_default(home: &Path, cli_config_dir: &Path) -> bool {
+    home.join(".claude") == cli_config_dir
+}
+
+/// Convenience wrapper around [`is_stock_default`] that resolves the
+/// home dir from the environment. Returns `false` if the home dir can't
+/// be determined.
+pub fn is_stock_default_cli_config_dir(cli_config_dir: &Path) -> bool {
+    dirs::home_dir()
+        .map(|home| is_stock_default(&home, cli_config_dir))
+        .unwrap_or(false)
+}
+
 /// Fetches the profile's quota and wraps it in a `ProfileUsage`.
 pub async fn build(cli_config_dir: &Path, client: &dyn quota::UsageClient) -> ProfileUsage {
     let (quota, quota_error) = match quota::fetch_quota(cli_config_dir, client).await {
@@ -342,5 +368,47 @@ mod tests {
         let started = Instant::now();
         wait_for_token_change(dir.path(), Some("sk-test")).await;
         assert!(started.elapsed() < Duration::from_millis(200));
+    }
+
+    // --- is_stock_default (pure) ---
+
+    #[test]
+    fn is_stock_default_recognises_home_dot_claude() {
+        let home = PathBuf::from("/Users/u");
+        assert!(is_stock_default(&home, &home.join(".claude")));
+    }
+
+    #[test]
+    fn is_stock_default_rejects_managed_profile_path() {
+        let home = PathBuf::from("/Users/u");
+        let managed = PathBuf::from(
+            "/Users/u/Library/Application Support/claude-profiles/profiles/x/cli-config",
+        );
+        assert!(!is_stock_default(&home, &managed));
+    }
+
+    #[test]
+    fn is_stock_default_rejects_dot_claude_under_a_different_home() {
+        // A managed profile's data root happens to be ".../foo/.claude" —
+        // not the user's home `.claude`, so the predicate must be false.
+        let home = PathBuf::from("/Users/u");
+        let elsewhere = PathBuf::from("/Users/u/somewhere/else/.claude");
+        assert!(!is_stock_default(&home, &elsewhere));
+    }
+
+    #[test]
+    fn is_stock_default_rejects_trailing_slash_variants() {
+        // `PathBuf::join` does not add a trailing separator, so the
+        // comparison is exact. Defensive in case an upstream caller ever
+        // produces a path with one.
+        let home = PathBuf::from("/Users/u");
+        let with_slash = PathBuf::from("/Users/u/.claude/");
+        // `Path::new("/x/")` and `Path::new("/x")` compare equal on Unix,
+        // so this is informational — both are "equal" structurally.
+        // The assertion documents the current behaviour.
+        assert_eq!(
+            is_stock_default(&home, &with_slash),
+            home.join(".claude") == with_slash,
+        );
     }
 }

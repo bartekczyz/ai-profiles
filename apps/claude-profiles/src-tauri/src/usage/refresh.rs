@@ -133,8 +133,17 @@ async fn spawn_claude(cli_config_dir: &Path) {
         return;
     };
     let mut command = tokio::process::Command::new(&binary);
+    // For the stock default profile we deliberately do NOT set
+    // CLAUDE_CONFIG_DIR. Setting it — even to its implicit default
+    // (`$HOME/.claude`) — flips Claude Code's keychain layout from the
+    // bare `Claude Code-credentials` entry to the hashed
+    // `Claude Code-credentials-<sha256(dir)[:8]>` form. The refreshed
+    // token would land in the hashed entry while we keep reading from
+    // bare, leaving the next quota fetch unauthorised again.
+    if !crate::usage::is_stock_default_cli_config_dir(cli_config_dir) {
+        command.env("CLAUDE_CONFIG_DIR", cli_config_dir);
+    }
     command
-        .env("CLAUDE_CONFIG_DIR", cli_config_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
