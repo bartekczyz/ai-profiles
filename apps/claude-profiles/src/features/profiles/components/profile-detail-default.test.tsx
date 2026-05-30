@@ -34,7 +34,7 @@ vi.mock('@/lib/commands', async () => {
       localBinOnPath: true,
     })),
     openInFinder: vi.fn(async () => {}),
-    openApp: vi.fn(async () => {}),
+    openClaudeGui: vi.fn(async () => {}),
     copyToClipboard: vi.fn(async () => {}),
   }
 })

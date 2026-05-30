@@ -115,17 +115,25 @@ pub fn open_profile_in_app(id: String) -> AppResult<Profile> {
     if !profile.surfaces.gui {
         return Err(AppError::Validation("profile has no GUI surface".into()));
     }
+    // Single-instance gate: focus the profile's running window if there is
+    // one, otherwise launch via its `.app` bundle (which carries the tinted
+    // icon). The bundle's data dir matches the launcher script's
+    // `--user-data-dir`, so detection lines up with what actually runs.
+    let data_dir = profile_data_dir(&id)?.join("gui-data");
     let app_path = gui_launcher_path(&profile.name);
-    let status = Command::new("open")
-        .arg(&app_path)
-        .status()
-        .map_err(AppError::Io)?;
-    if !status.success() {
-        return Err(AppError::Validation(format!(
-            "`open {}` exited with status {status}",
-            app_path.display()
-        )));
-    }
+    crate::launch::focus_or_launch(&data_dir.display().to_string(), || {
+        let status = Command::new("open")
+            .arg(&app_path)
+            .status()
+            .map_err(AppError::Io)?;
+        if !status.success() {
+            return Err(AppError::Validation(format!(
+                "`open {}` exited with status {status}",
+                app_path.display()
+            )));
+        }
+        Ok(())
+    })?;
     record_silent(&id, ActivityKind::LaunchedGui, None);
     profiles::touch_last_used(&id)
 }
@@ -149,27 +157,21 @@ pub fn open_in_finder(path: String) -> AppResult<()> {
     Ok(())
 }
 
-/// Launch an application bundle by its path using macOS's `open` command.
+/// Launch — or focus, if already running — the stock Claude desktop app bound
+/// to a specific `--user-data-dir`.
 ///
-/// Unlike `open_profile_in_app`, this operates on the pre-resolved path
-/// rather than a managed-profile ID, so it works for the default Claude
-/// entry whose launcher lives at the detected system path.
+/// This is the default entry's counterpart to `open_profile_in_app`. It has no
+/// launcher `.app` bundle of its own, so it shells out to the same incantation
+/// those bundles use (`open -n -a "Claude" --args --user-data-dir=...`), just
+/// pointed at the stock data directory.
+///
+/// `focus_or_launch` provides the single-instance guarantee: Claude does not
+/// dedupe by data dir (a bare `open -n` would spawn an unbounded number of
+/// stock windows), so we detect an existing instance ourselves and focus it
+/// instead of launching another.
 #[tauri::command]
-pub fn open_app(path: String) -> AppResult<()> {
-    let target = std::path::Path::new(&path);
-    if !target.exists() {
-        return Err(AppError::NotFound(format!("path does not exist: {path}")));
-    }
-    let status = Command::new("open")
-        .arg(&path)
-        .status()
-        .map_err(AppError::Io)?;
-    if !status.success() {
-        return Err(AppError::Validation(format!(
-            "`open {path}` exited with status {status}"
-        )));
-    }
-    Ok(())
+pub fn open_claude_gui(data_dir: String) -> AppResult<()> {
+    crate::launch::focus_or_launch(&data_dir, || crate::launch::open_new_instance(&data_dir))
 }
 
 #[tauri::command]

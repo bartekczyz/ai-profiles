@@ -68,6 +68,14 @@ pub fn gui_launcher_path(name: &str) -> PathBuf {
     applications_dir().join(format!("Claude ({name}).app"))
 }
 
+/// Path to the stock (unmanaged) Claude desktop application bundle. This is
+/// the app the synthetic "default" entry launches — distinct from
+/// `claude_desktop_install_path`, which points at the app's *data* directory
+/// under `~/Library/Application Support`.
+pub fn claude_desktop_app_bundle() -> PathBuf {
+    applications_dir().join("Claude.app")
+}
+
 pub fn local_bin_dir() -> AppResult<PathBuf> {
     let home = dirs::home_dir()
         .ok_or_else(|| AppError::NotFound("could not determine user home directory".to_string()))?;
@@ -125,6 +133,14 @@ mod tests {
     fn gui_launcher_path_handles_names_with_special_chars() {
         let path = gui_launcher_path("Acme & Co");
         assert_eq!(path, PathBuf::from("/Applications/Claude (Acme & Co).app"));
+    }
+
+    #[test]
+    fn claude_desktop_app_bundle_points_to_applications_bundle() {
+        assert_eq!(
+            claude_desktop_app_bundle(),
+            PathBuf::from("/Applications/Claude.app")
+        );
     }
 
     #[test]

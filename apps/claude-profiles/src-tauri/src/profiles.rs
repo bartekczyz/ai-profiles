@@ -413,9 +413,10 @@ pub fn touch_last_used(id: &str) -> AppResult<Profile> {
 fn default_claude_paths() -> AppResult<ProfilePaths> {
     let home =
         dirs::home_dir().ok_or_else(|| AppError::Io(std::io::Error::other("no home dir")))?;
-    let desktop_path = crate::paths::claude_desktop_install_path()?;
-    let code_path = crate::paths::claude_code_install_path()?;
-    let existing = crate::migration::detect(&desktop_path, &code_path);
+    // The default entry launches the stock Claude.app bundle, not its data
+    // directory. Resolve to the application bundle and expose it only when it
+    // exists so "Open Claude" / "Launcher" act on a launchable app.
+    let app_bundle = crate::paths::claude_desktop_app_bundle();
     Ok(ProfilePaths {
         data_dir: home.join(".claude").display().to_string(),
         gui_data_dir: home
@@ -423,7 +424,9 @@ fn default_claude_paths() -> AppResult<ProfilePaths> {
             .display()
             .to_string(),
         cli_config_dir: home.join(".claude").display().to_string(),
-        gui_launcher_path: existing.claude_desktop_path,
+        gui_launcher_path: app_bundle
+            .is_dir()
+            .then(|| app_bundle.display().to_string()),
         cli_wrapper_path: None,
     })
 }
@@ -473,8 +476,20 @@ mod tests {
             .gui_data_dir
             .ends_with("/Library/Application Support/Claude"));
         assert!(paths.cli_wrapper_path.is_none(), "default has no wrapper");
-        // gui_launcher_path is Some only if stock Claude.app is installed;
-        // don't assert on it because the test host may or may not have it.
+        // gui_launcher_path is Some only if stock Claude.app is installed, so
+        // don't require a value (the test host may lack it). But when present
+        // it must be the launchable .app bundle, never the data directory —
+        // otherwise "Open Claude" just reveals a folder in Finder.
+        if let Some(launcher) = &paths.gui_launcher_path {
+            assert_ne!(
+                launcher, &paths.gui_data_dir,
+                "launcher must not be the data directory"
+            );
+            assert!(
+                launcher.ends_with(".app"),
+                "launcher must be an .app bundle"
+            );
+        }
     }
 
     #[test]

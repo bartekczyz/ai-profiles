@@ -66,8 +66,8 @@ export function openInFinder(path: string): Promise<void> {
   return invoke('open_in_finder', { path })
 }
 
-export function openApp(path: string): Promise<void> {
-  return invoke('open_app', { path })
+export function openClaudeGui(dataDir: string): Promise<void> {
+  return invoke('open_claude_gui', { dataDir })
 }
 
 export function profilePaths(id: string): Promise<ProfilePaths> {

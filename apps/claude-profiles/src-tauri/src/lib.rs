@@ -5,6 +5,7 @@ mod app_state;
 mod commands;
 mod deps;
 mod error;
+mod launch;
 mod launchers;
 mod migration;
 mod path_setup;
@@ -99,7 +100,7 @@ pub fn run() {
             commands::toggle_surface,
             commands::open_profile_in_app,
             commands::open_in_finder,
-            commands::open_app,
+            commands::open_claude_gui,
             commands::profile_paths,
             commands::detect_existing_claude_install,
             commands::detect_existing_claude_sizes,

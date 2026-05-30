@@ -75,7 +75,7 @@ pub fn find_claude_in_path(path_string: &str, home: &Path) -> bool {
 }
 
 pub fn claude_app_exists() -> bool {
-    PathBuf::from("/Applications/Claude.app").is_dir()
+    crate::paths::claude_desktop_app_bundle().is_dir()
 }
 
 fn get_shell_path() -> Option<String> {
