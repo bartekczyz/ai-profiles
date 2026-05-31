@@ -34,8 +34,13 @@ pub fn list_profiles() -> AppResult<Vec<Profile>> {
 }
 
 #[tauri::command]
-pub fn create_profile(name: String, color: String, surfaces: Surfaces) -> AppResult<Profile> {
-    let profile = profiles::create(crate::app_kind::AppKind::Claude, &name, &color, surfaces)?;
+pub fn create_profile(
+    app: AppKind,
+    name: String,
+    color: String,
+    surfaces: Surfaces,
+) -> AppResult<Profile> {
+    let profile = profiles::create(app, &name, &color, surfaces)?;
     record_silent(&profile.id, ActivityKind::Created, None);
     Ok(profile)
 }

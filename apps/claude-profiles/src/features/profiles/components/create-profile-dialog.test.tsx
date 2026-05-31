@@ -5,13 +5,22 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ToastProvider } from '@/design'
+import { appSpecs } from '@/lib/app-registry'
 
 import { CreateProfileDialog } from './create-profile-dialog'
 
-const ALL_INSTALLED: Dependencies = {
+const ONLY_CLAUDE_INSTALLED: Dependencies = {
   apps: {
     claude: { guiInstalled: true, cliInstalled: true },
     codex: { guiInstalled: false, cliInstalled: false },
+  },
+  localBinOnPath: true,
+}
+
+const BOTH_INSTALLED: Dependencies = {
+  apps: {
+    claude: { guiInstalled: true, cliInstalled: true },
+    codex: { guiInstalled: true, cliInstalled: true },
   },
   localBinOnPath: true,
 }
@@ -21,7 +30,13 @@ function setup(overrides: Partial<Parameters<typeof CreateProfileDialog>[0]> = {
   const onCreate = vi.fn().mockResolvedValue(undefined)
   render(
     <ToastProvider>
-      <CreateProfileDialog open dependencies={ALL_INSTALLED} onClose={onClose} onCreate={onCreate} {...overrides} />
+      <CreateProfileDialog
+        open
+        dependencies={ONLY_CLAUDE_INSTALLED}
+        onClose={onClose}
+        onCreate={onCreate}
+        {...overrides}
+      />
     </ToastProvider>,
   )
   return { onClose, onCreate, user: userEvent.setup() }
@@ -53,11 +68,12 @@ describe('CreateProfileDialog', () => {
     expect(screen.getByText('Slug: acme-work')).toBeInTheDocument()
   })
 
-  it('calls onCreate with trimmed name on submit', async () => {
+  it('calls onCreate with trimmed name and pre-selected app on submit', async () => {
     const { user, onCreate, onClose } = setup()
     await user.type(screen.getByLabelText('Name'), '  Personal  ')
     await user.click(screen.getByRole('button', { name: /^Create profile/ }))
     expect(onCreate).toHaveBeenCalledWith({
+      app: 'claude',
       name: 'Personal',
       color: '#d97757',
       surfaces: { gui: true, cli: true },
@@ -70,6 +86,7 @@ describe('CreateProfileDialog', () => {
     const nameInput = screen.getByLabelText('Name') as HTMLInputElement
     await user.type(nameInput, 'Personal{Enter}')
     expect(onCreate).toHaveBeenCalledWith({
+      app: 'claude',
       name: 'Personal',
       color: '#d97757',
       surfaces: { gui: true, cli: true },
@@ -85,6 +102,7 @@ describe('CreateProfileDialog', () => {
     desktopCheckbox.focus()
     await user.keyboard('{Enter}')
     expect(onCreate).toHaveBeenCalledWith({
+      app: 'claude',
       name: 'Personal',
       color: '#d97757',
       // Both surfaces still selected — preventDefault on the dialog-level
@@ -104,7 +122,7 @@ describe('CreateProfileDialog', () => {
     const onClose = vi.fn()
     render(
       <ToastProvider>
-        <CreateProfileDialog open dependencies={ALL_INSTALLED} onClose={onClose} onCreate={onCreate} />
+        <CreateProfileDialog open dependencies={ONLY_CLAUDE_INSTALLED} onClose={onClose} onCreate={onCreate} />
       </ToastProvider>,
     )
     const user = userEvent.setup()
@@ -136,10 +154,9 @@ describe('CreateProfileDialog — dependency awareness', () => {
       localBinOnPath: true,
     })
     expect(screen.getByRole('checkbox', { name: /Desktop App launcher/ })).toBeDisabled()
-    expect(screen.getByText(/Claude Desktop/)).toBeInTheDocument()
   })
 
-  it('disables the CLI surface when claude is missing and shows the install hint', () => {
+  it('disables the CLI surface when claude CLI is missing', () => {
     renderWith({
       apps: {
         claude: { guiInstalled: true, cliInstalled: false },
@@ -148,7 +165,6 @@ describe('CreateProfileDialog — dependency awareness', () => {
       localBinOnPath: true,
     })
     expect(screen.getByRole('checkbox', { name: /Claude Code CLI wrapper/ })).toBeDisabled()
-    expect(screen.getByText(/npm install -g @anthropic-ai\/claude-code/)).toBeInTheDocument()
   })
 
   it('disables submit when both surfaces are unavailable', async () => {
@@ -185,9 +201,72 @@ describe('CreateProfileDialog — dependency awareness', () => {
     await user.type(screen.getByLabelText('Name'), 'Personal')
     await user.click(screen.getByRole('button', { name: /^Create profile/ }))
     expect(onCreate).toHaveBeenCalledWith({
+      app: 'claude',
       name: 'Personal',
       color: '#d97757',
       surfaces: { gui: false, cli: true },
     })
+  })
+})
+
+describe('CreateProfileDialog — app-type picker behaviour', () => {
+  it('pre-selects codex and calls onCreate with app: codex when only Codex is installed', async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined)
+    render(
+      <ToastProvider>
+        <CreateProfileDialog
+          open
+          dependencies={{
+            apps: {
+              claude: { guiInstalled: false, cliInstalled: false },
+              codex: { guiInstalled: true, cliInstalled: false },
+            },
+            localBinOnPath: true,
+          }}
+          onClose={vi.fn()}
+          onCreate={onCreate}
+        />
+      </ToastProvider>,
+    )
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Name'), 'Work')
+    await user.click(screen.getByRole('button', { name: /^Create profile/ }))
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ app: 'codex' }))
+  })
+
+  it('blocks submit with both apps installed until the user picks one', async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined)
+    render(
+      <ToastProvider>
+        <CreateProfileDialog open dependencies={BOTH_INSTALLED} onClose={vi.fn()} onCreate={onCreate} />
+      </ToastProvider>,
+    )
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Name'), 'Work')
+    // Submit attempt with no app selected — onCreate must not be called
+    await user.click(screen.getByRole('button', { name: /^Create profile/ }))
+    expect(onCreate).not.toHaveBeenCalled()
+  })
+
+  it('renders the Codex GUI install link when Codex is selected and GUI is missing', async () => {
+    render(
+      <ToastProvider>
+        <CreateProfileDialog
+          open
+          dependencies={{
+            apps: {
+              claude: { guiInstalled: false, cliInstalled: false },
+              codex: { guiInstalled: false, cliInstalled: true },
+            },
+            localBinOnPath: true,
+          }}
+          onClose={vi.fn()}
+          onCreate={vi.fn()}
+        />
+      </ToastProvider>,
+    )
+    // Codex is the only installed app — it is pre-selected
+    const link = screen.getByRole('link', { name: /Codex Desktop/ })
+    expect(link).toHaveAttribute('href', appSpecs.codex.gui.installUrl)
   })
 })

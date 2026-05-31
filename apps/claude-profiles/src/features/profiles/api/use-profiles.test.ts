@@ -52,6 +52,7 @@ describe('useProfiles', () => {
 
     await act(async () => {
       await result.current.create({
+        app: 'claude',
         name: 'Work',
         color: '#6b8db5',
         surfaces: { gui: true, cli: false },
