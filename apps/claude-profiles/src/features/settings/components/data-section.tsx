@@ -14,16 +14,16 @@ type Props = {
 
 /**
  * Picks the "primary" detected install for the Data action card.
- * The card shows a single line, so we surface Claude Desktop when present,
- * otherwise Claude Code CLI. The sub-string formats `{size} · {path}/` to
+ * The card shows a single line, so we surface the GUI path when present,
+ * otherwise the CLI path. The sub-string formats `{size} · {path}/` to
  * match the prototype.
  */
 function actionDetail(existing: ExistingInstallInfo): { path: string; size: number | null } | null {
-  if (existing.claudeDesktopPath !== null) {
-    return { path: existing.claudeDesktopPath, size: existing.claudeDesktopSizeBytes }
+  if (existing.guiPath !== null) {
+    return { path: existing.guiPath, size: existing.guiSizeBytes }
   }
-  if (existing.claudeCodePath !== null) {
-    return { path: existing.claudeCodePath, size: existing.claudeCodeSizeBytes }
+  if (existing.cliPath !== null) {
+    return { path: existing.cliPath, size: existing.cliSizeBytes }
   }
   return null
 }

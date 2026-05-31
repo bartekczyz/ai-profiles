@@ -21,7 +21,7 @@ type Props = {
  * `useMigration` + `useMigrationBackups`) sit behind their own Suspense
  * boundaries so the rest of the pane paints instantly when the user opens
  * Settings — previously a single outer boundary made the whole pane wait
- * on the filesystem walk in `detect_existing_claude_install`.
+ * on the filesystem walk in `detect_existing_install`.
  */
 export function SettingsView({ onClose, onOpenMigration, onOpenAbout }: Props) {
   return (

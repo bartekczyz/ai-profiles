@@ -1,5 +1,5 @@
-//! First-run migration: detect an existing Claude Desktop / Claude Code
-//! installation and import it as a named profile.
+//! First-run migration: detect an existing Desktop / CLI installation
+//! (Claude or Codex) and import it as a named profile.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
+use crate::app_kind::{spec, AppKind};
 use crate::error::{AppError, AppResult};
 use crate::profiles::{Profile, Surfaces};
 use crate::slug::slugify;
@@ -14,19 +15,19 @@ use crate::slug::slugify;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ExistingInstall {
-    pub claude_desktop_path: Option<String>,
-    pub claude_code_path: Option<String>,
+    pub gui_path: Option<String>,
+    pub cli_path: Option<String>,
     /// Bytes occupied by the desktop install dir (best-effort, walks the tree).
     /// `None` when the corresponding path doesn't exist; permission-denied
     /// subpaths during the walk are silently skipped.
-    pub claude_desktop_size_bytes: Option<u64>,
-    pub claude_code_size_bytes: Option<u64>,
+    pub gui_size_bytes: Option<u64>,
+    pub cli_size_bytes: Option<u64>,
 }
 
 impl ExistingInstall {
     #[allow(dead_code)]
     pub fn any_detected(&self) -> bool {
-        self.claude_desktop_path.is_some() || self.claude_code_path.is_some()
+        self.gui_path.is_some() || self.cli_path.is_some()
     }
 }
 
@@ -35,15 +36,24 @@ impl ExistingInstall {
 /// and walking the trees synchronously can take a second or more on a
 /// large `~/.claude`. Use [`detect_sizes`] from a lazy IPC once the
 /// MigrationDialog opens.
-pub fn detect(claude_desktop_path: &Path, claude_code_path: &Path) -> ExistingInstall {
-    let desktop_exists = claude_desktop_path.exists();
-    let cli_exists = claude_code_path.exists();
+pub fn detect(gui_path: &Path, cli_path: &Path) -> ExistingInstall {
+    let desktop_exists = gui_path.exists();
+    let cli_exists = cli_path.exists();
     ExistingInstall {
-        claude_desktop_path: desktop_exists.then(|| claude_desktop_path.display().to_string()),
-        claude_code_path: cli_exists.then(|| claude_code_path.display().to_string()),
-        claude_desktop_size_bytes: None,
-        claude_code_size_bytes: None,
+        gui_path: desktop_exists.then(|| gui_path.display().to_string()),
+        cli_path: cli_exists.then(|| cli_path.display().to_string()),
+        gui_size_bytes: None,
+        cli_size_bytes: None,
     }
+}
+
+/// Thin wrapper that resolves stock paths for a given app kind and calls
+/// the pure [`detect`]. Keeps command handlers free of path resolution.
+pub fn detect_for(kind: AppKind) -> AppResult<ExistingInstall> {
+    let app = spec(kind);
+    let desktop = crate::paths::stock_gui_support_dir(app)?;
+    let code = crate::paths::stock_cli_config_dir(app)?;
+    Ok(detect(&desktop, &code))
 }
 
 /// Sizes-only side-table for [`detect`]. Walks each tree once; returns
@@ -51,18 +61,14 @@ pub fn detect(claude_desktop_path: &Path, claude_code_path: &Path) -> ExistingIn
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ExistingInstallSizes {
-    pub claude_desktop_size_bytes: Option<u64>,
-    pub claude_code_size_bytes: Option<u64>,
+    pub gui_size_bytes: Option<u64>,
+    pub cli_size_bytes: Option<u64>,
 }
 
-pub fn detect_sizes(claude_desktop_path: &Path, claude_code_path: &Path) -> ExistingInstallSizes {
+pub fn detect_sizes(gui_path: &Path, cli_path: &Path) -> ExistingInstallSizes {
     ExistingInstallSizes {
-        claude_desktop_size_bytes: claude_desktop_path
-            .exists()
-            .then(|| directory_size(claude_desktop_path)),
-        claude_code_size_bytes: claude_code_path
-            .exists()
-            .then(|| directory_size(claude_code_path)),
+        gui_size_bytes: gui_path.exists().then(|| directory_size(gui_path)),
+        cli_size_bytes: cli_path.exists().then(|| directory_size(cli_path)),
     }
 }
 
@@ -72,14 +78,16 @@ pub struct ImportParams {
     /// UUID for the new profile. The caller pre-generates this so it can
     /// also pre-compute `profile_dir` consistently.
     pub id: String,
+    /// Which managed app this import belongs to.
+    pub app: AppKind,
     pub name: String,
     pub color: String,
     pub include_gui: bool,
     pub include_cli: bool,
-    /// Absolute path of the existing Claude Desktop dir (None if not detected
+    /// Absolute path of the existing Desktop dir (None if not detected
     /// or the user unchecked the GUI surface).
     pub gui_source: Option<PathBuf>,
-    /// Absolute path of the existing Claude Code dir.
+    /// Absolute path of the existing CLI config dir.
     pub cli_source: Option<PathBuf>,
     /// Where to place the per-profile data dir. In production this is
     /// `<app-data>/profiles/<id>/`; tests pass a tempdir-rooted equivalent.
@@ -161,10 +169,11 @@ pub fn import(params: ImportParams) -> AppResult<ImportOutcome> {
     // Step 4: Move originals into the backup dir. `moved_gui` is tracked so
     // that the CLI block's rollback can undo it; the CLI move has no later
     // step that could fail, so we don't bother tracking moved_cli.
+    let app_spec = spec(params.app);
     let mut moved_gui: Option<PathBuf> = None;
     if copied_gui {
         let source = params.gui_source.as_ref().unwrap();
-        let dest = params.backup_dir.join("Claude");
+        let dest = params.backup_dir.join(app_spec.gui_support_dir_name);
         if let Err(err) = fs::rename(source, &dest) {
             rollback(&params, &moved_gui, &None);
             return Err(AppError::Io(err));
@@ -173,7 +182,7 @@ pub fn import(params: ImportParams) -> AppResult<ImportOutcome> {
     }
     if copied_cli {
         let source = params.cli_source.as_ref().unwrap();
-        let dest = params.backup_dir.join(".claude");
+        let dest = params.backup_dir.join(app_spec.cli_stock_config_dir_name);
         if let Err(err) = fs::rename(source, &dest) {
             rollback(&params, &moved_gui, &None);
             return Err(AppError::Io(err));
@@ -184,7 +193,7 @@ pub fn import(params: ImportParams) -> AppResult<ImportOutcome> {
     // update happen in the caller — keeping them out keeps this unit-testable.)
     let profile = Profile {
         id: params.id.clone(),
-        app: crate::app_kind::AppKind::Claude,
+        app: params.app,
         name: trimmed.to_string(),
         slug,
         color: params.color.clone(),
@@ -343,30 +352,30 @@ mod tests {
             &scratch.path().join("does-not-exist-1"),
             &scratch.path().join("does-not-exist-2"),
         );
-        assert_eq!(info.claude_desktop_path, None);
-        assert_eq!(info.claude_code_path, None);
+        assert_eq!(info.gui_path, None);
+        assert_eq!(info.cli_path, None);
         assert!(!info.any_detected());
     }
 
     #[test]
-    fn detect_reports_claude_desktop_when_only_desktop_exists() {
+    fn detect_reports_gui_when_only_desktop_exists() {
         let scratch = tempdir().unwrap();
         let desktop = scratch.path().join("Claude");
         fs::create_dir_all(&desktop).unwrap();
         let info = detect(&desktop, &scratch.path().join(".claude-missing"));
-        assert!(info.claude_desktop_path.is_some());
-        assert_eq!(info.claude_code_path, None);
+        assert!(info.gui_path.is_some());
+        assert_eq!(info.cli_path, None);
         assert!(info.any_detected());
     }
 
     #[test]
-    fn detect_reports_claude_code_when_only_cli_exists() {
+    fn detect_reports_cli_when_only_cli_exists() {
         let scratch = tempdir().unwrap();
         let cli = scratch.path().join(".claude");
         fs::create_dir_all(&cli).unwrap();
         let info = detect(&scratch.path().join("Claude-missing"), &cli);
-        assert_eq!(info.claude_desktop_path, None);
-        assert!(info.claude_code_path.is_some());
+        assert_eq!(info.gui_path, None);
+        assert!(info.cli_path.is_some());
         assert!(info.any_detected());
     }
 
@@ -378,8 +387,8 @@ mod tests {
         fs::create_dir_all(&desktop).unwrap();
         fs::create_dir_all(&cli).unwrap();
         let info = detect(&desktop, &cli);
-        assert!(info.claude_desktop_path.is_some());
-        assert!(info.claude_code_path.is_some());
+        assert!(info.gui_path.is_some());
+        assert!(info.cli_path.is_some());
     }
 
     #[test]
@@ -389,8 +398,8 @@ mod tests {
         fs::create_dir_all(&desktop).unwrap();
         fs::write(desktop.join("a.json"), b"0123456789").unwrap();
         let info = detect(&desktop, &scratch.path().join("missing"));
-        assert_eq!(info.claude_desktop_size_bytes, None);
-        assert_eq!(info.claude_code_size_bytes, None);
+        assert_eq!(info.gui_size_bytes, None);
+        assert_eq!(info.cli_size_bytes, None);
     }
 
     #[test]
@@ -401,8 +410,8 @@ mod tests {
         fs::write(desktop.join("a.json"), b"0123456789").unwrap(); // 10 bytes
         fs::write(desktop.join("nested/b.log"), b"abc").unwrap(); // 3 bytes
         let sizes = detect_sizes(&desktop, &scratch.path().join("missing"));
-        assert_eq!(sizes.claude_desktop_size_bytes, Some(13));
-        assert_eq!(sizes.claude_code_size_bytes, None);
+        assert_eq!(sizes.gui_size_bytes, Some(13));
+        assert_eq!(sizes.cli_size_bytes, None);
     }
 
     #[test]
@@ -435,6 +444,7 @@ mod tests {
     fn fixture_params(scratch: &Path, gui: Option<PathBuf>, cli: Option<PathBuf>) -> ImportParams {
         ImportParams {
             id: "11111111-1111-1111-1111-111111111111".into(),
+            app: crate::app_kind::AppKind::Claude,
             name: "Default".into(),
             color: "#7C3AED".into(),
             include_gui: gui.is_some(),
@@ -464,7 +474,7 @@ mod tests {
         assert!(outcome.profile.surfaces.gui);
         assert!(outcome.profile.surfaces.cli);
 
-        // Originals moved to backup.
+        // Originals moved to backup (using Claude spec dir names).
         assert!(!desktop.exists());
         assert!(!cli.exists());
         assert!(scratch.path().join("backup-12345/Claude/a.json").is_file());
@@ -492,7 +502,7 @@ mod tests {
         assert!(outcome.profile.surfaces.gui);
         assert!(!outcome.profile.surfaces.cli);
         assert!(!desktop.exists());
-        assert!(scratch.path().join("backup-12345/Claude/a.json").is_file());
+        assert!(scratch.path().join("backup-12345/Claude/a.json").is_file()); // Claude spec gui_support_dir_name
         assert!(scratch.path().join("profile/gui-data/a.json").is_file());
         assert!(!scratch.path().join("profile/cli-config").exists());
     }
@@ -502,6 +512,7 @@ mod tests {
         let scratch = tempdir().unwrap();
         let params = ImportParams {
             id: "22222222-2222-2222-2222-222222222222".into(),
+            app: crate::app_kind::AppKind::Claude,
             name: "Default".into(),
             color: "#7C3AED".into(),
             include_gui: false,
@@ -538,6 +549,7 @@ mod tests {
         // include_gui=true but gui_source=Some(non-existent) — should fail step 2 and roll back.
         let params = ImportParams {
             id: "33333333-3333-3333-3333-333333333333".into(),
+            app: crate::app_kind::AppKind::Claude,
             name: "Default".into(),
             color: "#7C3AED".into(),
             include_gui: true,

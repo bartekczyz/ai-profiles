@@ -22,8 +22,8 @@ export function CreateProfileDialog({ open, dependencies, submitting, onClose, o
   const [color, setColor] = useState<string>(presetColors[0])
   const [surfaces, setSurfaces] = useState<Surfaces>({ gui: true, cli: true })
 
-  const effectiveGui = surfaces.gui && dependencies.claudeAppInstalled
-  const effectiveCli = surfaces.cli && dependencies.claudeCliInstalled
+  const effectiveGui = surfaces.gui && dependencies.apps.claude.guiInstalled
+  const effectiveCli = surfaces.cli && dependencies.apps.claude.cliInstalled
   const canSubmit = name.trim().length > 0 && isValidHexColor(color) && (effectiveGui || effectiveCli)
 
   async function handleSubmit() {

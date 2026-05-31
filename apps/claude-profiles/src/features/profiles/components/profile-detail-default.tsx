@@ -2,7 +2,7 @@ import type { DefaultEntry } from '@/lib/types'
 
 import { Suspense, useState } from 'react'
 
-import { copyToClipboard, openClaudeGui } from '@/lib/commands'
+import { copyToClipboard, openDefaultGui } from '@/lib/commands'
 
 import { useProfilePaths } from '../api/use-profile-paths'
 import { OutlinedSwatch } from './outlined-swatch'
@@ -62,7 +62,7 @@ function DefaultSurfaceCards({ entry, onError }: DefaultSurfaceCardsProps) {
         if (paths.guiLauncherPath === null) {
           return
         }
-        await openClaudeGui(paths.guiDataDir)
+        await openDefaultGui(entry.app, paths.guiDataDir)
       }}
       onCopyCli={async () => {
         await copyToClipboard('claude')

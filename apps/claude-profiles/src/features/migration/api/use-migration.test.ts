@@ -17,19 +17,21 @@ beforeEach(() => {
 describe('useMigration', () => {
   it('loads detection result on mount and reports anyDetected', async () => {
     mockInvoke.mockResolvedValueOnce({
-      claudeDesktopPath: '/Users/me/Library/Application Support/Claude',
-      claudeCodePath: null,
+      guiPath: '/Users/me/Library/Application Support/Claude',
+      cliPath: null,
+      guiSizeBytes: null,
+      cliSizeBytes: null,
     })
 
     const { result } = renderHookWithQuery(() => useMigration())
 
     await waitFor(() => expect(result.current).not.toBeNull())
-    expect(result.current.existing.claudeDesktopPath).toMatch(/Claude$/)
+    expect(result.current.existing.guiPath).toMatch(/Claude$/)
     expect(result.current.anyDetected).toBe(true)
   })
 
   it('reports anyDetected=false when neither path was found', async () => {
-    mockInvoke.mockResolvedValueOnce({ claudeDesktopPath: null, claudeCodePath: null })
+    mockInvoke.mockResolvedValueOnce({ guiPath: null, cliPath: null, guiSizeBytes: null, cliSizeBytes: null })
 
     const { result } = renderHookWithQuery(() => useMigration())
 
@@ -38,12 +40,13 @@ describe('useMigration', () => {
   })
 
   it('import passes the input through to invoke', async () => {
-    mockInvoke.mockResolvedValueOnce({ claudeDesktopPath: '/x', claudeCodePath: null })
+    mockInvoke.mockResolvedValueOnce({ guiPath: '/x', cliPath: null, guiSizeBytes: null, cliSizeBytes: null })
     const { result } = renderHookWithQuery(() => useMigration())
     await waitFor(() => expect(result.current).not.toBeNull())
 
     const fakeProfile = {
       id: '1',
+      app: 'claude',
       name: 'Default',
       slug: 'default',
       color: '#d97757',
@@ -65,6 +68,7 @@ describe('useMigration', () => {
     })
     expect(returned).toEqual(fakeProfile)
     expect(mockInvoke).toHaveBeenLastCalledWith('import_existing_install', {
+      app: 'claude',
       input: { name: 'Default', color: '#d97757', includeGui: true, includeCli: false },
     })
   })

@@ -1,29 +1,48 @@
 //! Detect external dependencies the app relies on: Claude Desktop, the
-//! Claude Code CLI, and whether `~/.local/bin` is on the user's interactive
-//! shell PATH.
+//! Claude Code CLI, Codex Desktop, the Codex CLI, and whether
+//! `~/.local/bin` is on the user's interactive shell PATH.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
+use crate::app_kind::{spec, AppKind, AppSpec};
 use crate::error::AppResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct AppDependency {
+    pub gui_installed: bool,
+    pub cli_installed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct Dependencies {
-    pub claude_app_installed: bool,
-    pub claude_cli_installed: bool,
+    /// Per-app install status, keyed by the lowercase app token.
+    pub apps: HashMap<String, AppDependency>,
     pub local_bin_on_path: bool,
 }
 
 pub fn check_dependencies() -> AppResult<Dependencies> {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
     let shell_path = cached_shell_path(&home);
+    let mut apps = HashMap::new();
+    for kind in [AppKind::Claude, AppKind::Codex] {
+        let app_spec = spec(kind);
+        apps.insert(
+            kind.as_str().to_string(),
+            AppDependency {
+                gui_installed: gui_app_exists(app_spec),
+                cli_installed: find_cli_in_path(app_spec.cli_binary, &shell_path, &home),
+            },
+        );
+    }
     Ok(Dependencies {
-        claude_app_installed: claude_app_exists(),
-        claude_cli_installed: find_claude_in_path(&shell_path, &home),
+        apps,
         local_bin_on_path: is_local_bin_in_path(&shell_path, &home),
     })
 }
@@ -64,18 +83,17 @@ pub fn is_local_bin_in_path(path_string: &str, home: &Path) -> bool {
         .any(|segment| segment == target || segment == target_tilde)
 }
 
-pub fn find_claude_in_path(path_string: &str, home: &Path) -> bool {
+pub fn find_cli_in_path(binary: &str, path_string: &str, home: &Path) -> bool {
     for segment in path_string.split(':') {
-        let candidate = PathBuf::from(segment.trim()).join("claude");
-        if candidate.is_file() {
+        if PathBuf::from(segment.trim()).join(binary).is_file() {
             return true;
         }
     }
-    home.join(".local").join("bin").join("claude").is_file()
+    home.join(".local").join("bin").join(binary).is_file()
 }
 
-pub fn claude_app_exists() -> bool {
-    crate::paths::gui_app_bundle(&crate::app_kind::CLAUDE).is_dir()
+pub fn gui_app_exists(spec: &AppSpec) -> bool {
+    crate::paths::gui_app_bundle(spec).is_dir()
 }
 
 fn get_shell_path() -> Option<String> {
@@ -124,28 +142,34 @@ mod tests {
     }
 
     #[test]
-    fn find_claude_finds_binary_via_path() {
+    fn find_cli_finds_named_binary_via_path() {
         let home = tempdir().unwrap();
-        let bin = home.path().join("custom-bin");
+        let bin = home.path().join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        let claude = bin.join("claude");
-        std::fs::write(&claude, "#!/bin/bash\n").unwrap();
-        let path = format!("{}:{}", bin.display(), "/usr/bin");
-        assert!(find_claude_in_path(&path, home.path()));
+        std::fs::write(bin.join("codex"), "#!/bin/bash\n").unwrap();
+        let path = format!("{}:/usr/bin", bin.display());
+        assert!(find_cli_in_path("codex", &path, home.path()));
+        assert!(!find_cli_in_path("claude", &path, home.path()));
     }
 
     #[test]
-    fn find_claude_falls_back_to_local_bin_even_when_not_on_path() {
+    fn find_cli_falls_back_to_local_bin_even_when_not_on_path() {
         let home = tempdir().unwrap();
         let local_bin = home.path().join(".local").join("bin");
         std::fs::create_dir_all(&local_bin).unwrap();
         std::fs::write(local_bin.join("claude"), "#!/bin/bash\n").unwrap();
-        assert!(find_claude_in_path("/usr/bin:/bin", home.path()));
+        assert!(find_cli_in_path("claude", "/usr/bin:/bin", home.path()));
     }
 
     #[test]
-    fn find_claude_returns_false_when_truly_missing() {
+    fn find_cli_returns_false_when_truly_missing() {
         let home = tempdir().unwrap();
-        assert!(!find_claude_in_path("/usr/bin:/bin", home.path()));
+        assert!(!find_cli_in_path("claude", "/usr/bin:/bin", home.path()));
+    }
+
+    #[test]
+    fn gui_app_exists_checks_the_spec_bundle() {
+        // Smoke: function takes a spec and probes /Applications/<bundle>.
+        let _ = gui_app_exists(&crate::app_kind::CODEX);
     }
 }

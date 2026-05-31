@@ -3,7 +3,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use crate::activity::{self, Activity, ActivityKind};
-use crate::app_kind::CLAUDE;
+use crate::app_kind::{spec, AppKind};
 use crate::app_state::{self, AppState, AppStatePatch};
 use crate::deps::{self, Dependencies};
 use crate::error::{AppError, AppResult};
@@ -159,22 +159,23 @@ pub fn open_in_finder(path: String) -> AppResult<()> {
     Ok(())
 }
 
-/// Launch — or focus, if already running — the stock Claude desktop app bound
-/// to a specific `--user-data-dir`.
+/// Launch — or focus, if already running — the stock desktop app for `app`
+/// bound to a specific `--user-data-dir`.
 ///
 /// This is the default entry's counterpart to `open_profile_in_app`. It has no
 /// launcher `.app` bundle of its own, so it shells out to the same incantation
-/// those bundles use (`open -n -a "Claude" --args --user-data-dir=...`), just
+/// those bundles use (`open -n -a "<AppName>" --args --user-data-dir=...`), just
 /// pointed at the stock data directory.
 ///
-/// `focus_or_launch` provides the single-instance guarantee: Claude does not
-/// dedupe by data dir (a bare `open -n` would spawn an unbounded number of
-/// stock windows), so we detect an existing instance ourselves and focus it
+/// `focus_or_launch` provides the single-instance guarantee: neither Claude nor
+/// Codex dedupes by data dir (a bare `open -n` would spawn an unbounded number
+/// of stock windows), so we detect an existing instance ourselves and focus it
 /// instead of launching another.
 #[tauri::command]
-pub fn open_claude_gui(data_dir: String) -> AppResult<()> {
-    crate::launch::focus_or_launch(&data_dir, &CLAUDE, || {
-        crate::launch::open_new_instance(&data_dir, &CLAUDE)
+pub fn open_default_gui(app: AppKind, data_dir: String) -> AppResult<()> {
+    let app_spec = spec(app);
+    crate::launch::focus_or_launch(&data_dir, app_spec, || {
+        crate::launch::open_new_instance(&data_dir, app_spec)
     })
 }
 
@@ -236,21 +237,20 @@ pub fn record_activity(
 }
 
 #[tauri::command]
-pub fn detect_existing_claude_install() -> AppResult<ExistingInstall> {
-    let desktop = stock_gui_support_dir(&CLAUDE)?;
-    let code = stock_cli_config_dir(&CLAUDE)?;
-    Ok(migration::detect(&desktop, &code))
+pub fn detect_existing_install(app: AppKind) -> AppResult<ExistingInstall> {
+    migration::detect_for(app)
 }
 
-/// Lazy companion to `detect_existing_claude_install`. The boot-time
-/// detection skips the recursive directory walks because they can take
-/// 0.5–1s on a large `~/.claude`; the MigrationDialog calls this when
-/// it opens so the size column populates a beat later instead of
-/// blocking the whole app shell.
+/// Lazy companion to `detect_existing_install`. The boot-time detection
+/// skips the recursive directory walks because they can take 0.5–1s on
+/// a large `~/.claude`; the MigrationDialog calls this when it opens so
+/// the size column populates a beat later instead of blocking the whole
+/// app shell.
 #[tauri::command]
-pub fn detect_existing_claude_sizes() -> AppResult<ExistingInstallSizes> {
-    let desktop = stock_gui_support_dir(&CLAUDE)?;
-    let code = stock_cli_config_dir(&CLAUDE)?;
+pub fn detect_existing_sizes(app: AppKind) -> AppResult<ExistingInstallSizes> {
+    let app_spec = spec(app);
+    let desktop = stock_gui_support_dir(app_spec)?;
+    let code = stock_cli_config_dir(app_spec)?;
     Ok(migration::detect_sizes(&desktop, &code))
 }
 
@@ -264,20 +264,23 @@ pub struct ImportExistingInput {
 }
 
 #[tauri::command]
-pub fn import_existing_install(input: ImportExistingInput) -> AppResult<Profile> {
-    let desktop_path = stock_gui_support_dir(&CLAUDE)?;
-    let cli_path = stock_cli_config_dir(&CLAUDE)?;
+pub fn import_existing_install(app: AppKind, input: ImportExistingInput) -> AppResult<Profile> {
+    let app_spec = spec(app);
+    let desktop_path = stock_gui_support_dir(app_spec)?;
+    let cli_path = stock_cli_config_dir(app_spec)?;
     let existing = migration::detect(&desktop_path, &cli_path);
 
-    if input.include_gui && existing.claude_desktop_path.is_none() {
-        return Err(AppError::NotFound(
-            "no existing Claude Desktop install found".into(),
-        ));
+    if input.include_gui && existing.gui_path.is_none() {
+        return Err(AppError::NotFound(format!(
+            "no existing {} Desktop install found",
+            app_spec.display_name
+        )));
     }
-    if input.include_cli && existing.claude_code_path.is_none() {
-        return Err(AppError::NotFound(
-            "no existing Claude Code install found".into(),
-        ));
+    if input.include_cli && existing.cli_path.is_none() {
+        return Err(AppError::NotFound(format!(
+            "no existing {} CLI install found",
+            app_spec.display_name
+        )));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -286,6 +289,7 @@ pub fn import_existing_install(input: ImportExistingInput) -> AppResult<Profile>
 
     let outcome = migration::import(ImportParams {
         id,
+        app,
         name: input.name,
         color: input.color,
         include_gui: input.include_gui,
@@ -345,16 +349,17 @@ fn rollback_import(
     profile_dir_path: &std::path::Path,
     backup: &std::path::Path,
 ) {
+    let app_spec = spec(profile.app);
     if profile.surfaces.gui {
-        let backup_gui = backup.join("Claude");
-        let original = stock_gui_support_dir(&CLAUDE).ok();
+        let backup_gui = backup.join(app_spec.gui_support_dir_name);
+        let original = stock_gui_support_dir(app_spec).ok();
         if let (true, Some(target)) = (backup_gui.exists(), original) {
             let _ = std::fs::rename(&backup_gui, &target);
         }
     }
     if profile.surfaces.cli {
-        let backup_cli = backup.join(".claude");
-        let original = stock_cli_config_dir(&CLAUDE).ok();
+        let backup_cli = backup.join(app_spec.cli_stock_config_dir_name);
+        let original = stock_cli_config_dir(app_spec).ok();
         if let (true, Some(target)) = (backup_cli.exists(), original) {
             let _ = std::fs::rename(&backup_cli, &target);
         }
@@ -461,10 +466,8 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
 }
 
 fn resolve_cli_config_dir(profile_id: &str) -> AppResult<PathBuf> {
-    if profile_id == "default:claude" {
-        let home =
-            dirs::home_dir().ok_or_else(|| AppError::Io(std::io::Error::other("no home dir")))?;
-        return Ok(home.join(".claude"));
+    if let Some(kind) = AppKind::from_default_id(profile_id) {
+        return stock_cli_config_dir(spec(kind));
     }
     let profile_root = profile_data_dir(profile_id)?;
     Ok(profile_root.join("cli-config"))
@@ -475,11 +478,17 @@ mod usage_routing_tests {
     use super::*;
 
     #[test]
-    fn resolve_cli_config_dir_for_default_points_at_home_dot_claude() {
+    fn resolve_cli_config_dir_for_default_claude_points_at_dot_claude() {
         let resolved = resolve_cli_config_dir("default:claude").expect("home resolvable");
         assert!(resolved.ends_with(".claude"));
         let parent = resolved.parent().expect("has parent");
         assert_eq!(parent, dirs::home_dir().unwrap().as_path());
+    }
+
+    #[test]
+    fn resolve_cli_config_dir_for_default_codex_points_at_dot_codex() {
+        let resolved = resolve_cli_config_dir("default:codex").expect("home resolvable");
+        assert!(resolved.ends_with(".codex"));
     }
 
     #[test]

@@ -9,8 +9,10 @@ import { ToastProvider } from '@/design'
 import { CreateProfileDialog } from './create-profile-dialog'
 
 const ALL_INSTALLED: Dependencies = {
-  claudeAppInstalled: true,
-  claudeCliInstalled: true,
+  apps: {
+    claude: { guiInstalled: true, cliInstalled: true },
+    codex: { guiInstalled: false, cliInstalled: false },
+  },
   localBinOnPath: true,
 }
 
@@ -126,21 +128,35 @@ describe('CreateProfileDialog — dependency awareness', () => {
   }
 
   it('disables the Desktop surface when Claude.app is missing', () => {
-    renderWith({ ...ALL_INSTALLED, claudeAppInstalled: false })
+    renderWith({
+      apps: {
+        claude: { guiInstalled: false, cliInstalled: true },
+        codex: { guiInstalled: false, cliInstalled: false },
+      },
+      localBinOnPath: true,
+    })
     expect(screen.getByRole('checkbox', { name: /Desktop App launcher/ })).toBeDisabled()
     expect(screen.getByText(/Claude Desktop/)).toBeInTheDocument()
   })
 
   it('disables the CLI surface when claude is missing and shows the install hint', () => {
-    renderWith({ ...ALL_INSTALLED, claudeCliInstalled: false })
+    renderWith({
+      apps: {
+        claude: { guiInstalled: true, cliInstalled: false },
+        codex: { guiInstalled: false, cliInstalled: false },
+      },
+      localBinOnPath: true,
+    })
     expect(screen.getByRole('checkbox', { name: /Claude Code CLI wrapper/ })).toBeDisabled()
     expect(screen.getByText(/npm install -g @anthropic-ai\/claude-code/)).toBeInTheDocument()
   })
 
   it('disables submit when both surfaces are unavailable', async () => {
     const { user } = renderWith({
-      claudeAppInstalled: false,
-      claudeCliInstalled: false,
+      apps: {
+        claude: { guiInstalled: false, cliInstalled: false },
+        codex: { guiInstalled: false, cliInstalled: false },
+      },
       localBinOnPath: true,
     })
     await user.type(screen.getByLabelText('Name'), 'Personal')
@@ -153,7 +169,13 @@ describe('CreateProfileDialog — dependency awareness', () => {
       <ToastProvider>
         <CreateProfileDialog
           open
-          dependencies={{ ...ALL_INSTALLED, claudeAppInstalled: false }}
+          dependencies={{
+            apps: {
+              claude: { guiInstalled: false, cliInstalled: true },
+              codex: { guiInstalled: false, cliInstalled: false },
+            },
+            localBinOnPath: true,
+          }}
           onClose={vi.fn()}
           onCreate={onCreate}
         />

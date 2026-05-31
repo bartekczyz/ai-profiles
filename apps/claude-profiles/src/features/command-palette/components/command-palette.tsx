@@ -137,8 +137,8 @@ export function CommandPalette({
             leading={<Download className="h-3.5 w-3.5 text-muted" strokeWidth={1.85} />}
             disabled={
               entries.some((entry) => entry.kind === 'managed') &&
-              !dependencies.claudeAppInstalled &&
-              !dependencies.claudeCliInstalled
+              !dependencies.apps.claude.guiInstalled &&
+              !dependencies.apps.claude.cliInstalled
             }
           >
             Detect and import…

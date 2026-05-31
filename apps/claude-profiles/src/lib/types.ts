@@ -67,24 +67,23 @@ export type ProfilePaths = {
 }
 
 export type ExistingInstallInfo = {
-  claudeDesktopPath: string | null
-  claudeCodePath: string | null
+  guiPath: string | null
+  cliPath: string | null
   /**
    * Bytes on disk for each detected install. `null` when the corresponding
    * path is also `null` (nothing detected) OR when the size walk hasn't
-   * run yet — the boot-time `detect_existing_claude_install` IPC returns
-   * `null` here to keep startup fast; sizes arrive later via
-   * `detect_existing_claude_sizes`. Permission-denied subpaths during the
-   * walk are silently skipped on the Rust side, so the eventual value is
-   * best-effort.
+   * run yet — the boot-time `detect_existing_install` IPC returns `null`
+   * here to keep startup fast; sizes arrive later via `detect_existing_sizes`.
+   * Permission-denied subpaths during the walk are silently skipped on the
+   * Rust side, so the eventual value is best-effort.
    */
-  claudeDesktopSizeBytes: number | null
-  claudeCodeSizeBytes: number | null
+  guiSizeBytes: number | null
+  cliSizeBytes: number | null
 }
 
 export type ExistingInstallSizes = {
-  claudeDesktopSizeBytes: number | null
-  claudeCodeSizeBytes: number | null
+  guiSizeBytes: number | null
+  cliSizeBytes: number | null
 }
 
 export type ImportExistingInput = {
@@ -101,9 +100,13 @@ export type MigrationBackupInfo = {
   eligibleForCleanup: boolean
 }
 
+export type AppDependency = {
+  guiInstalled: boolean
+  cliInstalled: boolean
+}
+
 export type Dependencies = {
-  claudeAppInstalled: boolean
-  claudeCliInstalled: boolean
+  apps: Record<AppId, AppDependency>
   localBinOnPath: boolean
 }
 

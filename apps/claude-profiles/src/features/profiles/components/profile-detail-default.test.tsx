@@ -29,12 +29,14 @@ vi.mock('@/lib/commands', async () => {
       fetchedAt: '2099-01-01T00:00:00Z',
     })),
     checkDependencies: vi.fn(async () => ({
-      claudeAppInstalled: true,
-      claudeCliInstalled: true,
+      apps: {
+        claude: { guiInstalled: true, cliInstalled: true },
+        codex: { guiInstalled: false, cliInstalled: false },
+      },
       localBinOnPath: true,
     })),
     openInFinder: vi.fn(async () => {}),
-    openClaudeGui: vi.fn(async () => {}),
+    openDefaultGui: vi.fn(async () => {}),
     copyToClipboard: vi.fn(async () => {}),
   }
 })

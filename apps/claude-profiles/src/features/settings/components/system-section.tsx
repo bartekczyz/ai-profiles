@@ -1,5 +1,5 @@
 import type { StatusTone } from '@/design'
-import type { Shell } from '@/lib/types'
+import type { Dependencies, Shell } from '@/lib/types'
 
 import { useEffect, useState } from 'react'
 
@@ -49,7 +49,7 @@ const MISSING_DETAIL = '—'
 const REFRESH_FLASH_MS = 1500
 
 function buildRows(
-  deps: { claudeAppInstalled: boolean; claudeCliInstalled: boolean; localBinOnPath: boolean },
+  deps: Dependencies,
   shell: Shell | null,
   updater: { tone: StatusTone; detail: string },
   version: string,
@@ -57,12 +57,12 @@ function buildRows(
   return [
     {
       label: 'Claude Desktop',
-      tone: deps.claudeAppInstalled ? 'success' : 'warning',
+      tone: deps.apps.claude.guiInstalled ? 'success' : 'warning',
       detail: MISSING_DETAIL,
     },
     {
       label: 'Claude Code CLI',
-      tone: deps.claudeCliInstalled ? 'success' : 'warning',
+      tone: deps.apps.claude.cliInstalled ? 'success' : 'warning',
       detail: MISSING_DETAIL,
     },
     {

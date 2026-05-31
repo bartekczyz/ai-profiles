@@ -24,8 +24,10 @@ vi.mock('@tauri-apps/api/app', () => ({ getVersion: vi.fn().mockResolvedValue('0
 const mockInvoke = vi.mocked(invoke)
 
 const HEALTHY_DEPS = {
-  claudeAppInstalled: true,
-  claudeCliInstalled: true,
+  apps: {
+    claude: { guiInstalled: true, cliInstalled: true },
+    codex: { guiInstalled: false, cliInstalled: false },
+  },
   localBinOnPath: true,
 }
 
@@ -37,10 +39,10 @@ const DEFAULT_STATE = {
 }
 
 const DEFAULT_EXISTING = {
-  claudeDesktopPath: null,
-  claudeCodePath: null,
-  claudeDesktopSizeBytes: null,
-  claudeCodeSizeBytes: null,
+  guiPath: null,
+  cliPath: null,
+  guiSizeBytes: null,
+  cliSizeBytes: null,
 }
 
 const DEFAULT_METADATA = {
@@ -88,7 +90,7 @@ function primeInitialLoads({
     if (command === 'detect_shell') {
       return shell
     }
-    if (command === 'detect_existing_claude_install') {
+    if (command === 'detect_existing_install') {
       return existing
     }
     if (command === 'get_app_metadata') {
@@ -122,10 +124,10 @@ describe('SettingsView', () => {
   it('renders the Re-import action card when an install is detected', async () => {
     primeInitialLoads({
       existing: {
-        claudeDesktopPath: '/Users/me/Library/Application Support/Claude',
-        claudeCodePath: null,
-        claudeDesktopSizeBytes: 248 * 1024 * 1024,
-        claudeCodeSizeBytes: null,
+        guiPath: '/Users/me/Library/Application Support/Claude',
+        cliPath: null,
+        guiSizeBytes: 248 * 1024 * 1024,
+        cliSizeBytes: null,
       },
     })
     renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} onOpenAbout={vi.fn()} />)
@@ -143,10 +145,10 @@ describe('SettingsView', () => {
   it('Re-import button calls onOpenMigration', async () => {
     primeInitialLoads({
       existing: {
-        claudeDesktopPath: '/Users/me/Library/Application Support/Claude',
-        claudeCodePath: null,
-        claudeDesktopSizeBytes: null,
-        claudeCodeSizeBytes: null,
+        guiPath: '/Users/me/Library/Application Support/Claude',
+        cliPath: null,
+        guiSizeBytes: null,
+        cliSizeBytes: null,
       },
     })
     const onOpenMigration = vi.fn()

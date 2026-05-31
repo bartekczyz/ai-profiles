@@ -31,10 +31,10 @@ const FAKE_PROFILE: Profile = {
 
 function existing(overrides: Partial<ExistingInstallInfo> = {}): ExistingInstallInfo {
   return {
-    claudeDesktopPath: '/Users/me/Library/Application Support/Claude',
-    claudeCodePath: '/Users/me/.claude',
-    claudeDesktopSizeBytes: 248 * 1024 * 1024,
-    claudeCodeSizeBytes: 4 * 1024 * 1024,
+    guiPath: '/Users/me/Library/Application Support/Claude',
+    cliPath: '/Users/me/.claude',
+    guiSizeBytes: 248 * 1024 * 1024,
+    cliSizeBytes: 4 * 1024 * 1024,
     ...overrides,
   }
 }
@@ -45,8 +45,8 @@ function setup(detected: ExistingInstallInfo, overrides: Partial<Parameters<type
   // that override these (e.g. "omits the size span when size is missing")
   // get the matching pre-stocked response.
   mockInvoke.mockResolvedValue({
-    claudeDesktopSizeBytes: detected.claudeDesktopSizeBytes,
-    claudeCodeSizeBytes: detected.claudeCodeSizeBytes,
+    guiSizeBytes: detected.guiSizeBytes,
+    cliSizeBytes: detected.cliSizeBytes,
   })
   const onClose = vi.fn()
   const onImport = vi.fn().mockResolvedValue(FAKE_PROFILE)
@@ -56,7 +56,7 @@ function setup(detected: ExistingInstallInfo, overrides: Partial<Parameters<type
 
 describe('MigrationDialog', () => {
   it('renders only the surfaces that were detected', () => {
-    setup(existing({ claudeCodePath: null, claudeCodeSizeBytes: null }))
+    setup(existing({ cliPath: null, cliSizeBytes: null }))
     expect(screen.getByLabelText(/Desktop app data/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/Claude Code CLI config/i)).not.toBeInTheDocument()
   })
@@ -74,14 +74,14 @@ describe('MigrationDialog', () => {
 
   it('shows formatted sizes alongside each detected path', async () => {
     setup(existing())
-    // Sizes arrive via the lazy `detect_existing_claude_sizes` query
+    // Sizes arrive via the lazy `detect_existing_sizes` query
     // that fires when the dialog opens — wait for it.
     expect(await screen.findByText(/248 MB/)).toBeInTheDocument()
     expect(await screen.findByText(/4\.0 MB/)).toBeInTheDocument()
   })
 
   it('omits the size span when size is missing', () => {
-    setup(existing({ claudeDesktopSizeBytes: null, claudeCodeSizeBytes: null }))
+    setup(existing({ guiSizeBytes: null, cliSizeBytes: null }))
     expect(screen.queryByText(/MB/)).not.toBeInTheDocument()
   })
 
@@ -109,13 +109,13 @@ describe('MigrationDialog', () => {
   })
 
   it('surfaces backend errors without closing', async () => {
-    mockInvoke.mockResolvedValue({ claudeDesktopSizeBytes: null, claudeCodeSizeBytes: null })
+    mockInvoke.mockResolvedValue({ guiSizeBytes: null, cliSizeBytes: null })
     const onImport = vi.fn().mockRejectedValue(new Error('disk full'))
     const onClose = vi.fn()
     renderWithQuery(
       <MigrationDialog
         open
-        existing={existing({ claudeCodePath: null, claudeCodeSizeBytes: null })}
+        existing={existing({ cliPath: null, cliSizeBytes: null })}
         onClose={onClose}
         onImport={onImport}
       />,

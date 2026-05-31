@@ -34,8 +34,8 @@ export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
   const sizes = useMigrationSizes(open)
   const [name, setName] = useState('Default')
   const [color, setColor] = useState<string>(presetColors[0])
-  const [includeGui, setIncludeGui] = useState(existing.claudeDesktopPath !== null)
-  const [includeCli, setIncludeCli] = useState(existing.claudeCodePath !== null)
+  const [includeGui, setIncludeGui] = useState(existing.guiPath !== null)
+  const [includeCli, setIncludeCli] = useState(existing.cliPath !== null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -87,19 +87,11 @@ export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
               Detected
             </div>
             <ul className="overflow-hidden rounded-lg border border-border bg-white dark:bg-cream-2">
-              {existing.claudeDesktopPath ? (
-                <DetectedRow
-                  label="Claude Desktop"
-                  path={existing.claudeDesktopPath}
-                  sizeBytes={sizes.claudeDesktopSizeBytes}
-                />
+              {existing.guiPath ? (
+                <DetectedRow label="Claude Desktop" path={existing.guiPath} sizeBytes={sizes.guiSizeBytes} />
               ) : null}
-              {existing.claudeCodePath ? (
-                <DetectedRow
-                  label="Claude Code CLI"
-                  path={existing.claudeCodePath}
-                  sizeBytes={sizes.claudeCodeSizeBytes}
-                />
+              {existing.cliPath ? (
+                <DetectedRow label="Claude Code CLI" path={existing.cliPath} sizeBytes={sizes.cliSizeBytes} />
               ) : null}
             </ul>
           </section>
@@ -142,7 +134,7 @@ export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
               What to import
             </legend>
             <div className="flex flex-col gap-1.5 text-body text-ink-soft">
-              {existing.claudeDesktopPath ? (
+              {existing.guiPath ? (
                 <label className="flex cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"
@@ -153,7 +145,7 @@ export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
                   Desktop app data (history, login)
                 </label>
               ) : null}
-              {existing.claudeCodePath ? (
+              {existing.cliPath ? (
                 <label className="flex cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"

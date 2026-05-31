@@ -25,7 +25,7 @@ type Props = {
  *   without at least one surface.
  */
 export function EmptyStateScreen({ dependencies, onCreate, onRefresh }: Props) {
-  const claudeMissing = !dependencies.claudeAppInstalled && !dependencies.claudeCliInstalled
+  const claudeMissing = !dependencies.apps.claude.guiInstalled && !dependencies.apps.claude.cliInstalled
 
   if (claudeMissing) {
     return <ClaudeNotDetected onRefresh={onRefresh} />

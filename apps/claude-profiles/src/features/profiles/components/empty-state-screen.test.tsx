@@ -7,14 +7,18 @@ import { describe, expect, it, vi } from 'vitest'
 import { EmptyStateScreen } from './empty-state-screen'
 
 const allInstalled: Dependencies = {
-  claudeAppInstalled: true,
-  claudeCliInstalled: true,
+  apps: {
+    claude: { guiInstalled: true, cliInstalled: true },
+    codex: { guiInstalled: false, cliInstalled: false },
+  },
   localBinOnPath: true,
 }
 
 const noneInstalled: Dependencies = {
-  claudeAppInstalled: false,
-  claudeCliInstalled: false,
+  apps: {
+    claude: { guiInstalled: false, cliInstalled: false },
+    codex: { guiInstalled: false, cliInstalled: false },
+  },
   localBinOnPath: false,
 }
 
@@ -37,7 +41,13 @@ describe('EmptyStateScreen', () => {
   it('falls back to the create CTA when only one surface is installed', () => {
     render(
       <EmptyStateScreen
-        dependencies={{ ...allInstalled, claudeCliInstalled: false }}
+        dependencies={{
+          apps: {
+            claude: { guiInstalled: true, cliInstalled: false },
+            codex: { guiInstalled: false, cliInstalled: false },
+          },
+          localBinOnPath: false,
+        }}
         onCreate={vi.fn()}
         onRefresh={vi.fn()}
       />,

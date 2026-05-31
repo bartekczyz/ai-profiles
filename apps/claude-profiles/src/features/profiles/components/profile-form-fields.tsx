@@ -85,13 +85,13 @@ export function ProfileFormFields({
       <Field label="Surfaces">
         <div className="flex flex-col gap-2.5">
           <SurfaceToggle
-            checked={surfaces.gui && dependencies.claudeAppInstalled}
-            disabled={!dependencies.claudeAppInstalled}
+            checked={surfaces.gui && dependencies.apps.claude.guiInstalled}
+            disabled={!dependencies.apps.claude.guiInstalled}
             title="Desktop App launcher"
             description="Creates /Applications/Claude (Name).app with an isolated user-data directory."
             onChange={(next) => onSurfacesChange({ ...surfaces, gui: next })}
           />
-          {!dependencies.claudeAppInstalled ? (
+          {!dependencies.apps.claude.guiInstalled ? (
             <p className="pl-7 font-mono text-mono text-muted-strong">
               Install{' '}
               <a className="underline" href="https://claude.ai/download" target="_blank" rel="noreferrer">
@@ -101,13 +101,13 @@ export function ProfileFormFields({
             </p>
           ) : null}
           <SurfaceToggle
-            checked={surfaces.cli && dependencies.claudeCliInstalled}
-            disabled={!dependencies.claudeCliInstalled}
+            checked={surfaces.cli && dependencies.apps.claude.cliInstalled}
+            disabled={!dependencies.apps.claude.cliInstalled}
             title="Claude Code CLI wrapper"
             description="Exposes claude-{slug} in ~/.local/bin, pointed at this profile."
             onChange={(next) => onSurfacesChange({ ...surfaces, cli: next })}
           />
-          {!dependencies.claudeCliInstalled ? (
+          {!dependencies.apps.claude.cliInstalled ? (
             <p className="pl-7 font-mono text-mono text-muted-strong">
               Install Claude Code first: <code>npm install -g @anthropic-ai/claude-code</code>
             </p>

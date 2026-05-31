@@ -37,8 +37,10 @@ function defaultEntry(): SidebarEntry {
 }
 
 const DEPS: Dependencies = {
-  claudeAppInstalled: true,
-  claudeCliInstalled: true,
+  apps: {
+    claude: { guiInstalled: true, cliInstalled: true },
+    codex: { guiInstalled: false, cliInstalled: false },
+  },
   localBinOnPath: true,
 }
 
