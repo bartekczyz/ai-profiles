@@ -3,6 +3,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use crate::activity::{self, Activity, ActivityKind};
+use crate::app_kind::CLAUDE;
 use crate::app_state::{self, AppState, AppStatePatch};
 use crate::deps::{self, Dependencies};
 use crate::error::{AppError, AppResult};
@@ -11,8 +12,8 @@ use crate::migration::{
 };
 use crate::path_setup::{self, PathHookOutcome, Shell};
 use crate::paths::{
-    activity_log_path, claude_code_install_path, claude_desktop_install_path, gui_launcher_path,
-    next_migration_backup_dir, profile_dir as profile_data_dir,
+    activity_log_path, gui_launcher_path, next_migration_backup_dir,
+    profile_dir as profile_data_dir, stock_cli_config_dir, stock_gui_support_dir,
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
 use crate::usage::{self, quota::ReqwestUsageClient, ProfileUsage};
@@ -34,7 +35,7 @@ pub fn list_profiles() -> AppResult<Vec<Profile>> {
 
 #[tauri::command]
 pub fn create_profile(name: String, color: String, surfaces: Surfaces) -> AppResult<Profile> {
-    let profile = profiles::create(&name, &color, surfaces)?;
+    let profile = profiles::create(crate::app_kind::AppKind::Claude, &name, &color, surfaces)?;
     record_silent(&profile.id, ActivityKind::Created, None);
     Ok(profile)
 }
@@ -120,8 +121,9 @@ pub fn open_profile_in_app(id: String) -> AppResult<Profile> {
     // icon). The bundle's data dir matches the launcher script's
     // `--user-data-dir`, so detection lines up with what actually runs.
     let data_dir = profile_data_dir(&id)?.join("gui-data");
-    let app_path = gui_launcher_path(&profile.name);
-    crate::launch::focus_or_launch(&data_dir.display().to_string(), || {
+    let spec = profile.app.spec();
+    let app_path = gui_launcher_path(&profile.name, spec);
+    crate::launch::focus_or_launch(&data_dir.display().to_string(), spec, || {
         let status = Command::new("open")
             .arg(&app_path)
             .status()
@@ -171,7 +173,9 @@ pub fn open_in_finder(path: String) -> AppResult<()> {
 /// instead of launching another.
 #[tauri::command]
 pub fn open_claude_gui(data_dir: String) -> AppResult<()> {
-    crate::launch::focus_or_launch(&data_dir, || crate::launch::open_new_instance(&data_dir))
+    crate::launch::focus_or_launch(&data_dir, &CLAUDE, || {
+        crate::launch::open_new_instance(&data_dir, &CLAUDE)
+    })
 }
 
 #[tauri::command]
@@ -233,8 +237,8 @@ pub fn record_activity(
 
 #[tauri::command]
 pub fn detect_existing_claude_install() -> AppResult<ExistingInstall> {
-    let desktop = claude_desktop_install_path()?;
-    let code = claude_code_install_path()?;
+    let desktop = stock_gui_support_dir(&CLAUDE)?;
+    let code = stock_cli_config_dir(&CLAUDE)?;
     Ok(migration::detect(&desktop, &code))
 }
 
@@ -245,8 +249,8 @@ pub fn detect_existing_claude_install() -> AppResult<ExistingInstall> {
 /// blocking the whole app shell.
 #[tauri::command]
 pub fn detect_existing_claude_sizes() -> AppResult<ExistingInstallSizes> {
-    let desktop = claude_desktop_install_path()?;
-    let code = claude_code_install_path()?;
+    let desktop = stock_gui_support_dir(&CLAUDE)?;
+    let code = stock_cli_config_dir(&CLAUDE)?;
     Ok(migration::detect_sizes(&desktop, &code))
 }
 
@@ -261,8 +265,8 @@ pub struct ImportExistingInput {
 
 #[tauri::command]
 pub fn import_existing_install(input: ImportExistingInput) -> AppResult<Profile> {
-    let desktop_path = claude_desktop_install_path()?;
-    let cli_path = claude_code_install_path()?;
+    let desktop_path = stock_gui_support_dir(&CLAUDE)?;
+    let cli_path = stock_cli_config_dir(&CLAUDE)?;
     let existing = migration::detect(&desktop_path, &cli_path);
 
     if input.include_gui && existing.claude_desktop_path.is_none() {
@@ -303,7 +307,10 @@ pub fn import_existing_install(input: ImportExistingInput) -> AppResult<Profile>
     if outcome.profile.surfaces.cli {
         if let Err(err) = crate::launchers::cli::generate(&outcome.profile) {
             if outcome.profile.surfaces.gui {
-                let _ = crate::launchers::gui::remove(&outcome.profile.name);
+                let _ = crate::launchers::gui::remove(
+                    &outcome.profile.name,
+                    outcome.profile.app.spec(),
+                );
             }
             rollback_import(&outcome.profile, &dir, &backup);
             return Err(err);
@@ -314,10 +321,12 @@ pub fn import_existing_install(input: ImportExistingInput) -> AppResult<Profile>
     all.push(outcome.profile.clone());
     if let Err(err) = profiles::save_all(&all) {
         if outcome.profile.surfaces.cli {
-            let _ = crate::launchers::cli::remove(&outcome.profile.slug);
+            let _ =
+                crate::launchers::cli::remove(&outcome.profile.slug, outcome.profile.app.spec());
         }
         if outcome.profile.surfaces.gui {
-            let _ = crate::launchers::gui::remove(&outcome.profile.name);
+            let _ =
+                crate::launchers::gui::remove(&outcome.profile.name, outcome.profile.app.spec());
         }
         rollback_import(&outcome.profile, &dir, &backup);
         return Err(err);
@@ -338,14 +347,14 @@ fn rollback_import(
 ) {
     if profile.surfaces.gui {
         let backup_gui = backup.join("Claude");
-        let original = claude_desktop_install_path().ok();
+        let original = stock_gui_support_dir(&CLAUDE).ok();
         if let (true, Some(target)) = (backup_gui.exists(), original) {
             let _ = std::fs::rename(&backup_gui, &target);
         }
     }
     if profile.surfaces.cli {
         let backup_cli = backup.join(".claude");
-        let original = claude_code_install_path().ok();
+        let original = stock_cli_config_dir(&CLAUDE).ok();
         if let (true, Some(target)) = (backup_cli.exists(), original) {
             let _ = std::fs::rename(&backup_cli, &target);
         }

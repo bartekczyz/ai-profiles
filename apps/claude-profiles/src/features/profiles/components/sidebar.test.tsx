@@ -11,6 +11,7 @@ function managedEntry(overrides: Partial<Profile> = {}): SidebarEntry {
     kind: 'managed',
     profile: {
       id: '1',
+      app: 'claude',
       name: 'Personal',
       slug: 'personal',
       color: '#d97757',

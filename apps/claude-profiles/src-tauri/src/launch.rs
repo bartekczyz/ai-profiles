@@ -10,20 +10,21 @@
 
 use std::process::Command;
 
+use crate::app_kind::AppSpec;
 use crate::error::{AppError, AppResult};
 
-/// Find the PID of the *main* Claude process bound to `data_dir` in `ps`
-/// output, or `None`.
+/// Find the PID of the *main* GUI process (exec `<gui_macos_exec>`) bound to
+/// `data_dir` in `ps` output, or `None`.
 ///
-/// Every running instance is one `…/Contents/MacOS/Claude
+/// Every running instance is one `…/Contents/MacOS/<exec>
 /// --user-data-dir=<dir>` process. Helper processes (renderer, GPU, network,
 /// …) carry the same flag, but they run a different executable
-/// (`…/MacOS/Claude Helper`) and always have trailing arguments. Requiring the
-/// line to end with `…/Contents/MacOS/Claude --user-data-dir=<dir>` therefore
+/// (`…/MacOS/<exec> Helper`) and always have trailing arguments. Requiring the
+/// line to end with `…/Contents/MacOS/<exec> --user-data-dir=<dir>` therefore
 /// matches only the main process and rejects helpers, the crashpad handler,
 /// and instances bound to any other data dir.
-pub fn find_running_claude_pid(ps_output: &str, data_dir: &str) -> Option<i32> {
-    let suffix = format!("/Contents/MacOS/Claude --user-data-dir={data_dir}");
+pub fn find_running_pid(ps_output: &str, data_dir: &str, gui_macos_exec: &str) -> Option<i32> {
+    let suffix = format!("/Contents/MacOS/{gui_macos_exec} --user-data-dir={data_dir}");
     for line in ps_output.lines() {
         let Some((pid, command)) = line.trim_start().split_once(char::is_whitespace) else {
             continue;
@@ -37,14 +38,14 @@ pub fn find_running_claude_pid(ps_output: &str, data_dir: &str) -> Option<i32> {
     None
 }
 
-/// Scan running processes for a main Claude bound to `data_dir`.
-fn running_claude_pid(data_dir: &str) -> AppResult<Option<i32>> {
+/// Scan running processes for a main GUI process bound to `data_dir`.
+fn running_pid(data_dir: &str, gui_macos_exec: &str) -> AppResult<Option<i32>> {
     let output = Command::new("ps")
         .args(["-ax", "-o", "pid=,command="])
         .output()
         .map_err(AppError::Io)?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(find_running_claude_pid(&stdout, data_dir))
+    Ok(find_running_pid(&stdout, data_dir, gui_macos_exec))
 }
 
 /// Surface the already-running instance that owns `pid`: ask it to reopen a
@@ -95,36 +96,37 @@ fn focus_pid(pid: i32) {
 #[cfg(not(target_os = "macos"))]
 fn focus_pid(_pid: i32) {}
 
-/// Focus the running Claude bound to `data_dir`, or run `launch` when none is
-/// running. This is the single-instance gate shared by the default entry and
-/// the managed profiles.
-pub fn focus_or_launch<F>(data_dir: &str, launch: F) -> AppResult<()>
+/// Focus the running GUI instance bound to `data_dir`, or run `launch` when
+/// none is running. This is the single-instance gate shared by the default
+/// entry and the managed profiles.
+pub fn focus_or_launch<F>(data_dir: &str, spec: &AppSpec, launch: F) -> AppResult<()>
 where
     F: FnOnce() -> AppResult<()>,
 {
-    if let Some(pid) = running_claude_pid(data_dir)? {
+    if let Some(pid) = running_pid(data_dir, spec.gui_macos_exec)? {
         focus_pid(pid);
         return Ok(());
     }
     launch()
 }
 
-/// Launch a fresh Claude instance bound to `data_dir` via
-/// `open -n -a "Claude" --args --user-data-dir=<dir>` — the same incantation
+/// Launch a fresh GUI instance bound to `data_dir` via
+/// `open -n -a "<app>" --args --user-data-dir=<dir>` — the same incantation
 /// the per-profile launcher `.app` bundles use, just invoked directly. Used
 /// by the default entry, which has no launcher bundle of its own.
-pub fn open_new_instance(data_dir: &str) -> AppResult<()> {
+pub fn open_new_instance(data_dir: &str, spec: &AppSpec) -> AppResult<()> {
     let status = Command::new("open")
         .arg("-n")
         .arg("-a")
-        .arg("Claude")
+        .arg(spec.gui_app_name)
         .arg("--args")
         .arg(format!("--user-data-dir={data_dir}"))
         .status()
         .map_err(AppError::Io)?;
     if !status.success() {
         return Err(AppError::Validation(format!(
-            "`open -n -a Claude --args --user-data-dir={data_dir}` exited with status {status}"
+            "`open -n -a {} --args --user-data-dir={data_dir}` exited with status {status}",
+            spec.gui_app_name
         )));
     }
     Ok(())
@@ -155,7 +157,7 @@ mod tests {
     #[test]
     fn matches_main_process_for_the_stock_data_dir() {
         assert_eq!(
-            find_running_claude_pid(&sample_ps(), STOCK_DIR),
+            find_running_pid(&sample_ps(), STOCK_DIR, "Claude"),
             Some(54587)
         );
     }
@@ -163,7 +165,7 @@ mod tests {
     #[test]
     fn matches_main_process_for_a_profile_data_dir() {
         assert_eq!(
-            find_running_claude_pid(&sample_ps(), PROFILE_DIR),
+            find_running_pid(&sample_ps(), PROFILE_DIR, "Claude"),
             Some(56318)
         );
     }
@@ -171,7 +173,7 @@ mod tests {
     #[test]
     fn returns_none_when_no_instance_is_bound_to_the_dir() {
         let other = "/Users/me/Library/Application Support/claude-profiles/profiles/zzz/gui-data";
-        assert_eq!(find_running_claude_pid(&sample_ps(), other), None);
+        assert_eq!(find_running_pid(&sample_ps(), other, "Claude"), None);
     }
 
     #[test]
@@ -181,7 +183,7 @@ mod tests {
         let helpers_only = format!(
             "  54590 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=renderer --user-data-dir={STOCK_DIR} --enable-sandbox\n"
         );
-        assert_eq!(find_running_claude_pid(&helpers_only, STOCK_DIR), None);
+        assert_eq!(find_running_pid(&helpers_only, STOCK_DIR, "Claude"), None);
     }
 
     #[test]
@@ -190,12 +192,23 @@ mod tests {
         // reverse: searching the stock dir must not match the longer profile
         // line, and vice versa.
         assert_ne!(
-            find_running_claude_pid(&sample_ps(), STOCK_DIR),
+            find_running_pid(&sample_ps(), STOCK_DIR, "Claude"),
             Some(56318)
         );
         assert_ne!(
-            find_running_claude_pid(&sample_ps(), PROFILE_DIR),
+            find_running_pid(&sample_ps(), PROFILE_DIR, "Claude"),
             Some(54587)
         );
+    }
+
+    #[test]
+    fn matches_per_app_exec_name_only() {
+        let codex_dir = "/Users/me/Library/Application Support/Codex";
+        let codex_ps = format!(
+            "  77001 /Applications/Codex.app/Contents/MacOS/Codex --user-data-dir={codex_dir}\n"
+        );
+        // The Codex exec matches under "Codex" but is invisible under "Claude".
+        assert_eq!(find_running_pid(&codex_ps, codex_dir, "Codex"), Some(77001));
+        assert_eq!(find_running_pid(&codex_ps, codex_dir, "Claude"), None);
     }
 }

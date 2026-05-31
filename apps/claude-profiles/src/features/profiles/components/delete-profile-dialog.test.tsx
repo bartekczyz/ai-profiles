@@ -8,6 +8,7 @@ import { DeleteProfileDialog } from './delete-profile-dialog'
 
 const fixture: Profile = {
   id: '1',
+  app: 'claude',
   name: 'Personal',
   slug: 'personal',
   color: '#d97757',

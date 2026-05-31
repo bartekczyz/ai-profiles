@@ -1,3 +1,7 @@
+import type { AppId } from './app-registry'
+
+export type { AppId } from './app-registry'
+
 export type Surfaces = {
   gui: boolean
   cli: boolean
@@ -5,6 +9,7 @@ export type Surfaces = {
 
 export type Profile = {
   id: string
+  app: AppId
   name: string
   slug: string
   color: string
@@ -17,11 +22,9 @@ export type Profile = {
   lastUsedAt: string | null
 }
 
-export type DefaultEntryApp = 'claude'
-
 export type DefaultEntry = {
   id: string
-  app: DefaultEntryApp
+  app: AppId
   name: string
   surfaces: Surfaces
 }

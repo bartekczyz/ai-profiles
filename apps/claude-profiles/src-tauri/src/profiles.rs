@@ -7,8 +7,12 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::app_kind::{spec, AppKind};
 use crate::error::{AppError, AppResult};
-use crate::paths::{ensure_app_dir, profile_dir, profiles_json_path};
+use crate::paths::{
+    cli_wrapper_path, ensure_app_dir, gui_app_bundle, gui_launcher_path, profile_dir,
+    profiles_json_path, stock_cli_config_dir, stock_gui_support_dir,
+};
 use crate::slug::slugify;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -21,6 +25,8 @@ pub struct Surfaces {
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
     pub id: String,
+    #[serde(default)]
+    pub app: AppKind,
     pub name: String,
     pub slug: String,
     pub color: String,
@@ -106,7 +112,7 @@ fn atomic_write(path: &Path, body: &[u8]) -> AppResult<()> {
     Ok(())
 }
 
-pub fn create(name: &str, color: &str, surfaces: Surfaces) -> AppResult<Profile> {
+pub fn create(app: AppKind, name: &str, color: &str, surfaces: Surfaces) -> AppResult<Profile> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         return Err(AppError::Validation("name must not be empty".to_string()));
@@ -132,6 +138,7 @@ pub fn create(name: &str, color: &str, surfaces: Surfaces) -> AppResult<Profile>
 
     let profile = Profile {
         id: Uuid::new_v4().to_string(),
+        app,
         name: trimmed.to_string(),
         slug,
         color: color.to_string(),
@@ -159,7 +166,7 @@ pub fn create(name: &str, color: &str, surfaces: Surfaces) -> AppResult<Profile>
     if profile.surfaces.cli {
         if let Err(err) = crate::launchers::cli::generate(&profile) {
             if profile.surfaces.gui {
-                let _ = crate::launchers::gui::remove(&profile.name);
+                let _ = crate::launchers::gui::remove(&profile.name, profile.app.spec());
             }
             let _ = std::fs::remove_dir_all(&dir);
             return Err(err);
@@ -169,10 +176,10 @@ pub fn create(name: &str, color: &str, surfaces: Surfaces) -> AppResult<Profile>
     existing.push(profile.clone());
     if let Err(err) = save_all(&existing) {
         if profile.surfaces.cli {
-            let _ = crate::launchers::cli::remove(&profile.slug);
+            let _ = crate::launchers::cli::remove(&profile.slug, profile.app.spec());
         }
         if profile.surfaces.gui {
-            let _ = crate::launchers::gui::remove(&profile.name);
+            let _ = crate::launchers::gui::remove(&profile.name, profile.app.spec());
         }
         let _ = std::fs::remove_dir_all(&dir);
         return Err(err);
@@ -228,6 +235,7 @@ pub fn update(id: &str, patch: ProfilePatch) -> AppResult<Profile> {
 
     let updated = Profile {
         id: original.id.clone(),
+        app: original.app,
         name: new_name,
         slug: new_slug,
         color: new_color,
@@ -242,7 +250,7 @@ pub fn update(id: &str, patch: ProfilePatch) -> AppResult<Profile> {
     if updated.surfaces.cli {
         if let Err(err) = crate::launchers::cli::generate(&updated) {
             if updated.surfaces.gui {
-                let _ = crate::launchers::gui::remove(&updated.name);
+                let _ = crate::launchers::gui::remove(&updated.name, updated.app.spec());
             }
             return Err(err);
         }
@@ -251,19 +259,19 @@ pub fn update(id: &str, patch: ProfilePatch) -> AppResult<Profile> {
     all[position] = updated.clone();
     if let Err(err) = save_all(&all) {
         if updated.surfaces.cli {
-            let _ = crate::launchers::cli::remove(&updated.slug);
+            let _ = crate::launchers::cli::remove(&updated.slug, updated.app.spec());
         }
         if updated.surfaces.gui {
-            let _ = crate::launchers::gui::remove(&updated.name);
+            let _ = crate::launchers::gui::remove(&updated.name, updated.app.spec());
         }
         return Err(err);
     }
 
     if updated.name != original.name && original.surfaces.gui {
-        let _ = crate::launchers::gui::remove(&original.name);
+        let _ = crate::launchers::gui::remove(&original.name, original.app.spec());
     }
     if updated.slug != original.slug && original.surfaces.cli {
-        let _ = crate::launchers::cli::remove(&original.slug);
+        let _ = crate::launchers::cli::remove(&original.slug, original.app.spec());
     }
 
     Ok(updated)
@@ -278,10 +286,10 @@ pub fn delete(id: &str, move_to_trash: bool) -> AppResult<()> {
     let profile = all[position].clone();
 
     if profile.surfaces.gui {
-        let _ = crate::launchers::gui::remove(&profile.name);
+        let _ = crate::launchers::gui::remove(&profile.name, profile.app.spec());
     }
     if profile.surfaces.cli {
-        let _ = crate::launchers::cli::remove(&profile.slug);
+        let _ = crate::launchers::cli::remove(&profile.slug, profile.app.spec());
     }
 
     let dir = crate::paths::profile_dir(&profile.id)?;
@@ -333,11 +341,11 @@ pub fn toggle_surface(id: &str, surface: Surface, enabled: bool) -> AppResult<Pr
     } else {
         match surface {
             Surface::Gui => {
-                let _ = crate::launchers::gui::remove(&profile.name);
+                let _ = crate::launchers::gui::remove(&profile.name, profile.app.spec());
                 profile.surfaces.gui = false;
             }
             Surface::Cli => {
-                let _ = crate::launchers::cli::remove(&profile.slug);
+                let _ = crate::launchers::cli::remove(&profile.slug, profile.app.spec());
                 profile.surfaces.cli = false;
             }
         }
@@ -407,23 +415,19 @@ pub fn touch_last_used(id: &str) -> AppResult<Profile> {
 }
 
 /// Paths for the synthetic "default" entry representing the user's
-/// unmigrated stock Claude install. Returns None for both
-/// `gui_launcher_path` (when stock Claude.app isn't detected) and
-/// `cli_wrapper_path` (stock claude has no claude-profiles wrapper).
-fn default_claude_paths() -> AppResult<ProfilePaths> {
-    let home =
-        dirs::home_dir().ok_or_else(|| AppError::Io(std::io::Error::other("no home dir")))?;
-    // The default entry launches the stock Claude.app bundle, not its data
-    // directory. Resolve to the application bundle and expose it only when it
-    // exists so "Open Claude" / "Launcher" act on a launchable app.
-    let app_bundle = crate::paths::claude_desktop_app_bundle();
+/// unmigrated stock install of `kind`. Returns None for both
+/// `gui_launcher_path` (when the stock app bundle isn't detected) and
+/// `cli_wrapper_path` (the stock CLI has no claude-profiles wrapper).
+fn default_paths(kind: AppKind) -> AppResult<ProfilePaths> {
+    let spec = spec(kind);
+    // The default entry launches the stock app bundle, not its data directory.
+    // Resolve to the application bundle and expose it only when it exists so
+    // "Open" / "Launcher" act on a launchable app.
+    let app_bundle = gui_app_bundle(spec);
     Ok(ProfilePaths {
-        data_dir: home.join(".claude").display().to_string(),
-        gui_data_dir: home
-            .join("Library/Application Support/Claude")
-            .display()
-            .to_string(),
-        cli_config_dir: home.join(".claude").display().to_string(),
+        data_dir: stock_cli_config_dir(spec)?.display().to_string(),
+        gui_data_dir: stock_gui_support_dir(spec)?.display().to_string(),
+        cli_config_dir: stock_cli_config_dir(spec)?.display().to_string(),
         gui_launcher_path: app_bundle
             .is_dir()
             .then(|| app_bundle.display().to_string()),
@@ -432,29 +436,22 @@ fn default_claude_paths() -> AppResult<ProfilePaths> {
 }
 
 pub fn paths(id: &str) -> AppResult<ProfilePaths> {
-    if id == "default:claude" {
-        return default_claude_paths();
+    if let Some(kind) = AppKind::from_default_id(id) {
+        return default_paths(kind);
     }
     let all = load()?;
     let profile = all
         .iter()
         .find(|candidate| candidate.id == id)
         .ok_or_else(|| AppError::NotFound(format!("profile {id} not found")))?;
-    let data_dir = crate::paths::profile_dir(&profile.id)?;
+    let data_dir = profile_dir(&profile.id)?;
+    let spec = profile.app.spec();
     Ok(ProfilePaths {
         data_dir: data_dir.display().to_string(),
         gui_data_dir: data_dir.join("gui-data").display().to_string(),
         cli_config_dir: data_dir.join("cli-config").display().to_string(),
-        gui_launcher_path: Some(
-            crate::paths::gui_launcher_path(&profile.name)
-                .display()
-                .to_string(),
-        ),
-        cli_wrapper_path: Some(
-            crate::paths::cli_wrapper_path(&profile.slug)?
-                .display()
-                .to_string(),
-        ),
+        gui_launcher_path: Some(gui_launcher_path(&profile.name, spec).display().to_string()),
+        cli_wrapper_path: Some(cli_wrapper_path(&profile.slug, spec)?.display().to_string()),
     })
 }
 
@@ -468,8 +465,8 @@ mod tests {
     }
 
     #[test]
-    fn default_claude_paths_resolve_to_stock_locations() {
-        let paths = default_claude_paths().expect("home dir resolvable");
+    fn default_paths_for_claude_resolve_to_stock_locations() {
+        let paths = default_paths(AppKind::Claude).expect("home dir resolvable");
         assert!(paths.data_dir.ends_with("/.claude"));
         assert!(paths.cli_config_dir.ends_with("/.claude"));
         assert!(paths
@@ -493,11 +490,30 @@ mod tests {
     }
 
     #[test]
+    fn default_paths_for_codex_resolve_to_stock_codex_locations() {
+        let paths = default_paths(AppKind::Codex).expect("home resolvable");
+        assert!(paths.cli_config_dir.ends_with("/.codex"));
+        assert!(paths
+            .gui_data_dir
+            .ends_with("/Library/Application Support/Codex"));
+        assert!(paths.cli_wrapper_path.is_none());
+    }
+
+    #[test]
     fn paths_for_reserved_default_id_does_not_consult_managed_profiles_store() {
         let _guard = TEST_LOCK.lock().unwrap();
         purge_for_test();
         let result = paths("default:claude").expect("default id resolves");
         assert!(result.cli_wrapper_path.is_none());
+        purge_for_test();
+    }
+
+    #[test]
+    fn paths_recognises_codex_default_id() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge_for_test();
+        let result = paths("default:codex").expect("default id resolves");
+        assert!(result.cli_config_dir.ends_with("/.codex"));
         purge_for_test();
     }
 
@@ -519,6 +535,7 @@ mod tests {
     fn fixture_profile(id: &str, name: &str) -> Profile {
         Profile {
             id: id.into(),
+            app: AppKind::Claude,
             name: name.into(),
             slug: name.to_lowercase(),
             color: "#7C3AED".into(),
@@ -604,6 +621,7 @@ mod tests {
     fn profile_roundtrips_through_json() {
         let original = Profile {
             id: "11111111-1111-1111-1111-111111111111".to_string(),
+            app: AppKind::Claude,
             name: "Personal".to_string(),
             slug: "personal".to_string(),
             color: "#7C3AED".to_string(),
@@ -631,6 +649,7 @@ mod tests {
         }
 
         let created = create(
+            AppKind::Claude,
             "Original",
             "#7C3AED",
             Surfaces {
@@ -652,8 +671,10 @@ mod tests {
         assert_eq!(patched.slug, "renamed");
         assert_eq!(patched.color, "#7C3AED");
 
-        let old_wrapper = crate::paths::cli_wrapper_path("original").unwrap();
-        let new_wrapper = crate::paths::cli_wrapper_path("renamed").unwrap();
+        let old_wrapper =
+            crate::paths::cli_wrapper_path("original", &crate::app_kind::CLAUDE).unwrap();
+        let new_wrapper =
+            crate::paths::cli_wrapper_path("renamed", &crate::app_kind::CLAUDE).unwrap();
         assert!(!old_wrapper.exists());
         assert!(new_wrapper.exists());
 
@@ -671,6 +692,7 @@ mod tests {
         }
 
         let first = create(
+            AppKind::Claude,
             "Alpha",
             "#7C3AED",
             Surfaces {
@@ -680,6 +702,7 @@ mod tests {
         )
         .unwrap();
         let second = create(
+            AppKind::Claude,
             "Beta",
             "#3B82F6",
             Surfaces {
@@ -717,6 +740,7 @@ mod tests {
         }
 
         let profile = create(
+            AppKind::Claude,
             "ToggleTest",
             "#10B981",
             Surfaces {
@@ -733,9 +757,11 @@ mod tests {
             cli_config.join("session.json").exists(),
             "data dir must survive toggle-off"
         );
-        assert!(!crate::paths::cli_wrapper_path(&profile.slug)
-            .unwrap()
-            .exists());
+        assert!(
+            !crate::paths::cli_wrapper_path(&profile.slug, &crate::app_kind::CLAUDE)
+                .unwrap()
+                .exists()
+        );
 
         delete(&profile.id, false).unwrap();
         purge_for_test();
@@ -751,6 +777,7 @@ mod tests {
         }
 
         let profile = create(
+            AppKind::Claude,
             "DeleteMe",
             "#EF4444",
             Surfaces {
@@ -759,7 +786,8 @@ mod tests {
             },
         )
         .unwrap();
-        let wrapper = crate::paths::cli_wrapper_path(&profile.slug).unwrap();
+        let wrapper =
+            crate::paths::cli_wrapper_path(&profile.slug, &crate::app_kind::CLAUDE).unwrap();
         assert!(wrapper.exists());
 
         delete(&profile.id, false).unwrap();

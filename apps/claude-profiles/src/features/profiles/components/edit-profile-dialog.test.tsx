@@ -21,6 +21,7 @@ function renderEdit(props: DialogProps) {
 function fixture(overrides: Partial<Profile> = {}): Profile {
   return {
     id: '1',
+    app: 'claude',
     name: 'Personal',
     slug: 'personal',
     color: '#d97757',

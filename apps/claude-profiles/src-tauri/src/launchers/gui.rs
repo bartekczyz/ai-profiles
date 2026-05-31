@@ -2,16 +2,18 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
+use crate::app_kind::AppSpec;
 use crate::error::{AppError, AppResult};
 use crate::launchers::{icons, plist, script};
 use crate::paths::gui_launcher_path;
 use crate::profiles::Profile;
 
-/// Build the .app bundle for `profile` at `/Applications/Claude (<Name>).app/`.
+/// Build the .app bundle for `profile` at `/Applications/<App> (<Name>).app/`.
 /// Idempotent: if the bundle already exists it's torn down and rebuilt.
 /// Returns the path to the generated .app.
 pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
-    let bundle = gui_launcher_path(&profile.name);
+    let spec = profile.app.spec();
+    let bundle = gui_launcher_path(&profile.name, spec);
     if bundle.exists() {
         fs::remove_dir_all(&bundle).map_err(|err| {
             AppError::Io(std::io::Error::new(
@@ -33,7 +35,7 @@ pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
     let plist_bytes = plist::info_plist(profile, version)?;
     fs::write(contents.join("Info.plist"), plist_bytes)?;
 
-    let script_text = script::launcher_script(&profile.id);
+    let script_text = script::launcher_script(&profile.id, spec);
     let launcher_path = macos.join("launcher");
     fs::write(&launcher_path, script_text)?;
     let mut perms = fs::metadata(&launcher_path)?.permissions();
@@ -46,17 +48,19 @@ pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
     Ok(bundle)
 }
 
-/// Remove the .app bundle at `/Applications/Claude (<name>).app/`, if it exists
-/// and looks like one we generated (sanity check on the Info.plist contents).
-/// No-ops if the bundle doesn't exist.
-pub fn remove(name: &str) -> AppResult<()> {
-    let bundle = gui_launcher_path(name);
+/// Remove the launcher bundle for `name` under `spec`'s launcher prefix, if it
+/// exists and looks like one we generated (sanity check on the Info.plist
+/// contents). No-ops if the bundle doesn't exist.
+pub fn remove(name: &str, spec: &AppSpec) -> AppResult<()> {
+    let bundle = gui_launcher_path(name, spec);
     if !bundle.exists() {
         return Ok(());
     }
     let plist_path = bundle.join("Contents").join("Info.plist");
     if let Ok(body) = fs::read_to_string(&plist_path) {
-        if !body.contains("app.claude-profiles.profile.") {
+        // Broadened from "app.claude-profiles.profile." so it matches both the
+        // legacy id and the new "app.claude-profiles.<app>.profile." form.
+        if !body.contains("app.claude-profiles.") {
             return Err(AppError::Validation(format!(
                 "{} exists but is not a claude-profiles launcher; refusing to delete",
                 bundle.display()
@@ -75,6 +79,7 @@ mod tests {
     fn fixture() -> Profile {
         Profile {
             id: "deadbeef-0000-0000-0000-000000000000".into(),
+            app: crate::app_kind::AppKind::Claude,
             name: "PhaseTwoTest".into(),
             slug: "phasetwotest".into(),
             color: "#7C3AED".into(),
@@ -107,6 +112,6 @@ mod tests {
             .mode();
         assert_eq!(mode & 0o111, 0o111);
 
-        remove(&profile.name).unwrap();
+        remove(&profile.name, profile.app.spec()).unwrap();
     }
 }

@@ -15,6 +15,7 @@ const mockInvoke = vi.mocked(invoke)
 function profileFixture(overrides: Partial<Profile> = {}): Profile {
   return {
     id: '1',
+    app: 'claude',
     name: 'Personal',
     slug: 'personal',
     color: '#d97757',

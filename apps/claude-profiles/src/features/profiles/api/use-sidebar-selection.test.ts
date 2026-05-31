@@ -25,6 +25,7 @@ function managed(id: string): SidebarEntry {
     kind: 'managed',
     profile: {
       id,
+      app: 'claude',
       name: id,
       slug: id,
       color: '#000000',

@@ -23,6 +23,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+use crate::app_kind::AppSpec;
 use crate::error::{AppError, AppResult};
 use crate::paths::{cli_config_dir, local_bin_dir};
 use crate::profiles::Profile;
@@ -36,15 +37,18 @@ pub const MARKER: &str = "# claude-profiles wrapper";
 /// `cli_config_path` is the absolute, fully-resolved path that
 /// `CLAUDE_CONFIG_DIR` will be set to.
 pub fn wrapper_script(profile: &Profile, cli_config_path: &Path) -> String {
+    let spec = profile.app.spec();
     format!(
         r#"#!/bin/bash
 {marker} — profile: {name} ({id})
-export CLAUDE_CONFIG_DIR="{path}"
-exec claude "$@"
+export {env}="{path}"
+exec {binary} "$@"
 "#,
         marker = MARKER,
         name = profile.name,
         id = profile.id,
+        env = spec.cli_config_env,
+        binary = spec.cli_binary,
         path = cli_config_path.display(),
     )
 }
@@ -62,7 +66,8 @@ pub fn generate(profile: &Profile) -> AppResult<PathBuf> {
 /// per-profile cli-config dir explicitly so unit tests can use a tempdir.
 pub fn generate_at(profile: &Profile, bin_dir: &Path, cli_config: &Path) -> AppResult<PathBuf> {
     fs::create_dir_all(bin_dir)?;
-    let wrapper_path = bin_dir.join(format!("claude-{}", profile.slug));
+    let spec = profile.app.spec();
+    let wrapper_path = bin_dir.join(format!("{}-{}", spec.cli_wrapper_prefix, profile.slug));
 
     if wrapper_path.exists() {
         let existing = fs::read_to_string(&wrapper_path)?;
@@ -83,15 +88,15 @@ pub fn generate_at(profile: &Profile, bin_dir: &Path, cli_config: &Path) -> AppR
     Ok(wrapper_path)
 }
 
-/// Remove the wrapper at `~/.local/bin/claude-<slug>`. No-ops if absent.
+/// Remove the wrapper at `~/.local/bin/<prefix>-<slug>`. No-ops if absent.
 /// Refuses to delete anything that doesn't carry our marker.
-pub fn remove(slug: &str) -> AppResult<()> {
+pub fn remove(slug: &str, spec: &AppSpec) -> AppResult<()> {
     let bin_dir = local_bin_dir()?;
-    remove_at(slug, &bin_dir)
+    remove_at(slug, spec, &bin_dir)
 }
 
-pub fn remove_at(slug: &str, bin_dir: &Path) -> AppResult<()> {
-    let wrapper_path = bin_dir.join(format!("claude-{slug}"));
+pub fn remove_at(slug: &str, spec: &AppSpec, bin_dir: &Path) -> AppResult<()> {
+    let wrapper_path = bin_dir.join(format!("{}-{slug}", spec.cli_wrapper_prefix));
     if !wrapper_path.exists() {
         return Ok(());
     }
@@ -115,6 +120,7 @@ mod tests {
     fn fixture() -> Profile {
         Profile {
             id: "deadbeef-0000-0000-0000-000000000000".into(),
+            app: crate::app_kind::AppKind::Claude,
             name: "Personal".into(),
             slug: "personal".into(),
             color: "#7C3AED".into(),
@@ -163,6 +169,25 @@ mod tests {
         let script = wrapper_script(&fixture(), &PathBuf::from("/Users/u/cli-config"));
         let trimmed = script.trim_end();
         assert!(trimmed.ends_with(r#"exec claude "$@""#));
+    }
+
+    #[test]
+    fn codex_wrapper_exports_codex_home_and_execs_codex() {
+        let mut profile = fixture();
+        profile.app = crate::app_kind::AppKind::Codex;
+        let script = wrapper_script(&profile, &PathBuf::from("/Users/u/cfg"));
+        assert!(script.contains(r#"export CODEX_HOME="/Users/u/cfg""#));
+        assert!(script.trim_end().ends_with(r#"exec codex "$@""#));
+    }
+
+    #[test]
+    fn codex_generate_at_names_file_with_codex_prefix() {
+        let bin = tempdir().unwrap();
+        let cfg = tempdir().unwrap();
+        let mut profile = fixture();
+        profile.app = crate::app_kind::AppKind::Codex;
+        let path = generate_at(&profile, bin.path(), cfg.path()).unwrap();
+        assert!(path.ends_with("codex-personal"));
     }
 
     use crate::error::AppError;
@@ -222,7 +247,7 @@ mod tests {
     #[test]
     fn remove_at_is_a_noop_for_missing_files() {
         let bin = tempdir().unwrap();
-        remove_at("does-not-exist", bin.path()).unwrap();
+        remove_at("does-not-exist", &crate::app_kind::CLAUDE, bin.path()).unwrap();
     }
 
     #[test]
@@ -233,7 +258,7 @@ mod tests {
         let path = generate_at(&profile, bin.path(), cfg.path()).unwrap();
         assert!(path.exists());
 
-        remove_at(&profile.slug, bin.path()).unwrap();
+        remove_at(&profile.slug, &crate::app_kind::CLAUDE, bin.path()).unwrap();
         assert!(!path.exists());
     }
 
@@ -243,7 +268,7 @@ mod tests {
         let target = bin.path().join("claude-foreign");
         fs::write(&target, "#!/bin/bash\nrm -rf /\n").unwrap();
 
-        let err = remove_at("foreign", bin.path()).unwrap_err();
+        let err = remove_at("foreign", &crate::app_kind::CLAUDE, bin.path()).unwrap_err();
         match err {
             AppError::Validation(msg) => assert!(msg.contains("refusing to delete")),
             other => panic!("expected Validation error, got {other:?}"),

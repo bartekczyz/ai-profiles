@@ -19,6 +19,7 @@ beforeEach(() => {
 
 const FAKE_PROFILE: Profile = {
   id: '1',
+  app: 'claude',
   name: 'Default',
   slug: 'default',
   color: '#d97757',

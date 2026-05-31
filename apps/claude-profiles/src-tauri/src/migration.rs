@@ -184,6 +184,7 @@ pub fn import(params: ImportParams) -> AppResult<ImportOutcome> {
     // update happen in the caller — keeping them out keeps this unit-testable.)
     let profile = Profile {
         id: params.id.clone(),
+        app: crate::app_kind::AppKind::Claude,
         name: trimmed.to_string(),
         slug,
         color: params.color.clone(),
