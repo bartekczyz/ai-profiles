@@ -27,7 +27,7 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
         subline={<code className="font-mono">claude</code>}
       />
 
-      <ProfileDetailUsageCard profileId={entry.id} cliEnabled={entry.surfaces.cli} />
+      <ProfileDetailUsageCard app={entry.app} profileId={entry.id} cliEnabled={entry.surfaces.cli} />
 
       <div className="mb-6 grid grid-cols-1 gap-3.5 lg:grid-cols-2">
         <Suspense key={entry.id} fallback={<DefaultSurfaceCardsFallback entry={entry} />}>

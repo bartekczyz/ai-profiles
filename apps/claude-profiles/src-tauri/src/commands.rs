@@ -16,7 +16,7 @@ use crate::paths::{
     profile_dir as profile_data_dir, stock_cli_config_dir, stock_gui_support_dir,
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
-use crate::usage::{self, quota::ReqwestUsageClient, ProfileUsage};
+use crate::usage::{self, codex::CodexQuotaProvider, quota::ClaudeQuotaProvider, ProfileUsage};
 
 /// Append an activity entry to the profile's log. Failures are logged
 /// but do not propagate — the log is best-effort, not load-bearing.
@@ -459,15 +459,49 @@ pub fn get_app_metadata() -> AppMetadata {
 /// A new instance per command would defeat both: two simultaneous
 /// commands on the same profile would race, and a 5-minute auto-refetch
 /// would never see the previous "tried at" timestamp.
-static REFRESHER: OnceLock<usage::refresh::ClaudeCliRefresher> = OnceLock::new();
+static CLAUDE_REFRESHER: OnceLock<usage::refresh::ClaudeCliRefresher> = OnceLock::new();
 
 #[tauri::command]
 pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
-    let cli_config = resolve_cli_config_dir(&profile_id)?;
-    let client = ReqwestUsageClient::new(format!("claude-profiles/{}", env!("CARGO_PKG_VERSION")))
-        .map_err(|_| AppError::Io(std::io::Error::other("could not build HTTP client")))?;
-    let refresher = REFRESHER.get_or_init(usage::refresh::ClaudeCliRefresher::new);
-    Ok(usage::build_with_cli_refresh(&cli_config, &client, refresher).await)
+    let app = resolve_app(&profile_id)?;
+    let config_dir = resolve_cli_config_dir(&profile_id)?;
+    let app_spec = spec(app);
+    if !app_spec.has_usage {
+        return Ok(ProfileUsage {
+            quota: None,
+            quota_error: None,
+            fetched_at: chrono::Utc::now().to_rfc3339(),
+        });
+    }
+    let user_agent = format!("claude-profiles/{}", env!("CARGO_PKG_VERSION"));
+    match app {
+        AppKind::Claude => {
+            let provider = ClaudeQuotaProvider::new(user_agent)
+                .map_err(|_| AppError::Io(std::io::Error::other("could not build HTTP client")))?;
+            let refresher = CLAUDE_REFRESHER.get_or_init(usage::refresh::ClaudeCliRefresher::new);
+            Ok(usage::build_with_cli_refresh(&config_dir, &provider, refresher).await)
+        }
+        AppKind::Codex => {
+            // app-server refreshes its own token per call, so no external
+            // refresher dance is needed.
+            let provider = CodexQuotaProvider::new(
+                "claude-profiles".to_string(),
+                env!("CARGO_PKG_VERSION").to_string(),
+            );
+            Ok(usage::build(&config_dir, &provider).await)
+        }
+    }
+}
+
+fn resolve_app(profile_id: &str) -> AppResult<AppKind> {
+    if let Some(kind) = AppKind::from_default_id(profile_id) {
+        return Ok(kind);
+    }
+    let all = profiles::load()?;
+    all.into_iter()
+        .find(|profile| profile.id == profile_id)
+        .map(|profile| profile.app)
+        .ok_or_else(|| AppError::NotFound(format!("profile {profile_id} not found")))
 }
 
 fn resolve_cli_config_dir(profile_id: &str) -> AppResult<PathBuf> {

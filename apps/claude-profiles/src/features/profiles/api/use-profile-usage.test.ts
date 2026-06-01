@@ -11,9 +11,9 @@ describe('narrowProfileUsage', () => {
   it('returns the input when it already matches the expected shape', () => {
     const input: ProfileUsage = {
       quota: {
-        fiveHour: { utilization: 0.5, resetsAt: '2099-01-01T00:00:00Z' },
-        sevenDay: null,
-        sevenDaySonnet: null,
+        primary: { utilization: 0.5, resetsAt: '2099-01-01T00:00:00Z' },
+        secondary: null,
+        secondaryExtra: null,
       },
       quotaError: null,
       fetchedAt: '2099-01-01T00:00:00Z',
@@ -29,11 +29,11 @@ describe('narrowProfileUsage', () => {
 
   it('coerces a NaN utilization to null', () => {
     const result = narrowProfileUsage({
-      quota: { fiveHour: { utilization: Number.NaN, resetsAt: null }, sevenDay: null, sevenDaySonnet: null },
+      quota: { primary: { utilization: Number.NaN, resetsAt: null }, secondary: null, secondaryExtra: null },
       quotaError: null,
       fetchedAt: 'x',
     })
-    expect(result.quota?.fiveHour?.utilization).toBeNull()
+    expect(result.quota?.primary?.utilization).toBeNull()
   })
 
   it('preserves the rate_limited quotaError', () => {
@@ -56,20 +56,20 @@ describe('narrowProfileUsage', () => {
 
   it('preserves utilization values above 100 (over-limit users)', () => {
     const result = narrowProfileUsage({
-      quota: { fiveHour: { utilization: 105, resetsAt: null }, sevenDay: null, sevenDaySonnet: null },
+      quota: { primary: { utilization: 105, resetsAt: null }, secondary: null, secondaryExtra: null },
       quotaError: null,
       fetchedAt: 'x',
     })
-    expect(result.quota?.fiveHour?.utilization).toBe(105)
+    expect(result.quota?.primary?.utilization).toBe(105)
   })
 
   it('drops negative utilization to null', () => {
     const result = narrowProfileUsage({
-      quota: { fiveHour: { utilization: -1, resetsAt: null }, sevenDay: null, sevenDaySonnet: null },
+      quota: { primary: { utilization: -1, resetsAt: null }, secondary: null, secondaryExtra: null },
       quotaError: null,
       fetchedAt: 'x',
     })
-    expect(result.quota?.fiveHour?.utilization).toBeNull()
+    expect(result.quota?.primary?.utilization).toBeNull()
   })
 })
 

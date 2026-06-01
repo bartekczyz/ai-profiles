@@ -113,12 +113,15 @@ fn parse_body(body: &[u8]) -> Result<QuotaUsage, QuotaError> {
         Ok(value) => value,
         Err(_) => return Err(QuotaError::Unknown),
     };
+    // Anthropic's wire fields map onto the generic windows: the 5-hour window
+    // is `primary`, the weekly window is `secondary`, and the weekly-Sonnet
+    // sub-quota is `secondary_extra` (Claude-only; Codex leaves it None).
     let usage = QuotaUsage {
-        five_hour: parsed.five_hour.map(into_window),
-        seven_day: parsed.seven_day.map(into_window),
-        seven_day_sonnet: parsed.seven_day_sonnet.map(into_window),
+        primary: parsed.five_hour.map(into_window),
+        secondary: parsed.seven_day.map(into_window),
+        secondary_extra: parsed.seven_day_sonnet.map(into_window),
     };
-    if usage.five_hour.is_none() && usage.seven_day.is_none() && usage.seven_day_sonnet.is_none() {
+    if usage.primary.is_none() && usage.secondary.is_none() && usage.secondary_extra.is_none() {
         return Err(QuotaError::Unknown);
     }
     Ok(usage)
@@ -137,6 +140,27 @@ fn into_window(raw: ApiWindow) -> Window {
     Window {
         utilization,
         resets_at: raw.resets_at,
+    }
+}
+
+/// Claude's quota provider: an HTTP request to Anthropic's OAuth usage
+/// endpoint, parsed into the generic [`QuotaUsage`] windows.
+pub struct ClaudeQuotaProvider {
+    client: ReqwestUsageClient,
+}
+
+impl ClaudeQuotaProvider {
+    pub fn new(user_agent: String) -> Result<Self, QuotaError> {
+        Ok(Self {
+            client: ReqwestUsageClient::new(user_agent)?,
+        })
+    }
+}
+
+#[async_trait]
+impl crate::usage::QuotaProvider for ClaudeQuotaProvider {
+    async fn fetch(&self, config_dir: &Path) -> Result<QuotaUsage, QuotaError> {
+        fetch_quota(config_dir, &self.client).await
     }
 }
 
@@ -217,8 +241,8 @@ mod tests {
             body: body.to_vec(),
         };
         let usage = fetch_quota(dir.path(), &client).await.unwrap();
-        assert!((usage.five_hour.unwrap().utilization.unwrap() - 63.0).abs() < 1e-4);
-        assert_eq!(usage.seven_day.unwrap().resets_at, None);
+        assert!((usage.primary.unwrap().utilization.unwrap() - 63.0).abs() < 1e-4);
+        assert_eq!(usage.secondary.unwrap().resets_at, None);
     }
 
     #[tokio::test]
@@ -362,9 +386,9 @@ mod tests {
             body: body.to_vec(),
         };
         let usage = fetch_quota(dir.path(), &client).await.unwrap();
-        assert!(usage.five_hour.is_some());
-        assert!(usage.seven_day.is_none());
-        assert!(usage.seven_day_sonnet.is_none());
+        assert!(usage.primary.is_some());
+        assert!(usage.secondary.is_none());
+        assert!(usage.secondary_extra.is_none());
     }
 
     #[tokio::test]
@@ -383,9 +407,9 @@ mod tests {
             body: body.to_vec(),
         };
         let usage = fetch_quota(dir.path(), &client).await.unwrap();
-        assert!(usage.five_hour.unwrap().utilization.is_none());
-        assert!(usage.seven_day.unwrap().utilization.is_none());
-        assert!(usage.seven_day_sonnet.unwrap().utilization.is_none());
+        assert!(usage.primary.unwrap().utilization.is_none());
+        assert!(usage.secondary.unwrap().utilization.is_none());
+        assert!(usage.secondary_extra.unwrap().utilization.is_none());
     }
 
     #[tokio::test]
@@ -397,7 +421,7 @@ mod tests {
             body: body.to_vec(),
         };
         let usage = fetch_quota(dir.path(), &client).await.unwrap();
-        assert_eq!(usage.five_hour.unwrap().utilization, Some(105.0));
+        assert_eq!(usage.primary.unwrap().utilization, Some(105.0));
     }
 
     #[tokio::test]
@@ -409,7 +433,7 @@ mod tests {
             body: body.to_vec(),
         };
         let usage = fetch_quota(dir.path(), &client).await.unwrap();
-        assert_eq!(usage.five_hour.unwrap().utilization, Some(0.0));
+        assert_eq!(usage.primary.unwrap().utilization, Some(0.0));
     }
 
     #[tokio::test]
@@ -425,6 +449,6 @@ mod tests {
             body: body.to_vec(),
         };
         let usage = fetch_quota(dir.path(), &client).await.unwrap();
-        assert!(usage.five_hour.is_some());
+        assert!(usage.primary.is_some());
     }
 }

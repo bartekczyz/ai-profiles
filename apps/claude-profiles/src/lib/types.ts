@@ -159,9 +159,9 @@ export type UsageWindow = {
 }
 
 export type QuotaUsage = {
-  fiveHour: UsageWindow | null
-  sevenDay: UsageWindow | null
-  sevenDaySonnet: UsageWindow | null
+  primary: UsageWindow | null
+  secondary: UsageWindow | null
+  secondaryExtra: UsageWindow | null
 }
 
 export type QuotaError = 'no_credentials' | 'unauthorized' | 'rate_limited' | 'network' | 'unknown'

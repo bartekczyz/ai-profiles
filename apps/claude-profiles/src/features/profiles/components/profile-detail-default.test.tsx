@@ -21,9 +21,9 @@ vi.mock('@/lib/commands', async () => {
     })),
     getProfileUsage: vi.fn(async () => ({
       quota: {
-        fiveHour: { utilization: 10, resetsAt: null },
-        sevenDay: { utilization: 5, resetsAt: null },
-        sevenDaySonnet: { utilization: 2, resetsAt: null },
+        primary: { utilization: 10, resetsAt: null },
+        secondary: { utilization: 5, resetsAt: null },
+        secondaryExtra: { utilization: 2, resetsAt: null },
       },
       quotaError: null,
       fetchedAt: '2099-01-01T00:00:00Z',

@@ -60,9 +60,9 @@ function narrowQuota(input: unknown): QuotaUsage | null {
     return null
   }
   return {
-    fiveHour: narrowWindow(input.fiveHour),
-    sevenDay: narrowWindow(input.sevenDay),
-    sevenDaySonnet: narrowWindow(input.sevenDaySonnet),
+    primary: narrowWindow(input.primary),
+    secondary: narrowWindow(input.secondary),
+    secondaryExtra: narrowWindow(input.secondaryExtra),
   }
 }
 

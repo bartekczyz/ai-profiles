@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { AppId } from '@/lib/app-registry'
 import type { ProfileUsage, UsageWindow } from '@/lib/types'
 
 import { Component, useEffect, useState } from 'react'
@@ -7,32 +8,34 @@ import { format } from 'date-fns'
 import { RefreshCw } from 'lucide-react'
 
 import { TooltipBubble } from '@/design'
+import { appSpecs } from '@/lib/app-registry'
 
 import { refetchIntervalMs, useProfileUsage } from '../api/use-profile-usage'
 
 type Props = {
+  app: AppId
   profileId: string
   cliEnabled: boolean
 }
 
-export function ProfileDetailUsageCard({ profileId, cliEnabled }: Props) {
+export function ProfileDetailUsageCard({ app, profileId, cliEnabled }: Props) {
   // Bumped by the in-boundary Retry button to force the inner query
   // to re-run after a render-time crash. We use it (alongside profileId)
   // as the key on the boundary itself, so switching profiles or hitting
   // Retry remounts the boundary — its hasError state resets along with
   // the inner useQuery's cache subscription.
   const [attempt, setAttempt] = useState(0)
-  if (!cliEnabled) {
+  if (!cliEnabled || !appSpecs[app].hasUsage) {
     return null
   }
   return (
     <UsageCardErrorBoundary key={`${profileId}:${attempt}`} onRetry={() => setAttempt((value) => value + 1)}>
-      <UsageCardInner profileId={profileId} />
+      <UsageCardInner app={app} profileId={profileId} />
     </UsageCardErrorBoundary>
   )
 }
 
-function UsageCardInner({ profileId }: { profileId: string }) {
+function UsageCardInner({ app, profileId }: { app: AppId; profileId: string }) {
   const { data, isLoading, isFetching, isError, dataUpdatedAt, refetch } = useProfileUsage(profileId)
 
   return (
@@ -53,7 +56,7 @@ function UsageCardInner({ profileId }: { profileId: string }) {
         </div>
       </header>
 
-      {isLoading ? <MetersSkeleton /> : <Body usage={data ?? null} isError={isError} />}
+      {isLoading ? <MetersSkeleton /> : <Body app={app} usage={data ?? null} isError={isError} />}
     </section>
   )
 }
@@ -93,27 +96,31 @@ function formatRefreshIn(deltaMs: number): string | null {
   return `${totalSeconds}s`
 }
 
-function Body({ usage, isError }: { usage: ProfileUsage | null; isError: boolean }) {
+function Body({ app, usage, isError }: { app: AppId; usage: ProfileUsage | null; isError: boolean }) {
   if (isError) {
     return <p className="font-mono text-mono text-muted-strong">Couldn't load usage stats.</p>
   }
   if (!usage) {
     return <MetersSkeleton />
   }
-  const quotaMessage = quotaErrorMessage(usage.quotaError, usage.quota)
+  const quotaMessage = quotaErrorMessage(app, usage.quotaError, usage.quota)
   if (quotaMessage) {
     return <p className="font-mono text-mono text-muted-strong">{quotaMessage}</p>
   }
-  return <Meters quota={usage.quota} />
+  return <Meters app={app} quota={usage.quota} />
 }
 
 // Returns the message to show in place of the meters, or null if the
 // meters should render. We treat "quota is null AND no recognised error"
 // the same as `unknown` so we never silently render empty bars when the
 // backend gave us nothing usable.
-function quotaErrorMessage(quotaError: ProfileUsage['quotaError'], quota: ProfileUsage['quota']): string | null {
+function quotaErrorMessage(
+  app: AppId,
+  quotaError: ProfileUsage['quotaError'],
+  quota: ProfileUsage['quota'],
+): string | null {
   if (quotaError === 'no_credentials') {
-    return 'Sign in to Claude Code once with this profile to see usage.'
+    return appSpecs[app].usage?.noCredentials ?? 'Sign in once with this profile to see usage.'
   }
   if (quotaError === 'unauthorized') {
     // Not a real "session expired" — Claude Code's short-lived access
@@ -137,20 +144,36 @@ function quotaErrorMessage(quotaError: ProfileUsage['quotaError'], quota: Profil
   return null
 }
 
-function Meters({ quota }: { quota: ProfileUsage['quota'] }) {
-  const sevenDaySonnet = quota?.sevenDaySonnet ?? null
-  // Sonnet is the niche meter — most users live in the 5-hour and
-  // weekly windows. Skip the row when the user hasn't touched Sonnet
-  // this window (utilization explicitly 0) so the card stays focused.
-  // Unknown utilization (null) is kept visible — we'd rather show a
-  // placeholder than silently drop a window we don't have data for.
-  const showSonnet = sevenDaySonnet !== null && sevenDaySonnet.utilization !== 0
+function Meters({ app, quota }: { app: AppId; quota: ProfileUsage['quota'] }) {
+  const usageCopy = appSpecs[app].usage
+  const secondaryExtra = quota?.secondaryExtra ?? null
+  // The third "Sonnet-style" meter only exists for apps that define its
+  // labels (Claude). Within that, skip the row when the user hasn't
+  // touched it this window (utilization explicitly 0) so the card stays
+  // focused. Unknown utilization (null) is kept visible — we'd rather
+  // show a placeholder than silently drop a window we lack data for.
+  const showExtra =
+    usageCopy?.secondaryExtraLabel != null && secondaryExtra !== null && secondaryExtra.utilization !== 0
   return (
     <div className="flex flex-col gap-2">
-      <Meter label="5-hour window" shortLabel="5h" meterWindow={quota?.fiveHour ?? null} />
-      <Meter showDailySegments label="Weekly" shortLabel="W" meterWindow={quota?.sevenDay ?? null} />
-      {showSonnet ? (
-        <Meter showDailySegments label="Weekly Sonnet" shortLabel="WS" meterWindow={sevenDaySonnet} />
+      <Meter
+        label={usageCopy?.primaryLabel ?? '5-hour window'}
+        shortLabel={usageCopy?.primaryShortLabel ?? '5h'}
+        meterWindow={quota?.primary ?? null}
+      />
+      <Meter
+        showDailySegments
+        label={usageCopy?.secondaryLabel ?? 'Weekly'}
+        shortLabel={usageCopy?.secondaryShortLabel ?? 'W'}
+        meterWindow={quota?.secondary ?? null}
+      />
+      {showExtra ? (
+        <Meter
+          showDailySegments
+          label={usageCopy?.secondaryExtraLabel ?? 'Weekly Sonnet'}
+          shortLabel={usageCopy?.secondaryExtraShortLabel ?? 'WS'}
+          meterWindow={secondaryExtra}
+        />
       ) : null}
     </div>
   )

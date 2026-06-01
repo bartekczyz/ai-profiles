@@ -144,6 +144,30 @@ fn keychain_service_name(cli_config_dir: &Path) -> String {
     format!("Claude Code-credentials-{hex}")
 }
 
+/// True when `<codex_home>/auth.json` exists and carries a non-empty access
+/// token — i.e. the user has signed in to Codex for this profile.
+pub fn codex_is_signed_in(codex_home: &Path) -> bool {
+    let path = codex_home.join("auth.json");
+    let Ok(metadata) = std::fs::metadata(&path) else {
+        return false;
+    };
+    if metadata.len() > MAX_CREDENTIALS_BYTES {
+        return false;
+    }
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return false;
+    };
+    value
+        .get("tokens")
+        .and_then(|tokens| tokens.get("access_token"))
+        .and_then(|token| token.as_str())
+        .map(|token| !token.trim().is_empty())
+        .unwrap_or(false)
+}
+
 /// Pure: parse the credentials JSON blob (same shape on disk and in
 /// keychain) and extract the access token. Empty / missing token →
 /// `NoCredentials`. Malformed JSON → `Unknown`.
@@ -296,6 +320,18 @@ mod tests {
     fn extract_token_parses_keychain_style_blob() {
         let blob = r#"{"claudeAiOauth":{"accessToken":"sk-ant-from-keychain","refreshToken":"sk-ant-refresh","email":"x@y.z","expiresAt":1234567890000}}"#;
         assert_eq!(extract_token(blob).unwrap(), "sk-ant-from-keychain");
+    }
+
+    #[test]
+    fn codex_is_signed_in_detects_auth_json() {
+        let dir = TempDir::new().unwrap();
+        assert!(!codex_is_signed_in(dir.path()));
+        fs::write(
+            dir.path().join("auth.json"),
+            r#"{"tokens":{"access_token":"x"}}"#,
+        )
+        .unwrap();
+        assert!(codex_is_signed_in(dir.path()));
     }
 
     #[test]
