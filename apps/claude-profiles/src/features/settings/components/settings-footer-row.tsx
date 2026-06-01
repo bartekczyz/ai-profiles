@@ -12,7 +12,7 @@ type Props = {
 /**
  * Bottom row of the Settings pane.
  *
- * Left: mono `claude-profiles v{version} · MIT · Not affiliated with Anthropic`,
+ * Left: mono `claude-profiles v{version} · MIT · Not affiliated with Anthropic or OpenAI`,
  * rendered as a button that opens the About dialog when clicked.
  * Right: ghost-styled "Reset onboarding flags →" button. Click opens a
  * confirmation dialog; confirming clears welcome/migration-dismissed/
@@ -58,7 +58,7 @@ export function SettingsFooterRow({ onOpenAbout }: Props) {
           title="About claude-profiles"
           className="cursor-pointer rounded-md px-2 py-1 font-mono text-[10.5px] text-muted-strong transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-cream-2 hover:text-ink dark:hover:bg-white/[0.04]"
         >
-          claude-profiles {version ? `v${version}` : '…'} · MIT · Not affiliated with Anthropic
+          claude-profiles {version ? `v${version}` : '…'} · MIT · Not affiliated with Anthropic or OpenAI
         </button>
         <button
           type="button"

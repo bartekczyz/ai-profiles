@@ -25,6 +25,10 @@ type Props = {
  *   without at least one surface.
  */
 export function EmptyStateScreen({ dependencies, onCreate, onRefresh }: Props) {
+  // Gate is intentionally Claude-only for now: the "not detected" screen and
+  // its CTA speak to installing Claude. Making this app-agnostic (show it only
+  // when NO managed app is detected) is a tracked follow-up, not part of the
+  // dual-vendor copy pass.
   const claudeMissing = !dependencies.apps.claude.guiInstalled && !dependencies.apps.claude.cliInstalled
 
   if (claudeMissing) {
@@ -60,8 +64,8 @@ function NoProfilesYet({ onCreate }: NoProfilesYetProps) {
         Create your first profile.
       </h1>
       <p className="m-0 mb-5 max-w-[380px] text-[13.5px] leading-[1.55] tracking-[-0.003em] text-muted">
-        Each profile is one Claude account, with its own Desktop launcher and CLI wrapper. Logins, history, and chats
-        stay isolated.
+        Each profile is one isolated Claude or Codex account, with its own Desktop launcher and CLI wrapper. Logins,
+        history, and chats stay isolated.
       </p>
       <Button
         variant="primary"
@@ -106,8 +110,7 @@ function ClaudeNotDetected({ onRefresh }: ClaudeNotDetectedProps) {
         Install Claude to begin.
       </h1>
       <p className="m-0 mb-6 max-w-[420px] text-[13.5px] leading-[1.55] tracking-[-0.003em] text-muted">
-        claude-profiles wraps the official Claude Desktop app and the Claude Code CLI. Install at least one and we'll
-        take it from there.
+        claude-profiles wraps the Claude and Codex desktop apps and CLIs. Install Claude to get started.
       </p>
       <div className="mb-6 flex w-full max-w-[440px] flex-col gap-2.5 text-left">
         <div className="rounded-lg border border-border bg-white px-3.5 py-3 text-[12.5px] leading-[1.5] text-ink-soft dark:bg-cream-2">
@@ -121,7 +124,7 @@ function ClaudeNotDetected({ onRefresh }: ClaudeNotDetectedProps) {
           </span>
         </div>
         <div className="rounded-lg border border-border bg-white px-3.5 py-3 text-[12.5px] leading-[1.5] text-ink-soft dark:bg-cream-2">
-          <div className="mb-0.5 font-medium text-ink">Claude Code CLI</div>
+          <div className="mb-0.5 font-medium text-ink">Claude CLI</div>
           <span className="text-muted">
             Run <code className="font-mono text-mono text-ink">npm install -g @anthropic-ai/claude-code</code>.
           </span>

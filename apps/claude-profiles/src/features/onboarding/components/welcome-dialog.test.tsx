@@ -8,7 +8,7 @@ describe('WelcomeDialog', () => {
   it('renders the welcome copy when open', () => {
     render(<WelcomeDialog open onContinue={vi.fn()} />)
     expect(screen.getByText(/Welcome to claude-profiles/i)).toBeInTheDocument()
-    expect(screen.getByText(/desktop app and the Claude Code CLI/i)).toBeInTheDocument()
+    expect(screen.getByText(/Claude and Codex accounts/i)).toBeInTheDocument()
   })
 
   it('calls onContinue when Continue is clicked', async () => {
