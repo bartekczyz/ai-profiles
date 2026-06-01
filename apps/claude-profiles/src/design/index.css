@@ -14,15 +14,27 @@
    single selector covers explicit-dark and system-dark uniformly. */
 @custom-variant dark (&:where([data-theme="dark"] *, [data-theme="dark"]));
 
-/* Body background — warm cream wash with overlapping orange + steel
-   radial gradients. Switches palette via the cream token, so dark mode
-   adopts a much darker base automatically. */
+/* Per-app accent — defaults to orange (Claude / no selection). Setting
+   document.documentElement.dataset.app shifts the gradient tint. Claude uses
+   the orange default, so only non-default apps need an override. */
+:root {
+  --app-accent: var(--color-orange);
+}
+
+[data-app="codex"] {
+  --app-accent: var(--color-codex);
+}
+
+/* Body background — warm cream wash with overlapping accent + steel
+   radial gradients. The first radial tracks --app-accent so selecting a
+   Codex entry shifts the window to blue/violet. Switches palette via the
+   cream token, so dark mode adopts a much darker base automatically. */
 body {
   background-color: var(--color-base);
   background-image:
     radial-gradient(
       1200px 800px at 18% 12%,
-      color-mix(in oklab, var(--color-orange) 10%, transparent),
+      color-mix(in oklab, var(--app-accent) 10%, transparent),
       transparent 60%
     ),
     radial-gradient(
@@ -46,7 +58,7 @@ body {
   background-image:
     radial-gradient(
       1200px 800px at 18% 12%,
-      rgba(217, 119, 87, 0.07),
+      color-mix(in oklab, var(--app-accent) 7%, transparent),
       transparent 60%
     ),
     radial-gradient(

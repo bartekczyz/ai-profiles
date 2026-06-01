@@ -19,7 +19,7 @@ import { PathSetupBanner } from '@/features/onboarding/components/path-setup-ban
 import { WelcomeDialog } from '@/features/onboarding/components/welcome-dialog'
 import { useProfileLastUsed } from '@/features/profiles/api/use-profile-last-used'
 import { useProfiles } from '@/features/profiles/api/use-profiles'
-import { entryId, useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
+import { appFromEntry, entryId, useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
 import { useSidebarSelection } from '@/features/profiles/api/use-sidebar-selection'
 import { CreateProfileDialog } from '@/features/profiles/components/create-profile-dialog'
 import { DeleteProfileDialog } from '@/features/profiles/components/delete-profile-dialog'
@@ -180,6 +180,21 @@ function AppContent() {
 
   const selected = entries.find((entry) => entryId(entry) === selection.selectedId) ?? null
   const managedSelected = selected?.kind === 'managed' ? selected.profile : null
+
+  // Tint the whole window by the selected entry's app. When nothing is
+  // selected (or this unmounts), clear the attribute so :root falls back to
+  // --color-orange.
+  useEffect(() => {
+    const app = selected ? appFromEntry(selected) : null
+    if (app) {
+      document.documentElement.dataset.app = app
+    } else {
+      delete document.documentElement.dataset.app
+    }
+    return () => {
+      delete document.documentElement.dataset.app
+    }
+  }, [selected])
 
   const shouldShowWelcome = !appState.state.welcomeShown
 

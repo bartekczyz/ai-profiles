@@ -39,6 +39,15 @@ export function entryId(entry: SidebarEntry): string {
 }
 
 /**
+ * Resolves the app of an entry regardless of which arm of the union it is.
+ * Used by the sidebar's mixed-app glyph gating and app.tsx's window-tint
+ * effect so both derive the app the same way.
+ */
+export function appFromEntry(entry: SidebarEntry): AppId {
+  return entry.kind === 'managed' ? entry.profile.app : entry.entry.app
+}
+
+/**
  * Pure: builds one synthetic default entry per app that has a detected
  * stock install. Returns entries in `appIds` order (Claude before Codex).
  * Exposed for unit-testing in isolation.

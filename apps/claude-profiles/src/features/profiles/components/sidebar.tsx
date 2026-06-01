@@ -1,4 +1,4 @@
-import type { Ref } from 'react'
+import type { ReactNode, Ref } from 'react'
 import type { SidebarEntry } from '@/lib/types'
 
 import { useState } from 'react'
@@ -18,7 +18,8 @@ import { Cog, Plus } from 'lucide-react'
 
 import { ariaKeyshortcutsFor, Button, Kbd } from '@/design'
 
-import { entryId } from '../api/use-sidebar-entries'
+import { appFromEntry, entryId } from '../api/use-sidebar-entries'
+import { AppGlyph } from './app-glyph'
 import { ManagedSidebarSwatch } from './managed-sidebar-swatch'
 import { OutlinedSwatch } from './outlined-swatch'
 import { SidebarBrandMark } from './sidebar-brand-mark'
@@ -44,6 +45,20 @@ const restrictToScrollableAncestor: Modifier = ({ transform, draggingNodeRect, s
   return { ...transform, y: Math.min(Math.max(transform.y, minY), maxY) }
 }
 
+// The swatch slot for a row: a per-app glyph when the sidebar spans more than
+// one app-kind, otherwise the entry's own swatch (outlined for defaults, the
+// colour dot for managed profiles). Centralised so the three render paths
+// (defaults, sortable managed, static managed) can't drift.
+function swatchFor(entry: SidebarEntry, showGlyphs: boolean): ReactNode {
+  if (showGlyphs) {
+    return <AppGlyph app={appFromEntry(entry)} />
+  }
+  if (entry.kind === 'default') {
+    return <OutlinedSwatch size={10} />
+  }
+  return <ManagedSidebarSwatch color={entry.profile.color} />
+}
+
 type Props = {
   entries: Array<SidebarEntry>
   selectedId: string | null
@@ -61,6 +76,11 @@ type Props = {
 
 export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreate, onSettings, onReorder }: Props) {
   const [query, setQuery] = useState('')
+
+  // Show per-app glyphs only when the sidebar contains entries from more than
+  // one app-kind. One default Claude + one default Codex already triggers it.
+  const presentApps = new Set(entries.map(appFromEntry))
+  const showGlyphs = presentApps.size > 1
 
   const defaults = entries.filter(
     (entry): entry is Extract<SidebarEntry, { kind: 'default' }> => entry.kind === 'default',
@@ -125,7 +145,7 @@ export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreat
               <li key={entryId(defaultSidebarEntry)}>
                 <SidebarProfileRow
                   name={defaultSidebarEntry.entry.name}
-                  swatch={<OutlinedSwatch size={10} />}
+                  swatch={swatchFor(defaultSidebarEntry, showGlyphs)}
                   surfaces={defaultSidebarEntry.entry.surfaces}
                   selected={entryId(defaultSidebarEntry) === selectedId}
                   onSelect={() => onSelect(entryId(defaultSidebarEntry))}
@@ -164,7 +184,7 @@ export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreat
                   <li key={managedEntry.profile.id}>
                     <SortableProfileRow
                       name={managedEntry.profile.name}
-                      swatch={<ManagedSidebarSwatch color={managedEntry.profile.color} />}
+                      swatch={swatchFor(managedEntry, showGlyphs)}
                       surfaces={managedEntry.profile.surfaces}
                       selected={managedEntry.profile.id === selectedId}
                       shortcutIndex={index}
@@ -184,7 +204,7 @@ export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreat
                 <li key={managedEntry.profile.id}>
                   <SidebarProfileRow
                     name={managedEntry.profile.name}
-                    swatch={<ManagedSidebarSwatch color={managedEntry.profile.color} />}
+                    swatch={swatchFor(managedEntry, showGlyphs)}
                     surfaces={managedEntry.profile.surfaces}
                     selected={managedEntry.profile.id === selectedId}
                     shortcutIndex={index}
