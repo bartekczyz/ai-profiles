@@ -1,10 +1,13 @@
+import type { AppId } from '@/lib/app-registry'
+import type { ExistingInstallInfo } from '@/lib/types'
+
 import { invoke } from '@tauri-apps/api/core'
 import { act, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { renderHookWithQuery } from '@/test/render-with-query'
 
-import { useMigration } from './use-migration'
+import { importableAppsFrom, useMigration } from './use-migration'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 
@@ -71,5 +74,27 @@ describe('useMigration', () => {
       app: 'claude',
       input: { name: 'Default', color: '#d97757', includeGui: true, includeCli: false },
     })
+  })
+})
+
+describe('importableAppsFrom', () => {
+  function existing(overrides: Partial<ExistingInstallInfo> = {}): ExistingInstallInfo {
+    return { guiPath: null, cliPath: null, guiSizeBytes: null, cliSizeBytes: null, ...overrides }
+  }
+  function byApp(claude: ExistingInstallInfo, codex: ExistingInstallInfo): Record<AppId, ExistingInstallInfo> {
+    return { claude, codex }
+  }
+
+  it('lists apps with a detected gui or cli install, claude before codex', () => {
+    const apps = importableAppsFrom(byApp(existing({ cliPath: '/x/.claude' }), existing({ guiPath: '/A/Codex.app' })))
+    expect(apps).toEqual(['claude', 'codex'])
+  })
+
+  it('omits apps with nothing detected', () => {
+    expect(importableAppsFrom(byApp(existing(), existing({ cliPath: '/x/.codex' })))).toEqual(['codex'])
+  })
+
+  it('returns empty when nothing is detected', () => {
+    expect(importableAppsFrom(byApp(existing(), existing()))).toEqual([])
   })
 })

@@ -1,15 +1,17 @@
+import type { AppId } from '@/lib/app-registry'
 import type { ExistingInstallInfo } from '@/lib/types'
 
 import { Download } from 'lucide-react'
 
 import { ariaKeyshortcutsFor, Button, Kbd, Skeleton } from '@/design'
-import { useMigration } from '@/features/migration/api/use-migration'
+import { importableAppsFrom, useMigration } from '@/features/migration/api/use-migration'
 import { useMigrationBackups } from '@/features/migration/api/use-migration-backups'
 import { MigrationBackupsList } from '@/features/migration/components/migration-backups-list'
+import { appSpecs } from '@/lib/app-registry'
 import { formatBytes } from '@/lib/format-bytes'
 
 type Props = {
-  onReimport: () => void | Promise<void>
+  onReimport: (app: AppId) => void
 }
 
 /**
@@ -35,9 +37,14 @@ function actionDetail(existing: ExistingInstallInfo): { path: string; size: numb
  * sections above don't wait on either.
  */
 export function DataSection({ onReimport }: Props) {
-  const migration = useMigration()
+  const claudeMigration = useMigration('claude')
+  const codexMigration = useMigration('codex')
   const backups = useMigrationBackups()
-  const detected = actionDetail(migration.existing)
+  const existingByApp: Record<AppId, ExistingInstallInfo> = {
+    claude: claudeMigration.existing,
+    codex: codexMigration.existing,
+  }
+  const importable = importableAppsFrom(existingByApp)
 
   return (
     <section className="mb-8">
@@ -45,36 +52,27 @@ export function DataSection({ onReimport }: Props) {
         <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">Data</span>
       </div>
 
-      {detected ? (
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-white px-4 py-3.5 dark:bg-cream-2">
-          <div className="flex min-w-0 items-center gap-3">
-            <span
-              aria-hidden
-              className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] bg-cream-2 text-ink-soft dark:bg-white/[0.04]"
-            >
-              <Download className="h-4 w-4" strokeWidth={1.85} />
-            </span>
-            <div className="min-w-0">
-              <div className="text-[13px] tracking-[-0.005em] text-ink">Detected an existing Claude install.</div>
-              <div className="mt-0.5 truncate font-mono text-[11px] text-muted-strong">
-                {detected.size !== null ? `${formatBytes(detected.size)} · ` : ''}
-                {detected.path}/
-              </div>
-            </div>
-          </div>
-          <Button
-            size="sm"
-            variant="secondary"
-            trailingKbd={<Kbd shortcutId="open-detect-import" />}
-            aria-keyshortcuts={ariaKeyshortcutsFor('open-detect-import')}
-            onClick={() => void onReimport()}
-          >
-            Re-import…
-          </Button>
+      {importable.length > 0 ? (
+        <div className="flex flex-col gap-2.5">
+          {importable.map((app, index) => {
+            const detected = actionDetail(existingByApp[app])
+            if (detected === null) {
+              return null
+            }
+            return (
+              <DetectedInstallCard
+                key={app}
+                app={app}
+                detected={detected}
+                showShortcut={index === 0}
+                onReimport={() => onReimport(app)}
+              />
+            )
+          })}
         </div>
       ) : null}
 
-      <div className={`flex items-center justify-between gap-3 ${detected ? 'mt-[18px]' : ''} mb-2`}>
+      <div className={`flex items-center justify-between gap-3 ${importable.length > 0 ? 'mt-[18px]' : ''} mb-2`}>
         <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.1em] text-muted-strong">
           Backups · {backups.backups.length}
         </span>
@@ -82,6 +80,51 @@ export function DataSection({ onReimport }: Props) {
       </div>
       <MigrationBackupsList backups={backups.backups} onDelete={backups.remove} />
     </section>
+  )
+}
+
+type DetectedInstallCardProps = {
+  app: AppId
+  detected: { path: string; size: number | null }
+  showShortcut: boolean
+  onReimport: () => void
+}
+
+/**
+ * One per-app "Detected an existing {App} install." action card. The ⌘I
+ * shortcut chip rides only the first card, since ⌘I opens the first
+ * importable app.
+ */
+function DetectedInstallCard({ app, detected, showShortcut, onReimport }: DetectedInstallCardProps) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-white px-4 py-3.5 dark:bg-cream-2">
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          aria-hidden
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] bg-cream-2 text-ink-soft dark:bg-white/[0.04]"
+        >
+          <Download className="h-4 w-4" strokeWidth={1.85} />
+        </span>
+        <div className="min-w-0">
+          <div className="text-[13px] tracking-[-0.005em] text-ink">
+            Detected an existing {appSpecs[app].displayName} install.
+          </div>
+          <div className="mt-0.5 truncate font-mono text-[11px] text-muted-strong">
+            {detected.size !== null ? `${formatBytes(detected.size)} · ` : ''}
+            {detected.path}/
+          </div>
+        </div>
+      </div>
+      <Button
+        size="sm"
+        variant="secondary"
+        trailingKbd={showShortcut ? <Kbd shortcutId="open-detect-import" /> : undefined}
+        aria-keyshortcuts={showShortcut ? ariaKeyshortcutsFor('open-detect-import') : undefined}
+        onClick={onReimport}
+      >
+        Re-import…
+      </Button>
+    </div>
   )
 }
 

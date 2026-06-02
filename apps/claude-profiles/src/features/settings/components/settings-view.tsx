@@ -1,3 +1,5 @@
+import type { AppId } from '@/lib/app-registry'
+
 import { Suspense } from 'react'
 
 import { Button, Kbd } from '@/design'
@@ -9,7 +11,7 @@ import { SystemSection, SystemSectionFallback } from './system-section'
 
 type Props = {
   onClose: () => void
-  onOpenMigration: () => void
+  onOpenMigration: (app: AppId) => void
   onOpenAbout: () => void
 }
 

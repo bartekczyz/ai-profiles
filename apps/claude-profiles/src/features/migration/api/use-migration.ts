@@ -3,8 +3,22 @@ import type { ExistingInstallInfo, ExistingInstallSizes, ImportExistingInput, Pr
 
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
+import { appIds } from '@/lib/app-registry'
 import { detectExistingInstall, detectExistingSizes, importExistingInstall } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
+
+/**
+ * Pure: the apps with a detected stock install available to import (a GUI
+ * and/or CLI path present), in `appIds` order. Drives every "Detect and
+ * import" entry point (command palette, Settings, ⌘I) so a Codex install is
+ * reachable, not just Claude.
+ */
+export function importableAppsFrom(existingByApp: Record<AppId, ExistingInstallInfo>): Array<AppId> {
+  return appIds.filter((appId) => {
+    const existing = existingByApp[appId]
+    return existing.guiPath !== null || existing.cliPath !== null
+  })
+}
 
 type UseMigrationResult = {
   existing: ExistingInstallInfo

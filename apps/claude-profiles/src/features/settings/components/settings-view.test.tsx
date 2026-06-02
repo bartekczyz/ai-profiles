@@ -77,7 +77,7 @@ function primeInitialLoads({
   existing?: unknown
   metadata?: unknown
 } = {}) {
-  mockInvoke.mockImplementation(async (command: string) => {
+  mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
     if (command === 'check_dependencies') {
       return deps
     }
@@ -91,7 +91,10 @@ function primeInitialLoads({
       return shell
     }
     if (command === 'detect_existing_install') {
-      return existing
+      // `existing` describes the Claude stock install under test; Codex
+      // detects nothing so exactly one Re-import card renders.
+      const app = (args as { app?: string } | undefined)?.app
+      return app === 'codex' ? DEFAULT_EXISTING : existing
     }
     if (command === 'get_app_metadata') {
       return metadata
@@ -156,7 +159,7 @@ describe('SettingsView', () => {
     const onOpenMigration = vi.fn()
     renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={onOpenMigration} onOpenAbout={vi.fn()} />)
     await userEvent.setup().click(await screen.findByRole('button', { name: /Re-import/ }))
-    expect(onOpenMigration).toHaveBeenCalled()
+    expect(onOpenMigration).toHaveBeenCalledWith('claude')
   })
 
   it('shows a confirmation dialog before resetting onboarding flags', async () => {

@@ -4,6 +4,7 @@ import { Check } from 'lucide-react'
 
 // cross-feature: form fields use the profile color picker primitive
 import { cn } from '@/design'
+import { Input } from '@/design/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/design/ui/select'
 import { appIds, appSpecs } from '@/lib/app-registry'
 import { presetColors } from '@/lib/colors'
@@ -89,8 +90,7 @@ export function ProfileFormFields({
         </Field>
       ) : null}
       <Field htmlFor="profile-name" label="Name">
-        <input
-          // biome-ignore lint/a11y/noAutofocus: focus inside a modal lands on the primary input by convention
+        <Input
           autoFocus
           id="profile-name"
           type="text"
@@ -101,10 +101,13 @@ export function ProfileFormFields({
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          className="w-full appearance-none rounded-md border border-border bg-white px-3 py-2.5 font-sans text-[13.5px] text-ink outline-none transition-[border-color,box-shadow] duration-(--duration-snap) ease-(--ease-natural) focus:border-orange focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-orange)_15%,transparent)] dark:bg-cream-2"
         />
-        {showSlugPreview && slugPreview ? (
-          <p className="mt-1.5 font-mono text-mono text-muted-strong">Slug: {slugPreview}</p>
+        {/* Always rendered (non-breaking space when empty) so the slug line
+            reserves its height and the dialog doesn't shift when typing. */}
+        {showSlugPreview ? (
+          <p className="mt-1.5 font-mono text-mono text-muted-strong">
+            {slugPreview ? `Slug: ${slugPreview}` : '\u00A0'}
+          </p>
         ) : null}
       </Field>
       <Field label="Color">

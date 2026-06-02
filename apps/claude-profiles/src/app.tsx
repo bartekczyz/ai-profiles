@@ -14,7 +14,7 @@ import { AboutDialog } from '@/features/about/components/about-dialog'
 import { CommandPalette } from '@/features/command-palette/components/command-palette'
 import { useCommandPalette } from '@/features/command-palette/use-command-palette'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
-import { useMigration } from '@/features/migration/api/use-migration'
+import { importableAppsFrom, useMigration } from '@/features/migration/api/use-migration'
 import { MigrationDialog } from '@/features/migration/components/migration-dialog'
 import { PathSetupBanner } from '@/features/onboarding/components/path-setup-banner'
 import { WelcomeDialog } from '@/features/onboarding/components/welcome-dialog'
@@ -110,6 +110,13 @@ function AppContent() {
     codex: codexMigration,
   }
   const activeMigration = migrationApp ? migrationByApp[migrationApp] : null
+
+  // Apps with a detected stock install — drives every "Detect and import"
+  // entry point (⌘I, palette, Settings) so Codex is reachable, not just Claude.
+  const importableApps = importableAppsFrom({
+    claude: claudeMigration.existing,
+    codex: codexMigration.existing,
+  })
 
   const theme = useTheme()
   const persistedThemeMode = appState.state.themeMode
@@ -246,7 +253,10 @@ function AppContent() {
   useShortcut(
     'open-detect-import',
     () => {
-      void openMigration('claude')
+      const target = importableApps[0]
+      if (target) {
+        void openMigration(target)
+      }
     },
     { enabled: !overlayOpen },
   )
@@ -455,8 +465,8 @@ function AppContent() {
               <QueryErrorBoundary>
                 <SettingsView
                   onClose={() => setRightPane({ kind: 'profile' })}
-                  onOpenMigration={async () => {
-                    await openMigration('claude')
+                  onOpenMigration={(app) => {
+                    void openMigration(app)
                   }}
                   onOpenAbout={() => setDialog({ kind: 'about' })}
                 />
@@ -537,7 +547,7 @@ function AppContent() {
         open={palette.open}
         entries={entries}
         selectedId={selection.selectedId}
-        dependencies={dependencies.deps}
+        importableApps={importableApps}
         onClose={palette.close}
         onSwitch={(id) => {
           selection.select(id)
@@ -551,8 +561,8 @@ function AppContent() {
         }}
         onCreate={requestCreateProfile}
         onSettings={() => setRightPane({ kind: 'settings' })}
-        onImport={async () => {
-          await openMigration('claude')
+        onImport={(app) => {
+          void openMigration(app)
         }}
       />
     </div>

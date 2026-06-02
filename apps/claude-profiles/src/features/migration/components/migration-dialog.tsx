@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 
 import { Button, Dialog, Kbd, StatusDot } from '@/design'
+import { Input } from '@/design/ui/input'
 import { useMigrationSizes } from '@/features/migration/api/use-migration'
 // cross-feature: migration dialog reuses the profile color picker for the imported profile
 import { ColorSwatchPicker } from '@/features/profiles/components/color-swatch-picker'
@@ -111,7 +112,7 @@ export function MigrationDialog({ open, app, existing, onClose, onImport }: Prop
             >
               Profile name
             </label>
-            <input
+            <Input
               autoFocus
               id="migration-name"
               type="text"
@@ -121,16 +122,17 @@ export function MigrationDialog({ open, app, existing, onClose, onImport }: Prop
               autoCapitalize="off"
               spellCheck={false}
               onChange={(event) => setName(event.target.value)}
-              className="w-full appearance-none rounded-md border border-border bg-white px-3 py-2.5 font-sans text-[13.5px] text-ink outline-none transition-[border-color,box-shadow] duration-(--duration-snap) ease-(--ease-natural) focus:border-orange focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-orange)_15%,transparent)] dark:bg-cream-2"
             />
-            {slugPreview ? (
-              <p className="mt-1.5 font-mono text-mono text-muted-strong">
-                Invoked as{' '}
-                <code className="text-ink">
-                  {spec.cliWrapperPrefix}-{slugPreview}
-                </code>
-              </p>
-            ) : null}
+            {/* Always rendered so the line reserves its height — no shift when typing. */}
+            <p className="mt-1.5 font-mono text-mono text-muted-strong">
+              {slugPreview ? (
+                <>
+                  Invoked as <code className="text-ink">{`${spec.cliWrapperPrefix}-${slugPreview}`}</code>
+                </>
+              ) : (
+                '\u00A0'
+              )}
+            </p>
           </div>
 
           <div>
