@@ -6,8 +6,7 @@ import { appSpecs } from '@/lib/app-registry'
 import { copyToClipboard, openDefaultGui } from '@/lib/commands'
 
 import { useProfilePaths } from '../api/use-profile-paths'
-import { OutlinedSwatch } from './outlined-swatch'
-import { ProfileDetailHeader } from './profile-detail-header'
+import { BrandSwatch, ProfileDetailHeader } from './profile-detail-header'
 import { ProfileDetailMigrateLink } from './profile-detail-migrate-link'
 import { ProfileDetailShell } from './profile-detail-shell'
 import { ProfileDetailSurfaceCards, ProfileDetailSurfaceCardsFallback } from './profile-detail-surface-cards'
@@ -20,13 +19,12 @@ type Props = {
 
 export function DefaultProfileDetail({ entry, onMigrate }: Props) {
   const [actionError, setActionError] = useState<string | null>(null)
-  const cliBinary = appSpecs[entry.app].cliBinary
   return (
     <ProfileDetailShell>
       <ProfileDetailHeader
-        name="Default"
-        swatch={<OutlinedSwatch size={44} />}
-        subline={<code className="font-mono">{cliBinary}</code>}
+        name={appSpecs[entry.app].displayName}
+        swatch={<BrandSwatch app={entry.app} />}
+        subline="default"
       />
 
       <ProfileDetailUsageCard app={entry.app} profileId={entry.id} cliEnabled={entry.surfaces.cli} />

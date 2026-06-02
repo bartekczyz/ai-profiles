@@ -32,7 +32,7 @@ export function ProfileDetail({ profile, onEdit, onDelete }: Props) {
         swatch={<ProfileSwatch color={profile.color} />}
         subline={
           <>
-            <span>{profile.slug}</span>
+            <span>{profile.app}</span>
             <span className="mx-2 text-border">·</span>
             <span className="text-muted-strong">{formatLastUsed(profile.lastUsedAt)}</span>
           </>

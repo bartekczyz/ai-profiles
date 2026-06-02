@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react'
+import type { AppId } from '@/lib/app-registry'
 
 import { ariaKeyshortcutsFor, Button, Kbd } from '@/design'
+
+import { BrandMark } from './brand-mark'
 
 type Props = {
   name: string
@@ -47,5 +50,21 @@ export function ProfileSwatch({ color }: { color: string }) {
       className="relative h-11 w-11 shrink-0 rounded-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.3),inset_0_0_0_1px_rgba(0,0,0,0.06),0_2px_6px_-3px_rgba(0,0,0,0.18)] after:absolute after:inset-1 after:rounded-[10px] after:bg-[linear-gradient(160deg,rgba(255,255,255,0.18),transparent_60%)] after:content-['']"
       style={{ background: color }}
     />
+  )
+}
+
+/**
+ * Swatch for a default (stock-install) entry: the real vendor brand logo on a
+ * neutral tile, matching the 44px footprint of `ProfileSwatch` so the header
+ * layout is identical between managed and default profiles.
+ */
+export function BrandSwatch({ app }: { app: AppId }) {
+  return (
+    <div
+      aria-hidden
+      className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06),0_2px_6px_-3px_rgba(0,0,0,0.18)] dark:bg-cream-2"
+    >
+      <BrandMark app={app} size={26} />
+    </div>
   )
 }

@@ -54,13 +54,13 @@ function entry(overrides: Partial<DefaultEntry> = {}): DefaultEntry {
 describe('DefaultProfileDetail', () => {
   it('renders the header without an Edit button', async () => {
     renderWithQuery(<DefaultProfileDetail entry={entry()} onMigrate={vi.fn()} />)
-    await screen.findByText('Default')
+    await screen.findByRole('heading', { level: 2 })
     expect(screen.queryByRole('button', { name: /Edit/ })).toBeNull()
   })
 
   it('does not render a Recent Activity section', async () => {
     renderWithQuery(<DefaultProfileDetail entry={entry()} onMigrate={vi.fn()} />)
-    await screen.findByText('Default')
+    await screen.findByRole('heading', { level: 2 })
     expect(screen.queryByText(/Recent activity/i)).toBeNull()
   })
 
