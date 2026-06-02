@@ -130,7 +130,7 @@ pub fn create(app: AppKind, name: &str, color: &str, surfaces: Surfaces) -> AppR
     }
 
     let mut existing = load()?;
-    if existing.iter().any(|profile| profile.slug == slug) {
+    if slug_taken(&existing, app, &slug, None) {
         return Err(AppError::Validation(format!(
             "a profile with slug '{slug}' already exists"
         )));
@@ -194,6 +194,16 @@ fn is_valid_hex_color(color: &str) -> bool {
     color.chars().skip(1).all(|ch| ch.is_ascii_hexdigit())
 }
 
+/// True when an existing profile already claims `slug` for the same `app`.
+/// Uniqueness is scoped per app, so a Codex "personal" can coexist with a
+/// Claude "personal". `exclude_id` skips a profile by id — used by `update`
+/// so renaming a profile to its own slug doesn't collide with itself.
+fn slug_taken(existing: &[Profile], app: AppKind, slug: &str, exclude_id: Option<&str>) -> bool {
+    existing.iter().any(|profile| {
+        profile.app == app && profile.slug == slug && Some(profile.id.as_str()) != exclude_id
+    })
+}
+
 pub fn update(id: &str, patch: ProfilePatch) -> AppResult<Profile> {
     let mut all = load()?;
     let position = all
@@ -223,11 +233,7 @@ pub fn update(id: &str, patch: ProfilePatch) -> AppResult<Profile> {
             "name produced an empty slug after sanitisation".into(),
         ));
     }
-    if new_slug != original.slug
-        && all
-            .iter()
-            .any(|other| other.id != id && other.slug == new_slug)
-    {
+    if new_slug != original.slug && slug_taken(&all, original.app, &new_slug, Some(id)) {
         return Err(AppError::Validation(format!(
             "a profile with slug '{new_slug}' already exists"
         )));
@@ -546,6 +552,34 @@ mod tests {
             },
             last_used_at: None,
         }
+    }
+
+    // --- slug uniqueness is scoped per app (a Codex "personal" may coexist
+    // with a Claude "personal") ---
+
+    #[test]
+    fn slug_taken_is_false_when_slug_belongs_to_a_different_app() {
+        // fixture_profile sets app = Claude, slug = "personal".
+        let existing = vec![fixture_profile("a", "Personal")];
+        assert!(!slug_taken(&existing, AppKind::Codex, "personal", None));
+    }
+
+    #[test]
+    fn slug_taken_is_true_for_same_app_and_slug() {
+        let existing = vec![fixture_profile("a", "Personal")];
+        assert!(slug_taken(&existing, AppKind::Claude, "personal", None));
+    }
+
+    #[test]
+    fn slug_taken_excludes_the_given_id() {
+        // Renaming profile "a" to its own slug must not collide with itself.
+        let existing = vec![fixture_profile("a", "Personal")];
+        assert!(!slug_taken(
+            &existing,
+            AppKind::Claude,
+            "personal",
+            Some("a")
+        ));
     }
 
     #[test]
