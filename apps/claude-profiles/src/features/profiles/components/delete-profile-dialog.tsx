@@ -3,6 +3,7 @@ import type { Profile } from '@/lib/types'
 import { useState } from 'react'
 
 import { Button, Dialog, Kbd } from '@/design'
+import { appSpecs, wrapperFileName } from '@/lib/app-registry'
 
 type Props = {
   open: boolean
@@ -48,12 +49,14 @@ export function DeleteProfileDialog({ open, profile, onClose, onConfirm }: Props
           <li className="list-disc">The profile entry from claude-profiles</li>
           {profile.surfaces.gui ? (
             <li className="list-disc">
-              <code className="font-mono text-mono">/Applications/Claude ({profile.name}).app</code>
+              <code className="font-mono text-mono">
+                /Applications/{appSpecs[profile.app].displayName} ({profile.name}).app
+              </code>
             </li>
           ) : null}
           {profile.surfaces.cli ? (
             <li className="list-disc">
-              <code className="font-mono text-mono">~/.local/bin/claude-{profile.slug}</code>
+              <code className="font-mono text-mono">{wrapperFileName(profile.app, profile.slug)}</code>
             </li>
           ) : null}
           <li className="list-disc">The per-profile data directory (history, cache, settings)</li>

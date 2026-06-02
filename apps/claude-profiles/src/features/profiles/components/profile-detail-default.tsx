@@ -2,6 +2,7 @@ import type { DefaultEntry } from '@/lib/types'
 
 import { Suspense, useState } from 'react'
 
+import { appSpecs } from '@/lib/app-registry'
 import { copyToClipboard, openDefaultGui } from '@/lib/commands'
 
 import { useProfilePaths } from '../api/use-profile-paths'
@@ -19,12 +20,13 @@ type Props = {
 
 export function DefaultProfileDetail({ entry, onMigrate }: Props) {
   const [actionError, setActionError] = useState<string | null>(null)
+  const cliBinary = appSpecs[entry.app].cliBinary
   return (
     <ProfileDetailShell>
       <ProfileDetailHeader
         name="Default"
         swatch={<OutlinedSwatch size={44} />}
-        subline={<code className="font-mono">claude</code>}
+        subline={<code className="font-mono">{cliBinary}</code>}
       />
 
       <ProfileDetailUsageCard app={entry.app} profileId={entry.id} cliEnabled={entry.surfaces.cli} />
@@ -53,11 +55,13 @@ type DefaultSurfaceCardsProps = {
 
 function DefaultSurfaceCards({ entry, onError }: DefaultSurfaceCardsProps) {
   const paths = useProfilePaths(entry.id)
+  const cliBinary = appSpecs[entry.app].cliBinary
   return (
     <ProfileDetailSurfaceCards
+      app={entry.app}
       paths={paths}
       surfaces={entry.surfaces}
-      cliCommandLabel={<code className="font-mono">claude</code>}
+      cliCommandLabel={<code className="font-mono">{cliBinary}</code>}
       onLaunchGui={async () => {
         if (paths.guiLauncherPath === null) {
           return
@@ -65,7 +69,7 @@ function DefaultSurfaceCards({ entry, onError }: DefaultSurfaceCardsProps) {
         await openDefaultGui(entry.app, paths.guiDataDir)
       }}
       onCopyCli={async () => {
-        await copyToClipboard('claude')
+        await copyToClipboard(cliBinary)
       }}
       onError={onError}
     />
@@ -73,10 +77,12 @@ function DefaultSurfaceCards({ entry, onError }: DefaultSurfaceCardsProps) {
 }
 
 function DefaultSurfaceCardsFallback({ entry }: { entry: DefaultEntry }) {
+  const cliBinary = appSpecs[entry.app].cliBinary
   return (
     <ProfileDetailSurfaceCardsFallback
+      app={entry.app}
       surfaces={entry.surfaces}
-      cliCommandLabel={<code className="font-mono">claude</code>}
+      cliCommandLabel={<code className="font-mono">{cliBinary}</code>}
       onLaunchGui={async () => {}}
       onCopyCli={async () => {}}
     />

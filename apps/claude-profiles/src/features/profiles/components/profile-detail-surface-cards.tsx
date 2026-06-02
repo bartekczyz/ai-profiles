@@ -1,14 +1,17 @@
 import type { ReactNode } from 'react'
+import type { AppId } from '@/lib/app-registry'
 import type { ProfilePaths, Surfaces } from '@/lib/types'
 
 import { useShortcut } from '@/design'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
+import { appSpecs } from '@/lib/app-registry'
 import { openInFinder } from '@/lib/commands'
 
 import { DeepLinkInfo } from './deep-link-info'
 import { ProfileDetailSurfaceCard } from './profile-detail-surface-card'
 
 type Props = {
+  app: AppId
   paths: ProfilePaths
   surfaces: Surfaces
   cliCommandLabel: ReactNode
@@ -43,6 +46,7 @@ function basename(filePath: string): string {
  * Path-loading is the parent's job — pass a fully-resolved ProfilePaths.
  */
 export function ProfileDetailSurfaceCards({
+  app,
   paths,
   surfaces,
   cliCommandLabel,
@@ -51,6 +55,7 @@ export function ProfileDetailSurfaceCards({
   onError,
 }: Props) {
   const dependencies = useDependencies()
+  const spec = appSpecs[app]
 
   async function safeRun(action: () => Promise<unknown>) {
     try {
@@ -76,7 +81,7 @@ export function ProfileDetailSurfaceCards({
 
   const cliStatusDetail =
     paths.cliWrapperPath === null
-      ? 'Stock claude — no wrapper'
+      ? `Stock ${spec.cliBinary} — no wrapper`
       : dependencies.deps.localBinOnPath
         ? `Wrapper installed · ${basename(paths.cliWrapperPath)} on PATH`
         : `Wrapper installed · PATH needs ~/.local/bin (Settings → Shell PATH)`
@@ -92,8 +97,9 @@ export function ProfileDetailSurfaceCards({
     <>
       <ProfileDetailSurfaceCard
         variant="gui"
+        app={app}
         enabled={surfaces.gui}
-        primaryLabel="Open Claude"
+        primaryLabel={`Open ${spec.displayName}`}
         primaryKbd="⏎"
         statusDetail={guiStatusDetail}
         primarySuffix={surfaces.gui ? <DeepLinkInfo /> : null}
@@ -113,6 +119,7 @@ export function ProfileDetailSurfaceCards({
       />
       <ProfileDetailSurfaceCard
         variant="cli"
+        app={app}
         enabled={surfaces.cli}
         primaryLabel={<>Copy {cliCommandLabel}</>}
         primaryKbd="⌘C"
@@ -137,6 +144,7 @@ export function ProfileDetailSurfaceCards({
 }
 
 type FallbackProps = {
+  app: AppId
   surfaces: Surfaces
   cliCommandLabel: ReactNode
   onLaunchGui: () => Promise<unknown>
@@ -147,6 +155,7 @@ type FallbackProps = {
  * without status detail. Mirrors the loaded shape so the layout doesn't
  * jump when the paths fetch resolves. */
 export function ProfileDetailSurfaceCardsFallback({
+  app,
   surfaces,
   cliCommandLabel,
   onLaunchGui,
@@ -156,8 +165,9 @@ export function ProfileDetailSurfaceCardsFallback({
     <>
       <ProfileDetailSurfaceCard
         variant="gui"
+        app={app}
         enabled={surfaces.gui}
-        primaryLabel="Open Claude"
+        primaryLabel={`Open ${appSpecs[app].displayName}`}
         primaryKbd="⏎"
         primarySuffix={surfaces.gui ? <DeepLinkInfo /> : null}
         secondaries={[
@@ -168,6 +178,7 @@ export function ProfileDetailSurfaceCardsFallback({
       />
       <ProfileDetailSurfaceCard
         variant="cli"
+        app={app}
         enabled={surfaces.cli}
         primaryLabel={<>Copy {cliCommandLabel}</>}
         primaryKbd="⌘C"

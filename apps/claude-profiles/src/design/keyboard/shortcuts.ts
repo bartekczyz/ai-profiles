@@ -49,7 +49,7 @@ export const shortcuts = {
   },
   'copy-selected-cli': {
     keys: 'Mod+C',
-    meta: { name: 'Copy CLI command', description: 'Copy claude-{slug} to the clipboard', scope: 'detail' },
+    meta: { name: 'Copy CLI command', description: "Copy the profile's CLI command to the clipboard", scope: 'detail' },
   },
   'delete-selected': {
     keys: 'Mod+Backspace',
@@ -57,7 +57,7 @@ export const shortcuts = {
   },
   'open-selected-desktop': {
     keys: 'Enter',
-    meta: { name: 'Open desktop app', description: 'Launch Claude Desktop for the active profile', scope: 'detail' },
+    meta: { name: 'Open desktop app', description: 'Launch the desktop app for the active profile', scope: 'detail' },
   },
   'reveal-gui-data': {
     keys: 'Alt+1',

@@ -55,4 +55,17 @@ describe('DeleteProfileDialog', () => {
     expect(screen.getByText(/Claude \(Personal\).app/)).toBeInTheDocument()
     expect(screen.queryByText(/claude-personal/)).not.toBeInTheDocument()
   })
+
+  it('lists the Codex launcher and wrapper for a Codex profile', () => {
+    render(
+      <DeleteProfileDialog
+        open
+        profile={{ ...fixture, app: 'codex', name: 'Work', slug: 'work' }}
+        onClose={vi.fn()}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />,
+    )
+    expect(screen.getByText(/Codex \(Work\).app/)).toBeInTheDocument()
+    expect(screen.getByText(/\.local\/bin\/codex-work/)).toBeInTheDocument()
+  })
 })

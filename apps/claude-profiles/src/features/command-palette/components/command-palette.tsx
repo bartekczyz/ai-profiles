@@ -6,6 +6,7 @@ import { CornerDownLeft, Download, Plus, Search, Settings as SettingsIcon, Termi
 
 import { cn, Kbd } from '@/design'
 import { OutlinedSwatch } from '@/features/profiles/components/outlined-swatch'
+import { wrapperCommand } from '@/lib/app-registry'
 
 type CommandPaletteProps = {
   open: boolean
@@ -194,7 +195,7 @@ function ProfileRows({ profile, onLaunch, onCopy, onSwitch }: ProfileRowsProps) 
           onSelect={onCopy}
           leading={<Terminal className="h-3.5 w-3.5 text-muted-strong" strokeWidth={1.85} />}
         >
-          Copy <code className="font-mono text-ink">claude-{profile.slug}</code>
+          Copy <code className="font-mono text-ink">{wrapperCommand(profile.app, profile.slug)}</code>
         </PaletteItem>
       ) : null}
       <PaletteItem

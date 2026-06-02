@@ -1,3 +1,4 @@
+import type { AppId } from '@/lib/app-registry'
 import type { ExistingInstallInfo, ImportExistingInput, Profile } from '@/lib/types'
 
 import { useState } from 'react'
@@ -9,11 +10,13 @@ import { useMigrationSizes } from '@/features/migration/api/use-migration'
 // cross-feature: migration dialog reuses the profile color picker for the imported profile
 import { ColorSwatchPicker } from '@/features/profiles/components/color-swatch-picker'
 import { slugifyPreview } from '@/features/profiles/components/profile-form-fields'
+import { appSpecs } from '@/lib/app-registry'
 import { isValidHexColor, presetColors } from '@/lib/colors'
 import { formatBytes } from '@/lib/format-bytes'
 
 type Props = {
   open: boolean
+  app: AppId
   existing: ExistingInstallInfo
   onClose: () => void
   onImport: (input: ImportExistingInput) => Promise<Profile>
@@ -27,11 +30,12 @@ function shorten(absolutePath: string): string {
   return absolutePath
 }
 
-export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
+export function MigrationDialog({ open, app, existing, onClose, onImport }: Props) {
   // Size walks happen off the boot critical path — this hook only fires
   // while the dialog is open, so the size column populates a beat after
   // the dialog appears rather than blocking app startup.
-  const sizes = useMigrationSizes(open)
+  const sizes = useMigrationSizes(open, app)
+  const spec = appSpecs[app]
   const [name, setName] = useState('Default')
   const [color, setColor] = useState<string>(presetColors[0])
   const [includeGui, setIncludeGui] = useState(existing.guiPath !== null)
@@ -58,8 +62,8 @@ export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
   return (
     <Dialog
       open={open}
-      title="Import existing Claude install"
-      description="Adopt your existing Claude data as your first profile. The originals move to a 7-day backup; the data stays reachable via a new claude-<name> command."
+      title={`Import existing ${spec.displayName} install`}
+      description={`Adopt your existing ${spec.displayName} data as your first profile. The originals move to a 7-day backup; the data stays reachable via a new ${spec.cliWrapperPrefix}-<name> command.`}
       onClose={onClose}
       className="w-[min(760px,calc(100%-64px))]"
       foot={
@@ -88,10 +92,14 @@ export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
             </div>
             <ul className="overflow-hidden rounded-lg border border-border bg-white dark:bg-cream-2">
               {existing.guiPath ? (
-                <DetectedRow label="Claude Desktop" path={existing.guiPath} sizeBytes={sizes.guiSizeBytes} />
+                <DetectedRow
+                  label={`${spec.displayName} Desktop`}
+                  path={existing.guiPath}
+                  sizeBytes={sizes.guiSizeBytes}
+                />
               ) : null}
               {existing.cliPath ? (
-                <DetectedRow label="Claude Code CLI" path={existing.cliPath} sizeBytes={sizes.cliSizeBytes} />
+                <DetectedRow label={`${spec.displayName} CLI`} path={existing.cliPath} sizeBytes={sizes.cliSizeBytes} />
               ) : null}
             </ul>
           </section>
@@ -117,7 +125,10 @@ export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
             />
             {slugPreview ? (
               <p className="mt-1.5 font-mono text-mono text-muted-strong">
-                Invoked as <code className="text-ink">claude-{slugPreview}</code>
+                Invoked as{' '}
+                <code className="text-ink">
+                  {spec.cliWrapperPrefix}-{slugPreview}
+                </code>
               </p>
             ) : null}
           </div>
@@ -153,7 +164,7 @@ export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
                     onChange={(event) => setIncludeCli(event.target.checked)}
                     className="h-3.5 w-3.5 cursor-pointer accent-orange"
                   />
-                  Claude Code CLI config
+                  {spec.displayName} CLI config
                 </label>
               ) : null}
             </div>
@@ -166,7 +177,7 @@ export function MigrationDialog({ open, existing, onClose, onImport }: Props) {
           <h3 className="mb-2 m-0 font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong">
             What will happen
           </h3>
-          <WhatWillHappenCard />
+          <WhatWillHappenCard app={app} />
         </section>
       </div>
     </Dialog>
@@ -195,26 +206,37 @@ function DetectedRow({ label, path, sizeBytes }: DetectedRowProps) {
   )
 }
 
-function WhatWillHappenCard() {
+function WhatWillHappenCard({ app }: { app: AppId }) {
+  const spec = appSpecs[app]
   return (
     <aside className="rounded-lg border border-border-soft bg-white p-4 dark:bg-cream-2">
       <ol className="m-0 list-decimal space-y-2.5 pl-5 text-meta text-ink-soft">
         <li>
-          Your existing Claude data is <strong className="text-ink">copied</strong> into the new profile dir.
+          Your existing {spec.displayName} data is <strong className="text-ink">copied</strong> into the new profile
+          dir.
         </li>
         <li>
-          The originals (<code className="font-mono text-mono">~/.claude</code>,{' '}
-          <code className="font-mono text-mono">~/Library/Application Support/Claude</code>) are{' '}
+          The originals (<code className="font-mono text-mono">{spec.cliStockConfigDir}</code>,{' '}
+          <code className="font-mono text-mono">{spec.guiStockSupportDir}</code>) are{' '}
           <strong className="text-ink">moved to a 7-day backup</strong>. Delete it from Settings any time.
         </li>
         <li>
-          From now on, use <code className="font-mono text-mono text-ink">claude-&lt;name&gt;</code> instead of{' '}
-          <code className="font-mono text-mono">claude</code>. Plain <code className="font-mono text-mono">claude</code>{' '}
-          will start a fresh install dir.
+          From now on, use <code className="font-mono text-mono text-ink">{spec.cliWrapperPrefix}-&lt;name&gt;</code>{' '}
+          instead of <code className="font-mono text-mono">{spec.cliBinary}</code>. Plain{' '}
+          <code className="font-mono text-mono">{spec.cliBinary}</code> will start a fresh install dir.
         </li>
         <li>
-          <strong className="text-ink">Claude Code:</strong> you'll need to log in once. macOS Keychain keys are derived
-          from <code className="font-mono text-mono">CLAUDE_CONFIG_DIR</code>.
+          <strong className="text-ink">{spec.displayName} CLI:</strong> you'll need to log in once.{' '}
+          {app === 'codex' ? (
+            <>
+              Credentials live in <code className="font-mono text-mono">auth.json</code> under{' '}
+              <code className="font-mono text-mono">{spec.cliConfigEnv}</code> — isolated per profile, no Keychain.
+            </>
+          ) : (
+            <>
+              macOS Keychain keys are derived from <code className="font-mono text-mono">{spec.cliConfigEnv}</code>.
+            </>
+          )}
         </li>
       </ol>
     </aside>

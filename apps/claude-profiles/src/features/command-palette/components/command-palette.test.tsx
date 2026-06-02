@@ -73,6 +73,11 @@ describe('CommandPalette', () => {
     expect(screen.getByText('Switch to Work')).toBeInTheDocument()
   })
 
+  it('shows the codex-<slug> command for a Codex profile', () => {
+    setup({ entries: [managedEntry({ id: '3', name: 'Codex Work', slug: 'codex-work', app: 'codex' })] })
+    expect(screen.getByText(/codex-codex-work/)).toBeInTheDocument()
+  })
+
   it('hides launch when GUI surface is off', () => {
     setup({ entries: [managedEntry({ surfaces: { gui: false, cli: true } })] })
     expect(screen.queryByText(/Launch desktop app/)).not.toBeInTheDocument()

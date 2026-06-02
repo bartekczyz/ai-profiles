@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
+import type { AppId } from '@/lib/app-registry'
 
 import { Monitor, Terminal } from 'lucide-react'
 
 import { cn, Kbd, Skeleton, StatusPulse } from '@/design'
+import { appSpecs } from '@/lib/app-registry'
 
 type SurfaceVariant = 'gui' | 'cli'
 
@@ -16,6 +18,7 @@ type SecondaryAction = {
 
 type Props = {
   variant: SurfaceVariant
+  app: AppId
   enabled: boolean
   primaryLabel: ReactNode
   primaryKbd: string
@@ -28,18 +31,28 @@ type Props = {
   onPrimary: () => void
 }
 
-const COPY: Record<SurfaceVariant, { title: string; description: string; icon: ReactNode }> = {
-  gui: {
-    title: 'Desktop App',
-    description:
-      'Launches Claude.app with an isolated user-data directory so logins, history, and chats stay separate.',
-    icon: <Monitor className="h-3.5 w-3.5" strokeWidth={1.85} />,
-  },
-  cli: {
-    title: 'Claude Code CLI',
-    description: 'Wraps the claude binary with CLAUDE_CONFIG_DIR pointed at this profile, exposed as claude-{slug}.',
-    icon: <Terminal className="h-3.5 w-3.5" strokeWidth={1.85} />,
-  },
+const surfaceIcon: Record<SurfaceVariant, ReactNode> = {
+  gui: <Monitor className="h-3.5 w-3.5" strokeWidth={1.85} />,
+  cli: <Terminal className="h-3.5 w-3.5" strokeWidth={1.85} />,
+}
+
+/**
+ * Per-app surface-card copy, sourced from the registry so a Codex profile
+ * describes Codex surfaces (Codex.app, the `codex` binary, `CODEX_HOME`,
+ * `codex-<slug>`) rather than the Claude defaults.
+ */
+function surfaceCopy(app: AppId, variant: SurfaceVariant): { title: string; description: string } {
+  const spec = appSpecs[app]
+  if (variant === 'gui') {
+    return {
+      title: 'Desktop App',
+      description: `Launches ${spec.guiBundleName} with an isolated user-data directory so logins, history, and chats stay separate.`,
+    }
+  }
+  return {
+    title: `${spec.displayName} CLI`,
+    description: `Wraps the ${spec.cliBinary} binary with ${spec.cliConfigEnv} pointed at this profile, exposed as ${spec.cliWrapperPrefix}-{slug}.`,
+  }
 }
 
 /**
@@ -54,6 +67,7 @@ const COPY: Record<SurfaceVariant, { title: string; description: string; icon: R
  */
 export function ProfileDetailSurfaceCard({
   variant,
+  app,
   enabled,
   primaryLabel,
   primaryKbd,
@@ -63,7 +77,8 @@ export function ProfileDetailSurfaceCard({
   primarySuffix,
   onPrimary,
 }: Props) {
-  const meta = COPY[variant]
+  const meta = surfaceCopy(app, variant)
+  const icon = surfaceIcon[variant]
   return (
     <section
       data-enabled={enabled ? 'true' : 'false'}
@@ -74,7 +89,7 @@ export function ProfileDetailSurfaceCard({
           aria-hidden
           className="grid h-[26px] w-[26px] place-items-center rounded-[7px] bg-cream-2 text-ink-soft dark:bg-cream-3"
         >
-          {meta.icon}
+          {icon}
         </span>
         <h3 className="text-h3 font-semibold text-ink tracking-[-0.012em]">{meta.title}</h3>
       </header>

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+import type { AppId } from '@/lib/app-registry'
 import type { SidebarEntry } from '@/lib/types'
 
 import { Activity, Suspense, useEffect, useRef, useState } from 'react'
@@ -33,6 +34,7 @@ import { SidebarSkeleton } from '@/features/profiles/components/sidebar-skeleton
 import { SettingsView } from '@/features/settings/components/settings-view'
 import { SettingsViewSkeleton } from '@/features/settings/components/settings-view-skeleton'
 import { UpdateToastTrigger } from '@/features/updater/components/update-toast-trigger'
+import { wrapperCommand } from '@/lib/app-registry'
 import { useAppState } from '@/lib/app-state/use-app-state'
 import { QueryErrorBoundary } from '@/lib/query/error-boundary'
 
@@ -89,7 +91,8 @@ function AppContent() {
   const profiles = useProfiles()
   const entries = useSidebarEntries()
   const selection = useSidebarSelection(entries)
-  const migration = useMigration()
+  const claudeMigration = useMigration('claude')
+  const codexMigration = useMigration('codex')
   const appState = useAppState()
   const dependencies = useDependencies()
   const lastUsed = useProfileLastUsed()
@@ -97,7 +100,16 @@ function AppContent() {
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' })
   const [submitting, setSubmitting] = useState(false)
   const [rightPane, setRightPane] = useState<RightPane>({ kind: 'profile' })
-  const [forceMigrationOpen, setForceMigrationOpen] = useState(false)
+  // Which app's import dialog is open (null = closed). The originating
+  // surface (default-entry "Migrate", Settings, palette, ⌘I) picks the app
+  // so a Codex default opens a Codex import, not the Claude one.
+  const [migrationApp, setMigrationApp] = useState<AppId | null>(null)
+
+  const migrationByApp: Record<AppId, ReturnType<typeof useMigration>> = {
+    claude: claudeMigration,
+    codex: codexMigration,
+  }
+  const activeMigration = migrationApp ? migrationByApp[migrationApp] : null
 
   const theme = useTheme()
   const persistedThemeMode = appState.state.themeMode
@@ -198,7 +210,15 @@ function AppContent() {
 
   const shouldShowWelcome = !appState.state.welcomeShown
 
-  const showMigration = forceMigrationOpen
+  const showMigration = migrationApp !== null
+
+  // Opens the import dialog for `app` after refreshing its detection. Used
+  // by every entry point that triggers migration (⌘I, Settings, palette,
+  // and the per-app default-entry "Migrate" link).
+  async function openMigration(app: AppId) {
+    await migrationByApp[app].refresh()
+    setMigrationApp(app)
+  }
 
   const anyCliProfile = profiles.profiles.some((profile) => profile.surfaces.cli)
   const pathBannerDismissedRecently = isWithinDismissalWindow(appState.state.pathBannerDismissedAt)
@@ -226,7 +246,7 @@ function AppContent() {
   useShortcut(
     'open-detect-import',
     () => {
-      void migration.refresh().then(() => setForceMigrationOpen(true))
+      void openMigration('claude')
     },
     { enabled: !overlayOpen },
   )
@@ -279,7 +299,10 @@ function AppContent() {
     'copy-selected-cli',
     () => {
       if (managedSelected?.surfaces.cli) {
-        void lastUsed.copyCli({ profileId: managedSelected.id, command: `claude-${managedSelected.slug}` })
+        void lastUsed.copyCli({
+          profileId: managedSelected.id,
+          command: wrapperCommand(managedSelected.app, managedSelected.slug),
+        })
       }
     },
     { enabled: detailEnabled && managedSelected !== null },
@@ -421,8 +444,7 @@ function AppContent() {
                 <DefaultProfileDetail
                   entry={selected.entry}
                   onMigrate={async () => {
-                    await migration.refresh()
-                    setForceMigrationOpen(true)
+                    await openMigration(selected.entry.app)
                   }}
                 />
               </QueryErrorBoundary>
@@ -434,8 +456,7 @@ function AppContent() {
                 <SettingsView
                   onClose={() => setRightPane({ kind: 'profile' })}
                   onOpenMigration={async () => {
-                    await migration.refresh()
-                    setForceMigrationOpen(true)
+                    await openMigration('claude')
                   }}
                   onOpenAbout={() => setDialog({ kind: 'about' })}
                 />
@@ -475,18 +496,19 @@ function AppContent() {
         <AboutDialog open={dialog.kind === 'about'} onClose={() => setDialog({ kind: 'none' })} />
       </Suspense>
 
-      {showMigration ? (
+      {migrationApp !== null && activeMigration !== null ? (
         <MigrationDialog
           open
-          existing={migration.existing}
+          app={migrationApp}
+          existing={activeMigration.existing}
           onClose={() => {
-            setForceMigrationOpen(false)
+            setMigrationApp(null)
           }}
           onImport={async (input) => {
-            const imported = await migration.import(input)
+            const imported = await activeMigration.import(input)
             await profiles.refresh()
             selection.select(imported.id)
-            setForceMigrationOpen(false)
+            setMigrationApp(null)
             setRightPane({ kind: 'profile' })
             return imported
           }}
@@ -525,13 +547,12 @@ function AppContent() {
           void lastUsed.launchDesktop(profileId)
         }}
         onCopy={(profile) => {
-          void lastUsed.copyCli({ profileId: profile.id, command: `claude-${profile.slug}` })
+          void lastUsed.copyCli({ profileId: profile.id, command: wrapperCommand(profile.app, profile.slug) })
         }}
         onCreate={requestCreateProfile}
         onSettings={() => setRightPane({ kind: 'settings' })}
         onImport={async () => {
-          await migration.refresh()
-          setForceMigrationOpen(true)
+          await openMigration('claude')
         }}
       />
     </div>

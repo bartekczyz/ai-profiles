@@ -50,7 +50,9 @@ function setup(detected: ExistingInstallInfo, overrides: Partial<Parameters<type
   })
   const onClose = vi.fn()
   const onImport = vi.fn().mockResolvedValue(FAKE_PROFILE)
-  renderWithQuery(<MigrationDialog open existing={detected} onClose={onClose} onImport={onImport} {...overrides} />)
+  renderWithQuery(
+    <MigrationDialog open app="claude" existing={detected} onClose={onClose} onImport={onImport} {...overrides} />,
+  )
   return { onClose, onImport, user: userEvent.setup() }
 }
 
@@ -58,7 +60,7 @@ describe('MigrationDialog', () => {
   it('renders only the surfaces that were detected', () => {
     setup(existing({ cliPath: null, cliSizeBytes: null }))
     expect(screen.getByLabelText(/Desktop app data/i)).toBeInTheDocument()
-    expect(screen.queryByLabelText(/Claude Code CLI config/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Claude CLI config/i)).not.toBeInTheDocument()
   })
 
   it('defaults the name to Default', () => {
@@ -69,7 +71,7 @@ describe('MigrationDialog', () => {
   it('pre-checks every detected surface', () => {
     setup(existing())
     expect(screen.getByLabelText(/Desktop app data/i)).toBeChecked()
-    expect(screen.getByLabelText(/Claude Code CLI config/i)).toBeChecked()
+    expect(screen.getByLabelText(/Claude CLI config/i)).toBeChecked()
   })
 
   it('shows formatted sizes alongside each detected path', async () => {
@@ -88,7 +90,7 @@ describe('MigrationDialog', () => {
   it('disables Import when both surfaces are unchecked', async () => {
     const { user } = setup(existing())
     await user.click(screen.getByLabelText(/Desktop app data/i))
-    await user.click(screen.getByLabelText(/Claude Code CLI config/i))
+    await user.click(screen.getByLabelText(/Claude CLI config/i))
     expect(screen.getByRole('button', { name: /^Import/ })).toBeDisabled()
   })
 
@@ -115,6 +117,7 @@ describe('MigrationDialog', () => {
     renderWithQuery(
       <MigrationDialog
         open
+        app="claude"
         existing={existing({ cliPath: null, cliSizeBytes: null })}
         onClose={onClose}
         onImport={onImport}
@@ -124,5 +127,31 @@ describe('MigrationDialog', () => {
     await user.click(screen.getByRole('button', { name: /^Import/ }))
     expect(await screen.findByText('disk full')).toBeInTheDocument()
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('renders Codex paths and the codex-<name> command when opened for Codex', async () => {
+    mockInvoke.mockResolvedValue({ guiSizeBytes: null, cliSizeBytes: null })
+    const onImport = vi.fn().mockResolvedValue(FAKE_PROFILE)
+    renderWithQuery(
+      <MigrationDialog
+        open
+        app="codex"
+        existing={{
+          guiPath: '/Users/me/Library/Application Support/Codex',
+          cliPath: '/Users/me/.codex',
+          guiSizeBytes: null,
+          cliSizeBytes: null,
+        }}
+        onClose={vi.fn()}
+        onImport={onImport}
+      />,
+    )
+    expect(screen.getByLabelText(/Codex CLI config/i)).toBeInTheDocument()
+    await userEvent.setup().type(screen.getByLabelText(/Profile name/i), 'X')
+    // The "invoked as" preview reflects the Codex wrapper prefix.
+    expect(screen.getByText(/codex-defaultx/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/CODEX_HOME/).length).toBeGreaterThan(0)
+    // Codex credentials live in auth.json (per-profile), not the macOS Keychain.
+    expect(screen.getByText(/auth\.json/)).toBeInTheDocument()
   })
 })

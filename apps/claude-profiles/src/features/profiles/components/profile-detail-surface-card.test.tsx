@@ -9,6 +9,7 @@ describe('ProfileDetailSurfaceCard', () => {
     render(
       <ProfileDetailSurfaceCard
         variant="gui"
+        app="claude"
         enabled
         primaryLabel="Open Claude"
         primaryKbd="⏎"
@@ -26,10 +27,11 @@ describe('ProfileDetailSurfaceCard', () => {
     expect(screen.getByText('⌥2')).toBeInTheDocument()
   })
 
-  it('switches to Claude Code CLI copy for the cli variant', () => {
+  it('describes the Claude CLI surface for the cli variant', () => {
     render(
       <ProfileDetailSurfaceCard
         variant="cli"
+        app="claude"
         enabled
         primaryLabel="Copy claude-personal"
         primaryKbd="⌘C"
@@ -41,9 +43,26 @@ describe('ProfileDetailSurfaceCard', () => {
         onPrimary={vi.fn()}
       />,
     )
-    expect(screen.getByRole('heading', { name: 'Claude Code CLI' })).toBeInTheDocument()
-    expect(screen.getByText('⌥3')).toBeInTheDocument()
-    expect(screen.getByText('⌥4')).toBeInTheDocument()
+    expect(screen.getByText(/CLAUDE_CONFIG_DIR/)).toBeInTheDocument()
+    expect(screen.getByText(/claude binary/)).toBeInTheDocument()
+  })
+
+  it('describes the Codex CLI surface (binary, CODEX_HOME, codex-{slug}) for a Codex profile', () => {
+    render(
+      <ProfileDetailSurfaceCard
+        variant="cli"
+        app="codex"
+        enabled
+        primaryLabel="Copy codex-personal"
+        primaryKbd="⌘C"
+        statusDetail="Wrapper installed"
+        secondaries={[]}
+        onPrimary={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/codex binary/)).toBeInTheDocument()
+    expect(screen.getByText(/CODEX_HOME/)).toBeInTheDocument()
+    expect(screen.getByText(/codex-\{slug\}/)).toBeInTheDocument()
   })
 
   it('disabled state dims the card and disables every action', () => {
@@ -52,6 +71,7 @@ describe('ProfileDetailSurfaceCard', () => {
     render(
       <ProfileDetailSurfaceCard
         variant="gui"
+        app="claude"
         enabled={false}
         primaryLabel="Open Claude"
         primaryKbd="⏎"
@@ -72,6 +92,7 @@ describe('ProfileDetailSurfaceCard', () => {
     render(
       <ProfileDetailSurfaceCard
         variant="gui"
+        app="claude"
         enabled
         primaryLabel="Open Claude"
         primaryKbd="⏎"

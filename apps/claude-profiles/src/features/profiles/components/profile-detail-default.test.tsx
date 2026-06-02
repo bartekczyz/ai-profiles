@@ -77,4 +77,15 @@ describe('DefaultProfileDetail', () => {
     const button = await screen.findByRole('button', { name: /Copy\s+claude\b/ })
     expect(button).toBeInTheDocument()
   })
+
+  it('labels the CLI primary action as "Copy codex" for a Codex default entry', async () => {
+    renderWithQuery(
+      <DefaultProfileDetail
+        entry={entry({ id: 'default:codex', app: 'codex', name: 'Default' })}
+        onMigrate={vi.fn()}
+      />,
+    )
+    const button = await screen.findByRole('button', { name: /Copy\s+codex\b/ })
+    expect(button).toBeInTheDocument()
+  })
 })
