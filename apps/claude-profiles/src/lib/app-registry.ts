@@ -17,6 +17,12 @@ export type AppSurfaceSpec = {
 export type AppUsageSpec = {
   /** Copy shown when the profile is not signed in / has no credentials. */
   noCredentials: string
+  /** Copy when the access token needs refreshing (re-run the CLI once). */
+  unauthorized: string
+  /** Copy when the upstream service rate-limited the usage request. */
+  rateLimited: string
+  /** Copy when the usage request couldn't reach its data source. */
+  networkError: string
   /** Labels for the meters this app renders, in render order. */
   primaryLabel: string
   primaryShortLabel: string
@@ -71,6 +77,9 @@ const claude: AppSpec = {
   },
   usage: {
     noCredentials: 'Sign in to Claude Code once with this profile to see usage.',
+    unauthorized: 'Token refresh needed — run `claude` in a terminal once, then retry.',
+    rateLimited: 'Rate limited by Anthropic. Try again in a few minutes.',
+    networkError: "Couldn't reach Anthropic — check your connection and retry.",
     primaryLabel: '5-hour window',
     primaryShortLabel: '5h',
     secondaryLabel: 'Weekly',
@@ -103,6 +112,9 @@ const codex: AppSpec = {
   },
   usage: {
     noCredentials: 'Sign in to Codex once with this profile to see usage.',
+    unauthorized: 'Token refresh needed — run `codex` in a terminal once, then retry.',
+    rateLimited: 'Rate limited by OpenAI. Try again in a few minutes.',
+    networkError: "Couldn't read Codex usage — make sure the Codex CLI is installed and signed in.",
     primaryLabel: '5-hour window',
     primaryShortLabel: '5h',
     secondaryLabel: 'Weekly',

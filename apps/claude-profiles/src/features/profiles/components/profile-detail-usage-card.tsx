@@ -119,21 +119,23 @@ function quotaErrorMessage(
   quotaError: ProfileUsage['quotaError'],
   quota: ProfileUsage['quota'],
 ): string | null {
+  // All app-specific copy lives in the registry so a Codex pane never names
+  // Anthropic (and vice versa). The unauthorized/rate-limited/network strings
+  // are vendor-aware; unknown stays neutral.
+  const usage = appSpecs[app].usage
   if (quotaError === 'no_credentials') {
-    return appSpecs[app].usage?.noCredentials ?? 'Sign in once with this profile to see usage.'
+    return usage?.noCredentials ?? 'Sign in once with this profile to see usage.'
   }
   if (quotaError === 'unauthorized') {
-    // Not a real "session expired" — Claude Code's short-lived access
-    // token rolls over every ~hour and is silently refreshed the next
-    // time you invoke `claude`. Same step also handles the rarer case
-    // where the token was actually revoked (claude will prompt re-login).
-    return 'Token refresh needed — run `claude` in a terminal once, then retry.'
+    // Not a real "session expired" — the CLI's short-lived access token rolls
+    // over and is refreshed the next time you invoke it.
+    return usage?.unauthorized ?? 'Token refresh needed — run the CLI once, then retry.'
   }
   if (quotaError === 'rate_limited') {
-    return 'Rate limited by Anthropic. Try again in a few minutes.'
+    return usage?.rateLimited ?? 'Rate limited. Try again in a few minutes.'
   }
   if (quotaError === 'network') {
-    return "Couldn't reach Anthropic — check your connection and retry."
+    return usage?.networkError ?? "Couldn't reach the usage service — check your connection and retry."
   }
   if (quotaError === 'unknown') {
     return "Couldn't load usage stats. Try again."

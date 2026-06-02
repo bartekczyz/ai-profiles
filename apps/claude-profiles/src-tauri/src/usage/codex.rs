@@ -125,9 +125,17 @@ impl QuotaProvider for CodexQuotaProvider {
 
 impl CodexQuotaProvider {
     async fn read_rate_limits(&self, codex_home: &Path) -> Result<String, QuotaError> {
-        let mut child = tokio::process::Command::new("codex")
+        // A Tauri app launched from Finder doesn't inherit the shell PATH, so a
+        // bare `codex` spawn would fail with ENOENT and surface as a misleading
+        // "couldn't reach" error. Resolve the absolute binary path (and pass the
+        // resolved PATH through) so usage works regardless of how we were
+        // launched. NoCredentials would be wrong here, so use Unknown.
+        let codex_binary =
+            crate::deps::resolve_cli_binary_path("codex").ok_or(QuotaError::Unknown)?;
+        let mut child = tokio::process::Command::new(&codex_binary)
             .arg("app-server")
             .env("CODEX_HOME", codex_home)
+            .env("PATH", crate::deps::shell_path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -158,7 +166,12 @@ impl CodexQuotaProvider {
             .await
             .map_err(|_| QuotaError::Network)?;
         stdin.flush().await.map_err(|_| QuotaError::Network)?;
-        drop(stdin);
+        // Keep stdin OPEN across the read. codex app-server (v0.135.0) stops
+        // emitting output the instant stdin hits EOF — closing it here, before
+        // the `account/rateLimits/read` reply arrives, yields an empty stream
+        // and a spurious Network error. Verified live: immediate EOF → no
+        // output at all; stdin held open → the full id:2 result. We therefore
+        // hold the handle until after the read completes, then drop it.
 
         // Read lines until the matching id arrives or the deadline passes.
         let read = async {
@@ -172,10 +185,12 @@ impl CodexQuotaProvider {
             }
             extract_result_for_id(&lines, RATE_LIMITS_ID)
         };
-        match tokio::time::timeout(APP_SERVER_TIMEOUT, read).await {
+        let outcome = match tokio::time::timeout(APP_SERVER_TIMEOUT, read).await {
             Ok(result) => result,
             Err(_) => Err(QuotaError::Network),
-        }
+        };
+        drop(stdin);
+        outcome
     }
 }
 

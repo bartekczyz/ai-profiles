@@ -84,12 +84,42 @@ pub fn is_local_bin_in_path(path_string: &str, home: &Path) -> bool {
 }
 
 pub fn find_cli_in_path(binary: &str, path_string: &str, home: &Path) -> bool {
+    find_cli_path_in(binary, path_string, home).is_some()
+}
+
+/// Pure: resolve the absolute path of `binary` — first existing
+/// `<segment>/<binary>` across the PATH segments, then `~/.local/bin`.
+fn find_cli_path_in(binary: &str, path_string: &str, home: &Path) -> Option<PathBuf> {
     for segment in path_string.split(':') {
-        if PathBuf::from(segment.trim()).join(binary).is_file() {
-            return true;
+        let candidate = PathBuf::from(segment.trim()).join(binary);
+        if candidate.is_file() {
+            return Some(candidate);
         }
     }
-    home.join(".local").join("bin").join(binary).is_file()
+    let local = home.join(".local").join("bin").join(binary);
+    if local.is_file() {
+        return Some(local);
+    }
+    None
+}
+
+/// Resolve the absolute path to a managed CLI `binary` on the user's
+/// interactive shell PATH (falling back to `~/.local/bin`). Returns `None`
+/// when it isn't found. Needed because a Tauri app launched from Finder does
+/// not inherit the shell PATH, so spawning a bare `codex`/`claude` fails — we
+/// must locate and exec the absolute path instead.
+pub fn resolve_cli_binary_path(binary: &str) -> Option<PathBuf> {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+    let shell_path = cached_shell_path(&home);
+    find_cli_path_in(binary, &shell_path, &home)
+}
+
+/// The resolved interactive shell PATH (cached). Exposed so a spawned child
+/// process (e.g. `codex app-server`) inherits a usable PATH even when the app
+/// was launched from Finder.
+pub fn shell_path() -> String {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+    cached_shell_path(&home)
 }
 
 pub fn gui_app_exists(spec: &AppSpec) -> bool {
@@ -165,6 +195,32 @@ mod tests {
     fn find_cli_returns_false_when_truly_missing() {
         let home = tempdir().unwrap();
         assert!(!find_cli_in_path("claude", "/usr/bin:/bin", home.path()));
+    }
+
+    #[test]
+    fn find_cli_path_in_returns_the_resolved_absolute_path() {
+        let home = tempdir().unwrap();
+        let bin = home.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("codex"), "#!/bin/bash\n").unwrap();
+        let path = format!("/nonexistent:{}:/usr/bin", bin.display());
+        assert_eq!(
+            find_cli_path_in("codex", &path, home.path()),
+            Some(bin.join("codex"))
+        );
+        assert!(find_cli_path_in("claude", &path, home.path()).is_none());
+    }
+
+    #[test]
+    fn find_cli_path_in_falls_back_to_local_bin() {
+        let home = tempdir().unwrap();
+        let local_bin = home.path().join(".local").join("bin");
+        std::fs::create_dir_all(&local_bin).unwrap();
+        std::fs::write(local_bin.join("codex"), "#!/bin/bash\n").unwrap();
+        assert_eq!(
+            find_cli_path_in("codex", "/usr/bin:/bin", home.path()),
+            Some(local_bin.join("codex"))
+        );
     }
 
     #[test]
