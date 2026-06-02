@@ -16,9 +16,20 @@
 
 /* Per-app accent — defaults to orange (Claude / no selection). Setting
    document.documentElement.dataset.app shifts the gradient tint. Claude uses
-   the orange default, so only non-default apps need an override. */
+   the orange default, so only non-default apps need an override.
+
+   Registering --app-accent as a typed <color> lets the browser interpolate it,
+   so switching Claude<->Codex animates the window tint instead of snapping.
+   initial-value must be a literal — the light-theme orange. */
+@property --app-accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #d97757;
+}
+
 :root {
   --app-accent: var(--color-orange);
+  transition: --app-accent 600ms var(--ease-natural);
 }
 
 [data-app="codex"] {
@@ -34,7 +45,7 @@ body {
   background-image:
     radial-gradient(
       1200px 800px at 18% 12%,
-      color-mix(in oklab, var(--app-accent) 10%, transparent),
+      color-mix(in oklab, var(--app-accent) 15%, transparent),
       transparent 60%
     ),
     radial-gradient(
@@ -58,7 +69,7 @@ body {
   background-image:
     radial-gradient(
       1200px 800px at 18% 12%,
-      color-mix(in oklab, var(--app-accent) 7%, transparent),
+      color-mix(in oklab, var(--app-accent) 10%, transparent),
       transparent 60%
     ),
     radial-gradient(
