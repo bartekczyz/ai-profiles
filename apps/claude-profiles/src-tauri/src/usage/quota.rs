@@ -1,8 +1,12 @@
+use std::collections::HashMap;
 use std::path::Path;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::usage::credentials::read_access_token;
 use crate::usage::{QuotaError, QuotaUsage, Window};
@@ -10,12 +14,35 @@ use crate::usage::{QuotaError, QuotaUsage, Window};
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const BETA_HEADER: &str = "oauth-2025-04-20";
 const REQUEST_TIMEOUT_SECS: u64 = 8;
+/// How long a successful usage response is reused. The numbers move slowly
+/// and the endpoint's rate-limit budget is small, so caching for a few
+/// minutes collapses the frontend's per-mount + 5-min-poll refetches (one
+/// query per profile) into roughly one upstream call per token per window.
+const QUOTA_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
+/// Cooldown applied to a 429 that carries no usable `Retry-After`.
+const DEFAULT_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(60);
+/// Upper bound on an honoured `Retry-After`. This endpoint hands out up to
+/// ~1h windows; cap there so a bogus header can't lock the card out longer.
+const MAX_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(60 * 60);
 /// Hard cap on response body size. The real response is well under 1 KiB.
 const MAX_BODY_BYTES: usize = 1024 * 1024;
 
 pub struct HttpResponse {
     pub status: u16,
     pub body: Vec<u8>,
+    /// Parsed `Retry-After` (delta-seconds) from a 429, when present. Drives
+    /// how long we negatively cache the rate limit so we stop re-poking the
+    /// endpoint during its cooldown.
+    pub retry_after: Option<Duration>,
+}
+
+/// Pure: parse an HTTP `Retry-After` header value. We support the
+/// delta-seconds form (e.g. `"1800"`), which is what this endpoint returns.
+/// The HTTP-date form is unsupported and yields `None`, falling back to
+/// [`DEFAULT_RATE_LIMIT_COOLDOWN`].
+fn parse_retry_after(header: Option<&str>) -> Option<Duration> {
+    let seconds: u64 = header?.trim().parse().ok()?;
+    Some(Duration::from_secs(seconds))
 }
 
 #[async_trait]
@@ -55,6 +82,12 @@ impl UsageClient for ReqwestUsageClient {
             .await
             .map_err(|_| QuotaError::Network)?;
         let status = response.status().as_u16();
+        let retry_after = parse_retry_after(
+            response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok()),
+        );
 
         // Pre-flight cap: if the server advertises a body larger than
         // we're willing to read, refuse before buffering a single byte.
@@ -81,19 +114,73 @@ impl UsageClient for ReqwestUsageClient {
                 Err(_) => return Err(QuotaError::Network),
             }
         }
-        Ok(HttpResponse { status, body })
+        Ok(HttpResponse {
+            status,
+            body,
+            retry_after,
+        })
     }
 }
 
-/// Fetches and parses the quota for the profile at `cli_config_dir`,
-/// using the provided HTTP client. Returns `Ok(QuotaUsage)` only on
-/// 200 with at least one parseable window.
-pub async fn fetch_quota(
+/// Uncached fetch — kept for tests that exercise status-code mapping in
+/// isolation. Production goes through [`fetch_quota_cached`].
+#[cfg(test)]
+async fn fetch_quota(
     cli_config_dir: &Path,
     client: &dyn UsageClient,
 ) -> Result<QuotaUsage, QuotaError> {
     let token = read_access_token(cli_config_dir)?;
     let response = client.fetch(&token).await?;
+    parse_response(response)
+}
+
+/// Fetches quota through a per-token cache. Successful responses are reused
+/// for [`QUOTA_CACHE_TTL`]; a `429` is negatively cached for its
+/// `Retry-After` window. The frontend refetches usage on every mount and
+/// every 5 minutes, per profile — without this, that floods a tiny
+/// rate-limit budget. With it, each token makes at most one upstream call
+/// per window, and during a cooldown we serve the rate-limited state from
+/// cache instead of re-poking (and re-tripping) the endpoint.
+pub async fn fetch_quota_cached(
+    cli_config_dir: &Path,
+    client: &dyn UsageClient,
+    cache: &ClaudeQuotaCache,
+) -> Result<QuotaUsage, QuotaError> {
+    let token = read_access_token(cli_config_dir)?;
+    let key = token_cache_key(&token);
+    if let Some(cached) = cache.get(&key) {
+        return cached;
+    }
+
+    // Serialize cold fetches for the same token so two profiles refreshing
+    // at once make one upstream call, not two.
+    let slot = cache.slot(&key);
+    let _guard = slot.lock().await;
+    if let Some(cached) = cache.get(&key) {
+        return cached;
+    }
+
+    let response = client.fetch(&token).await?;
+    let retry_after = response.retry_after;
+    match parse_response(response) {
+        Ok(usage) => {
+            cache.store_success(key, usage.clone());
+            Ok(usage)
+        }
+        // Only rate limits are negatively cached. Network errors are
+        // transient and Unauthorized drives the token-refresh retry in
+        // `build_with_cli_refresh`, so neither must be pinned here.
+        Err(QuotaError::RateLimited) => {
+            cache.store_rate_limited(key, retry_after);
+            Err(QuotaError::RateLimited)
+        }
+        Err(other) => Err(other),
+    }
+}
+
+/// Maps an HTTP response to a quota result. Shared by the cached and
+/// uncached fetch paths.
+fn parse_response(response: HttpResponse) -> Result<QuotaUsage, QuotaError> {
     match response.status {
         200 => parse_body(&response.body),
         401 | 403 => Err(QuotaError::Unauthorized),
@@ -106,6 +193,96 @@ pub async fn fetch_quota(
         400..=499 => Err(QuotaError::Unknown),
         _ => Err(QuotaError::Unknown),
     }
+}
+
+/// What a cache entry remembers: a fresh successful quota, or that the
+/// endpoint is rate-limiting this token right now. Each carries its own
+/// expiry via the enclosing [`CacheEntry`].
+#[derive(Clone)]
+enum CachedOutcome {
+    Success(QuotaUsage),
+    RateLimited,
+}
+
+#[derive(Clone)]
+struct CacheEntry {
+    outcome: CachedOutcome,
+    expires_at: Instant,
+}
+
+/// In-memory cache for Claude quota responses, keyed by a hash of the OAuth
+/// access token. Successes cache for [`QUOTA_CACHE_TTL`]; rate limits cache
+/// for their `Retry-After` cooldown. Cold fetches serialise per token.
+#[derive(Default)]
+pub struct ClaudeQuotaCache {
+    entries: Mutex<HashMap<String, CacheEntry>>,
+    inflight: Mutex<HashMap<String, Arc<TokioMutex<()>>>>,
+}
+
+impl ClaudeQuotaCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the cached outcome for `key` while still fresh, mapped back
+    /// to the `Result` a caller would have gotten from the network. Expired
+    /// entries are evicted and treated as a miss.
+    fn get(&self, key: &str) -> Option<Result<QuotaUsage, QuotaError>> {
+        let mut entries = self.entries.lock().unwrap();
+        match entries.get(key) {
+            Some(entry) if Instant::now() < entry.expires_at => Some(match &entry.outcome {
+                CachedOutcome::Success(usage) => Ok(usage.clone()),
+                CachedOutcome::RateLimited => Err(QuotaError::RateLimited),
+            }),
+            Some(_) => {
+                entries.remove(key);
+                None
+            }
+            None => None,
+        }
+    }
+
+    fn store_success(&self, key: String, usage: QuotaUsage) {
+        self.insert(key, CachedOutcome::Success(usage), QUOTA_CACHE_TTL);
+    }
+
+    /// Negatively caches a rate limit for its `Retry-After` window, falling
+    /// back to [`DEFAULT_RATE_LIMIT_COOLDOWN`] and clamped to
+    /// [`MAX_RATE_LIMIT_COOLDOWN`] so a bogus header can't lock us out.
+    fn store_rate_limited(&self, key: String, retry_after: Option<Duration>) {
+        let cooldown = retry_after
+            .unwrap_or(DEFAULT_RATE_LIMIT_COOLDOWN)
+            .min(MAX_RATE_LIMIT_COOLDOWN);
+        self.insert(key, CachedOutcome::RateLimited, cooldown);
+    }
+
+    fn insert(&self, key: String, outcome: CachedOutcome, ttl: Duration) {
+        self.entries.lock().unwrap().insert(
+            key,
+            CacheEntry {
+                outcome,
+                expires_at: Instant::now() + ttl,
+            },
+        );
+    }
+
+    fn slot(&self, key: &str) -> Arc<TokioMutex<()>> {
+        let mut inflight = self.inflight.lock().unwrap();
+        inflight
+            .entry(key.to_string())
+            .or_insert_with(|| Arc::new(TokioMutex::new(())))
+            .clone()
+    }
+}
+
+fn token_cache_key(token: &str) -> String {
+    let digest = Sha256::digest(token.as_bytes());
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write;
+        let _ = write!(&mut hex, "{byte:02x}");
+    }
+    hex
 }
 
 fn parse_body(body: &[u8]) -> Result<QuotaUsage, QuotaError> {
@@ -147,12 +324,14 @@ fn into_window(raw: ApiWindow) -> Window {
 /// endpoint, parsed into the generic [`QuotaUsage`] windows.
 pub struct ClaudeQuotaProvider {
     client: ReqwestUsageClient,
+    cache: &'static ClaudeQuotaCache,
 }
 
 impl ClaudeQuotaProvider {
-    pub fn new(user_agent: String) -> Result<Self, QuotaError> {
+    pub fn new(user_agent: String, cache: &'static ClaudeQuotaCache) -> Result<Self, QuotaError> {
         Ok(Self {
             client: ReqwestUsageClient::new(user_agent)?,
+            cache,
         })
     }
 }
@@ -160,7 +339,7 @@ impl ClaudeQuotaProvider {
 #[async_trait]
 impl crate::usage::QuotaProvider for ClaudeQuotaProvider {
     async fn fetch(&self, config_dir: &Path) -> Result<QuotaUsage, QuotaError> {
-        fetch_quota(config_dir, &self.client).await
+        fetch_quota_cached(config_dir, &self.client, self.cache).await
     }
 }
 
@@ -201,6 +380,27 @@ mod tests {
             Ok(HttpResponse {
                 status: self.status,
                 body: self.body.clone(),
+                retry_after: None,
+            })
+        }
+    }
+
+    /// Counts upstream calls and can carry a `Retry-After`, for cache tests.
+    struct CountingClient {
+        calls: std::sync::Mutex<u32>,
+        status: u16,
+        body: Vec<u8>,
+        retry_after: Option<Duration>,
+    }
+
+    #[async_trait]
+    impl UsageClient for CountingClient {
+        async fn fetch(&self, _: &str) -> Result<HttpResponse, QuotaError> {
+            *self.calls.lock().unwrap() += 1;
+            Ok(HttpResponse {
+                status: self.status,
+                body: self.body.clone(),
+                retry_after: self.retry_after,
             })
         }
     }
@@ -450,5 +650,128 @@ mod tests {
         };
         let usage = fetch_quota(dir.path(), &client).await.unwrap();
         assert!(usage.primary.is_some());
+    }
+
+    // -- caching + back-off --
+
+    fn dir_with_named_token(token: &str) -> TempDir {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join(".credentials.json"),
+            format!(r#"{{"claudeAiOauth":{{"accessToken":"{token}"}}}}"#),
+        )
+        .unwrap();
+        dir
+    }
+
+    #[tokio::test]
+    async fn cached_fetch_reuses_success_within_ttl() {
+        // Two profiles signed into the same account share a token, so the
+        // second request is served from cache — one upstream call, not two.
+        let first = dir_with_named_token("sk-shared");
+        let second = dir_with_named_token("sk-shared");
+        let cache = ClaudeQuotaCache::new();
+        let client = CountingClient {
+            calls: std::sync::Mutex::new(0),
+            status: 200,
+            body: br#"{"five_hour":{"utilization":42.0,"resets_at":null}}"#.to_vec(),
+            retry_after: None,
+        };
+
+        let a = fetch_quota_cached(first.path(), &client, &cache)
+            .await
+            .unwrap();
+        let b = fetch_quota_cached(second.path(), &client, &cache)
+            .await
+            .unwrap();
+
+        assert_eq!(a.primary.unwrap().utilization, Some(42.0));
+        assert_eq!(b.primary.unwrap().utilization, Some(42.0));
+        assert_eq!(*client.calls.lock().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn cached_fetch_backs_off_during_rate_limit_cooldown() {
+        // The crux of the fix: a 429 is negatively cached for its
+        // Retry-After window, so a second request inside the cooldown is
+        // served from cache and does NOT poke the endpoint again.
+        let dir = dir_with_token();
+        let cache = ClaudeQuotaCache::new();
+        let client = CountingClient {
+            calls: std::sync::Mutex::new(0),
+            status: 429,
+            body: b"".to_vec(),
+            retry_after: Some(Duration::from_secs(1800)),
+        };
+
+        for _ in 0..3 {
+            assert!(matches!(
+                fetch_quota_cached(dir.path(), &client, &cache)
+                    .await
+                    .unwrap_err(),
+                QuotaError::RateLimited,
+            ));
+        }
+        assert_eq!(*client.calls.lock().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn cached_fetch_reprobes_after_cooldown_expires() {
+        // Once the Retry-After window elapses the negative entry is evicted
+        // and the next request is allowed to hit the endpoint again.
+        let dir = dir_with_token();
+        let cache = ClaudeQuotaCache::new();
+        let client = CountingClient {
+            calls: std::sync::Mutex::new(0),
+            status: 429,
+            body: b"".to_vec(),
+            retry_after: Some(Duration::from_millis(40)),
+        };
+
+        let _ = fetch_quota_cached(dir.path(), &client, &cache).await;
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let _ = fetch_quota_cached(dir.path(), &client, &cache).await;
+
+        assert_eq!(*client.calls.lock().unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn cached_fetch_does_not_pin_network_errors() {
+        // Network failures are transient — they must NOT be cached, so a
+        // later call retries rather than being stuck.
+        let dir = dir_with_token();
+        let cache = ClaudeQuotaCache::new();
+        let client = CountingClient {
+            calls: std::sync::Mutex::new(0),
+            status: 503,
+            body: b"".to_vec(),
+            retry_after: None,
+        };
+
+        let _ = fetch_quota_cached(dir.path(), &client, &cache).await;
+        let _ = fetch_quota_cached(dir.path(), &client, &cache).await;
+        assert_eq!(*client.calls.lock().unwrap(), 2);
+    }
+
+    #[test]
+    fn parse_retry_after_reads_delta_seconds() {
+        assert_eq!(
+            parse_retry_after(Some("1800")),
+            Some(Duration::from_secs(1800))
+        );
+        assert_eq!(
+            parse_retry_after(Some("  60 ")),
+            Some(Duration::from_secs(60))
+        );
+    }
+
+    #[test]
+    fn parse_retry_after_none_for_missing_or_http_date() {
+        assert_eq!(parse_retry_after(None), None);
+        assert_eq!(parse_retry_after(Some("")), None);
+        assert_eq!(
+            parse_retry_after(Some("Wed, 21 Oct 2099 07:28:00 GMT")),
+            None
+        );
     }
 }

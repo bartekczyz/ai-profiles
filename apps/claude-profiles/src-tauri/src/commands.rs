@@ -16,7 +16,12 @@ use crate::paths::{
     profile_dir as profile_data_dir, stock_cli_config_dir, stock_gui_support_dir,
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
-use crate::usage::{self, codex::CodexQuotaProvider, quota::ClaudeQuotaProvider, ProfileUsage};
+use crate::usage::{
+    self,
+    codex::CodexQuotaProvider,
+    quota::{ClaudeQuotaCache, ClaudeQuotaProvider},
+    ProfileUsage,
+};
 
 /// Append an activity entry to the profile's log. Failures are logged
 /// but do not propagate — the log is best-effort, not load-bearing.
@@ -460,6 +465,10 @@ pub fn get_app_metadata() -> AppMetadata {
 /// commands on the same profile would race, and a 5-minute auto-refetch
 /// would never see the previous "tried at" timestamp.
 static CLAUDE_REFRESHER: OnceLock<usage::refresh::ClaudeCliRefresher> = OnceLock::new();
+/// One shared usage cache across all `get_profile_usage` invocations so the
+/// 5-minute success cache and the 429 back-off survive between calls. A new
+/// instance per command would defeat both.
+static CLAUDE_QUOTA_CACHE: OnceLock<ClaudeQuotaCache> = OnceLock::new();
 
 #[tauri::command]
 pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
@@ -476,7 +485,8 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
     let user_agent = format!("claude-profiles/{}", env!("CARGO_PKG_VERSION"));
     match app {
         AppKind::Claude => {
-            let provider = ClaudeQuotaProvider::new(user_agent)
+            let cache = CLAUDE_QUOTA_CACHE.get_or_init(ClaudeQuotaCache::new);
+            let provider = ClaudeQuotaProvider::new(user_agent, cache)
                 .map_err(|_| AppError::Io(std::io::Error::other("could not build HTTP client")))?;
             let refresher = CLAUDE_REFRESHER.get_or_init(usage::refresh::ClaudeCliRefresher::new);
             Ok(usage::build_with_cli_refresh(&config_dir, &provider, refresher).await)
