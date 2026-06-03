@@ -41,17 +41,24 @@ struct RateLimitWindow {
 }
 
 /// Pure: parse a `GetAccountRateLimitsResponse` result body into QuotaUsage.
+///
+/// A reached rate limit (`rateLimitReachedType` set) is NOT an error: the
+/// snapshot still carries the real windows (`usedPercent`, `resetsAt`), so we
+/// render those — a 100% bar with its reset time is exactly the information
+/// the user wants, far better than collapsing to a bare "rate limited" card.
+/// We only fall back to `RateLimited` when the limit is reached AND no window
+/// data is present to show.
 fn parse_rate_limits(body: &[u8]) -> Result<QuotaUsage, QuotaError> {
     let parsed: RateLimitsResult = serde_json::from_slice(body).map_err(|_| QuotaError::Unknown)?;
-    if parsed.rate_limits.rate_limit_reached_type.is_some() {
-        return Err(QuotaError::RateLimited);
-    }
     let usage = QuotaUsage {
         primary: parsed.rate_limits.primary.map(into_window),
         secondary: parsed.rate_limits.secondary.map(into_window),
         secondary_extra: None,
     };
     if usage.primary.is_none() && usage.secondary.is_none() {
+        if parsed.rate_limits.rate_limit_reached_type.is_some() {
+            return Err(QuotaError::RateLimited);
+        }
         return Err(QuotaError::Unknown);
     }
     Ok(usage)
@@ -217,8 +224,20 @@ mod tests {
     }
 
     #[test]
-    fn rate_limit_reached_maps_to_rate_limited() {
-        let body = r#"{"rateLimits":{"primary":{"usedPercent":100,"windowDurationMins":300,"resetsAt":1},"rateLimitReachedType":"rate_limit_reached"}}"#;
+    fn rate_limit_reached_still_shows_usage_windows() {
+        // A reached limit that still carries window data must render the
+        // bars (100% + reset time), not collapse to a bare error.
+        let body = r#"{"rateLimits":{"primary":{"usedPercent":100,"windowDurationMins":300,"resetsAt":1780499820},"secondary":{"usedPercent":16,"windowDurationMins":10080,"resetsAt":1781086620},"rateLimitReachedType":"workspace_member_credits_depleted"}}"#;
+        let usage = parse_rate_limits(body.as_bytes()).unwrap();
+        assert_eq!(usage.primary.unwrap().utilization, Some(100.0));
+        assert_eq!(usage.secondary.unwrap().utilization, Some(16.0));
+    }
+
+    #[test]
+    fn rate_limit_reached_without_windows_maps_to_rate_limited() {
+        // Only when there's no window data to show do we fall back to the
+        // rate-limited error state.
+        let body = r#"{"rateLimits":{"rateLimitReachedType":"workspace_member_credits_depleted"}}"#;
         assert!(matches!(
             parse_rate_limits(body.as_bytes()),
             Err(QuotaError::RateLimited)
