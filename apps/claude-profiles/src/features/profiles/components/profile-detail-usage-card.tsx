@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { AppId } from '@/lib/app-registry'
-import type { ProfileUsage, UsageWindow } from '@/lib/types'
+import type { ProfileUsage, QuotaError, UsageWindow } from '@/lib/types'
 
 import { Component, useEffect, useState } from 'react'
 
@@ -10,7 +10,7 @@ import { RefreshCw } from 'lucide-react'
 import { TooltipBubble } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
 
-import { refetchIntervalMs, useProfileUsage } from '../api/use-profile-usage'
+import { refetchIntervalMs, UsageUnavailableError, useProfileUsage } from '../api/use-profile-usage'
 
 type Props = {
   app: AppId
@@ -36,7 +36,8 @@ export function ProfileDetailUsageCard({ app, profileId, cliEnabled }: Props) {
 }
 
 function UsageCardInner({ app, profileId }: { app: AppId; profileId: string }) {
-  const { data, isLoading, isFetching, isError, dataUpdatedAt, refetch } = useProfileUsage(profileId)
+  const { data, error, isLoading, isFetching, dataUpdatedAt, refetch } = useProfileUsage(profileId)
+  const errorCode = usageErrorCode(error)
 
   return (
     <section className="mb-6 rounded-md border border-border p-4">
@@ -56,7 +57,7 @@ function UsageCardInner({ app, profileId }: { app: AppId; profileId: string }) {
         </div>
       </header>
 
-      {isLoading ? <MetersSkeleton /> : <Body app={app} usage={data ?? null} isError={isError} />}
+      {isLoading ? <MetersSkeleton /> : <Body app={app} quota={data?.quota ?? null} errorCode={errorCode} />}
     </section>
   )
 }
@@ -96,32 +97,33 @@ function formatRefreshIn(deltaMs: number): string | null {
   return `${totalSeconds}s`
 }
 
-function Body({ app, usage, isError }: { app: AppId; usage: ProfileUsage | null; isError: boolean }) {
-  if (isError) {
-    return <p className="font-mono text-mono text-muted-strong">Couldn't load usage stats.</p>
+// Maps a thrown query error to a quota error code, or null when there's no
+// error. The query only ever throws `UsageUnavailableError`; anything else
+// is unexpected and maps to the neutral `unknown` message.
+function usageErrorCode(error: unknown): QuotaError | null {
+  if (error instanceof UsageUnavailableError) {
+    return error.code
   }
-  if (!usage) {
-    return <MetersSkeleton />
+  if (error) {
+    return 'unknown'
   }
-  const quotaMessage = quotaErrorMessage(app, usage.quotaError, usage.quota)
-  if (quotaMessage) {
-    return <p className="font-mono text-mono text-muted-strong">{quotaMessage}</p>
-  }
-  return <Meters app={app} quota={usage.quota} />
+  return null
 }
 
-// Returns the message to show in place of the meters, or null if the
-// meters should render. We treat "quota is null AND no recognised error"
-// the same as `unknown` so we never silently render empty bars when the
-// backend gave us nothing usable.
-function quotaErrorMessage(
-  app: AppId,
-  quotaError: ProfileUsage['quotaError'],
-  quota: ProfileUsage['quota'],
-): string | null {
-  // All app-specific copy lives in the registry so a Codex pane never names
-  // Anthropic (and vice versa). The unauthorized/rate-limited/network strings
-  // are vendor-aware; unknown stays neutral.
+function Body({ app, quota, errorCode }: { app: AppId; quota: ProfileUsage['quota']; errorCode: QuotaError | null }) {
+  if (errorCode) {
+    return <p className="font-mono text-mono text-muted-strong">{quotaErrorMessage(app, errorCode)}</p>
+  }
+  if (!quota) {
+    return <MetersSkeleton />
+  }
+  return <Meters app={app} quota={quota} />
+}
+
+// Resolves the message shown in place of the meters for a given error code.
+// All app-specific copy lives in the registry so a Codex pane never names
+// Anthropic (and vice versa); unknown stays neutral.
+function quotaErrorMessage(app: AppId, quotaError: QuotaError): string {
   const usage = appSpecs[app].usage
   if (quotaError === 'no_credentials') {
     return usage?.noCredentials ?? 'Sign in once with this profile to see usage.'
@@ -137,13 +139,7 @@ function quotaErrorMessage(
   if (quotaError === 'network') {
     return usage?.networkError ?? "Couldn't reach the usage service — check your connection and retry."
   }
-  if (quotaError === 'unknown') {
-    return "Couldn't load usage stats. Try again."
-  }
-  if (!quota) {
-    return "Couldn't load usage stats. Try again."
-  }
-  return null
+  return "Couldn't load usage stats. Try again."
 }
 
 function Meters({ app, quota }: { app: AppId; quota: ProfileUsage['quota'] }) {

@@ -7,15 +7,15 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { appSpecs } from '@/lib/app-registry'
 
-import { useProfileUsage } from '../api/use-profile-usage'
+import { UsageUnavailableError, useProfileUsage } from '../api/use-profile-usage'
 import { ProfileDetailUsageCard } from './profile-detail-usage-card'
 
-// vi.mock is hoisted above all imports — the import above resolves to the
-// mocked module at test time.
-vi.mock('../api/use-profile-usage', () => ({
-  useProfileUsage: vi.fn(),
-  refetchIntervalMs: 5 * 60 * 1000,
-}))
+// Partial mock: keep the real `refetchIntervalMs` and `UsageUnavailableError`
+// (the card does `error instanceof UsageUnavailableError`), stub only the hook.
+vi.mock('../api/use-profile-usage', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/use-profile-usage')>()
+  return { ...actual, useProfileUsage: vi.fn() }
+})
 
 function makeUsage(overrides: Partial<ProfileUsage> = {}): ProfileUsage {
   return {
@@ -70,9 +70,10 @@ describe('ProfileDetailUsageCard', () => {
     expect(bars[0]).not.toHaveAttribute('aria-valuenow')
   })
 
-  it('hides the meters when quotaError is no_credentials', () => {
+  it('hides the meters when the query errors with no_credentials', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
-      data: makeUsage({ quota: null, quotaError: 'no_credentials' }),
+      data: undefined,
+      error: new UsageUnavailableError('no_credentials'),
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
@@ -86,9 +87,10 @@ describe('ProfileDetailUsageCard', () => {
     ['rate_limited', /rate limited/i],
     ['network', /couldn't reach anthropic/i],
     ['unknown', /couldn't load usage stats/i],
-  ] as const)('shows an explicit message and no meters when quotaError is %s', (quotaError, expected) => {
+  ] as const)('shows an explicit message and no meters when the query errors with %s', (code, expected) => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
-      data: makeUsage({ quota: null, quotaError }),
+      data: undefined,
+      error: new UsageUnavailableError(code),
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
@@ -98,9 +100,10 @@ describe('ProfileDetailUsageCard', () => {
     expect(screen.getByText(expected)).toBeInTheDocument()
   })
 
-  it('shows the unknown-error message when quota is null with no quotaError (defensive)', () => {
+  it('shows the unknown-error message when the query errors with unknown', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
-      data: makeUsage({ quota: null, quotaError: null }),
+      data: undefined,
+      error: new UsageUnavailableError('unknown'),
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
@@ -362,7 +365,8 @@ describe('ProfileDetailUsageCard', () => {
 
   it('shows the Codex no-credentials copy from the app spec', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
-      data: makeUsage({ quota: null, quotaError: 'no_credentials' }),
+      data: undefined,
+      error: new UsageUnavailableError('no_credentials'),
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),

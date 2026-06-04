@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import { queryKeys } from '@/lib/query/keys'
 
-import { narrowProfileUsage } from './use-profile-usage'
+import { ensureUsable, narrowProfileUsage, UsageUnavailableError } from './use-profile-usage'
 
 describe('narrowProfileUsage', () => {
   it('returns the input when it already matches the expected shape', () => {
@@ -70,6 +70,38 @@ describe('narrowProfileUsage', () => {
       fetchedAt: 'x',
     })
     expect(result.quota?.primary?.utilization).toBeNull()
+  })
+})
+
+describe('ensureUsable', () => {
+  it('returns the snapshot unchanged when it has a quota and no error', () => {
+    const usage: ProfileUsage = {
+      quota: { primary: { utilization: 50, resetsAt: null }, secondary: null, secondaryExtra: null },
+      quotaError: null,
+      fetchedAt: 'x',
+    }
+    expect(ensureUsable(usage)).toBe(usage)
+  })
+
+  it('throws UsageUnavailableError carrying the code when a quotaError is present', () => {
+    let thrown: unknown
+    try {
+      ensureUsable({ quota: null, quotaError: 'rate_limited', fetchedAt: 'x' })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(UsageUnavailableError)
+    expect((thrown as UsageUnavailableError).code).toBe('rate_limited')
+  })
+
+  it('throws with code "unknown" when quota is null without an explicit error', () => {
+    let thrown: unknown
+    try {
+      ensureUsable({ quota: null, quotaError: null, fetchedAt: 'x' })
+    } catch (error) {
+      thrown = error
+    }
+    expect((thrown as UsageUnavailableError).code).toBe('unknown')
   })
 })
 
