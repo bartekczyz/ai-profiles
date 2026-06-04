@@ -78,8 +78,14 @@ function RefreshCountdown({ isFetching, dataUpdatedAt }: { isFetching: boolean; 
   if (!dataUpdatedAt) {
     return null
   }
-  const remainingMs = dataUpdatedAt + refetchIntervalMs - Date.now()
-  const label = formatRefreshIn(remainingMs)
+  // Fresh data shows a countdown to the next auto-refresh; data older than the
+  // refresh interval (e.g. a snapshot restored from a previous session) shows
+  // its age instead, so the staleness is visible at a glance.
+  const ageMs = Date.now() - dataUpdatedAt
+  if (ageMs >= refetchIntervalMs) {
+    return <span className="font-mono text-mono text-muted-strong">updated {formatUpdatedAgo(ageMs)}</span>
+  }
+  const label = formatRefreshIn(dataUpdatedAt + refetchIntervalMs - Date.now())
   if (!label) {
     return null
   }
@@ -97,6 +103,21 @@ function formatRefreshIn(deltaMs: number): string | null {
   return `${totalSeconds}s`
 }
 
+function formatUpdatedAgo(ageMs: number): string {
+  const minutes = Math.floor(ageMs / 60_000)
+  if (minutes < 1) {
+    return 'just now'
+  }
+  if (minutes < 60) {
+    return `${minutes}m ago`
+  }
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) {
+    return `${hours}h ago`
+  }
+  return `${Math.floor(hours / 24)}d ago`
+}
+
 // Maps a thrown query error to a quota error code, or null when there's no
 // error. The query only ever throws `UsageUnavailableError`; anything else
 // is unexpected and maps to the neutral `unknown` message.
@@ -111,13 +132,42 @@ function usageErrorCode(error: unknown): QuotaError | null {
 }
 
 function Body({ app, quota, errorCode }: { app: AppId; quota: ProfileUsage['quota']; errorCode: QuotaError | null }) {
+  // Stale-while-revalidate: whenever there's data, show the meters — even if
+  // the latest refresh just failed — with a quiet "couldn't refresh" note so
+  // the staleness stays honest. The full error message is reserved for when
+  // there's nothing cached to show.
+  if (quota) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Meters app={app} quota={quota} />
+        {errorCode ? (
+          <p className="font-mono text-mono text-muted-strong">Couldn't refresh — {quotaErrorShort(errorCode)}.</p>
+        ) : null}
+      </div>
+    )
+  }
   if (errorCode) {
     return <p className="font-mono text-mono text-muted-strong">{quotaErrorMessage(app, errorCode)}</p>
   }
-  if (!quota) {
-    return <MetersSkeleton />
+  return <MetersSkeleton />
+}
+
+// Terse reason appended to the "Couldn't refresh — …" note shown beside stale
+// meters. The full sentences in `quotaErrorMessage` are for the no-data case.
+function quotaErrorShort(quotaError: QuotaError): string {
+  if (quotaError === 'no_credentials') {
+    return 'sign-in needed'
   }
-  return <Meters app={app} quota={quota} />
+  if (quotaError === 'unauthorized') {
+    return 'token refresh needed'
+  }
+  if (quotaError === 'rate_limited') {
+    return 'rate limited'
+  }
+  if (quotaError === 'network') {
+    return 'offline'
+  }
+  return 'unavailable'
 }
 
 // Resolves the message shown in place of the meters for a given error code.

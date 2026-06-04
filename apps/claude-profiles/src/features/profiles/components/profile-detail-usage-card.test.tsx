@@ -164,6 +164,34 @@ describe('ProfileDetailUsageCard', () => {
     expect(screen.getByText(/refreshing/)).toBeInTheDocument()
   })
 
+  it('keeps showing the meters with a "couldn\'t refresh" note when a refresh errors but data is cached', () => {
+    // Stale-while-revalidate: a rate-limited refresh must not hide the
+    // last-known meters; it adds a quiet note instead of the full message.
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: makeUsage(),
+      error: new UsageUnavailableError('rate_limited'),
+      isLoading: false,
+      isFetching: false,
+      dataUpdatedAt: Date.now(),
+      refetch: vi.fn(),
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
+    expect(screen.getAllByRole('progressbar')).toHaveLength(3)
+    expect(screen.getByText(/couldn't refresh/i)).toBeInTheDocument()
+  })
+
+  it('shows "updated Xh ago" for data older than the refresh interval', () => {
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: makeUsage(),
+      isLoading: false,
+      isFetching: false,
+      dataUpdatedAt: Date.now() - 2 * 60 * 60 * 1000,
+      refetch: vi.fn(),
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
+    expect(screen.getByText(/updated 2h ago/i)).toBeInTheDocument()
+  })
+
   it('clears the error fallback when profileId changes', () => {
     const usageMock = useProfileUsage as ReturnType<typeof vi.fn>
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
