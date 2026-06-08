@@ -1,24 +1,27 @@
 import type { ReactNode } from 'react'
-import type { DefaultEntry, Dependencies, Profile, SidebarEntry } from '@/lib/types'
+import type { AppId } from '@/lib/app-registry'
+import type { DefaultEntry, Profile, SidebarEntry } from '@/lib/types'
 
 import { Command } from 'cmdk'
 import { CornerDownLeft, Download, Plus, Search, Settings as SettingsIcon, Terminal } from 'lucide-react'
 
 import { cn, Kbd } from '@/design'
 import { OutlinedSwatch } from '@/features/profiles/components/outlined-swatch'
+import { appSpecs, wrapperCommand } from '@/lib/app-registry'
 
 type CommandPaletteProps = {
   open: boolean
   entries: Array<SidebarEntry>
   selectedId: string | null
-  dependencies: Dependencies
+  /** Apps with a detected stock install — one import row is rendered per app. */
+  importableApps: ReadonlyArray<AppId>
   onClose: () => void
   onSwitch: (id: string) => void
   onLaunch: (profileId: string) => void
   onCopy: (profile: Profile) => void
   onCreate: () => void
   onSettings: () => void
-  onImport: () => void
+  onImport: (app: AppId) => void
 }
 
 /**
@@ -35,7 +38,7 @@ export function CommandPalette({
   open,
   entries,
   selectedId,
-  dependencies,
+  importableApps,
   onClose,
   onSwitch,
   onLaunch,
@@ -129,20 +132,18 @@ export function CommandPalette({
           >
             Open settings
           </PaletteItem>
-          <PaletteItem
-            value="detect-import"
-            keywords={['detect', 'import', 'migration', 'existing']}
-            kbd="⌘I"
-            onSelect={() => runAndClose(onImport)}
-            leading={<Download className="h-3.5 w-3.5 text-muted" strokeWidth={1.85} />}
-            disabled={
-              entries.some((entry) => entry.kind === 'managed') &&
-              !dependencies.claudeAppInstalled &&
-              !dependencies.claudeCliInstalled
-            }
-          >
-            Detect and import…
-          </PaletteItem>
+          {importableApps.map((appId) => (
+            <PaletteItem
+              key={appId}
+              value={`detect-import-${appId}`}
+              keywords={['detect', 'import', 'migration', 'existing', appId, appSpecs[appId].displayName]}
+              kbd="⌘I"
+              onSelect={() => runAndClose(() => onImport(appId))}
+              leading={<Download className="h-3.5 w-3.5 text-muted" strokeWidth={1.85} />}
+            >
+              Detect and import {appSpecs[appId].displayName}…
+            </PaletteItem>
+          ))}
         </Command.Group>
       </Command.List>
       <footer className="flex items-center justify-end gap-3 border-t border-border-soft px-3 py-2 text-[11px] text-muted-strong">
@@ -194,7 +195,7 @@ function ProfileRows({ profile, onLaunch, onCopy, onSwitch }: ProfileRowsProps) 
           onSelect={onCopy}
           leading={<Terminal className="h-3.5 w-3.5 text-muted-strong" strokeWidth={1.85} />}
         >
-          Copy <code className="font-mono text-ink">claude-{profile.slug}</code>
+          Copy <code className="font-mono text-ink">{wrapperCommand(profile.app, profile.slug)}</code>
         </PaletteItem>
       ) : null}
       <PaletteItem

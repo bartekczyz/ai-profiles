@@ -1,9 +1,24 @@
+import type { AppId } from '@/lib/app-registry'
 import type { ExistingInstallInfo, ExistingInstallSizes, ImportExistingInput, Profile } from '@/lib/types'
 
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
-import { detectExistingClaudeInstall, detectExistingClaudeSizes, importExistingInstall } from '@/lib/commands'
+import { appIds } from '@/lib/app-registry'
+import { detectExistingInstall, detectExistingSizes, importExistingInstall } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
+
+/**
+ * Pure: the apps with a detected stock install available to import (a GUI
+ * and/or CLI path present), in `appIds` order. Drives every "Detect and
+ * import" entry point (command palette, Settings, ⌘I) so a Codex install is
+ * reachable, not just Claude.
+ */
+export function importableAppsFrom(existingByApp: Record<AppId, ExistingInstallInfo>): Array<AppId> {
+  return appIds.filter((appId) => {
+    const existing = existingByApp[appId]
+    return existing.guiPath !== null || existing.cliPath !== null
+  })
+}
 
 type UseMigrationResult = {
   existing: ExistingInstallInfo
@@ -12,22 +27,22 @@ type UseMigrationResult = {
   refresh: () => Promise<void>
 }
 
-export function useMigration(): UseMigrationResult {
+export function useMigration(app: AppId = 'claude'): UseMigrationResult {
   const queryClient = useQueryClient()
   const { data } = useSuspenseQuery({
-    queryKey: queryKeys.migration.existing,
-    queryFn: detectExistingClaudeInstall,
+    queryKey: [...queryKeys.migration.existing, app],
+    queryFn: () => detectExistingInstall(app),
   })
 
   const importMutation = useMutation({
-    mutationFn: importExistingInstall,
+    mutationFn: (input: ImportExistingInput) => importExistingInstall(app, input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.profiles.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.migration.backups })
     },
   })
 
-  const anyDetected = data.claudeDesktopPath !== null || data.claudeCodePath !== null
+  const anyDetected = data.guiPath !== null || data.cliPath !== null
 
   return {
     existing: data,
@@ -47,12 +62,12 @@ export function useMigration(): UseMigrationResult {
  * sizes until the IPC resolves; the dialog shows the path without a
  * size in the meantime.
  */
-export function useMigrationSizes(enabled: boolean): ExistingInstallSizes {
+export function useMigrationSizes(enabled: boolean, app: AppId = 'claude'): ExistingInstallSizes {
   const { data } = useQuery({
-    queryKey: queryKeys.migration.sizes,
-    queryFn: detectExistingClaudeSizes,
+    queryKey: [...queryKeys.migration.sizes, app],
+    queryFn: () => detectExistingSizes(app),
     enabled,
     staleTime: 60_000,
   })
-  return data ?? { claudeDesktopSizeBytes: null, claudeCodeSizeBytes: null }
+  return data ?? { guiSizeBytes: null, cliSizeBytes: null }
 }

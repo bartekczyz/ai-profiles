@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::app_kind::AppSpec;
 use crate::error::{AppError, AppResult};
 
 const APP_DIR_NAME: &str = "claude-profiles";
@@ -64,16 +65,15 @@ pub fn applications_dir() -> PathBuf {
     PathBuf::from("/Applications")
 }
 
-pub fn gui_launcher_path(name: &str) -> PathBuf {
-    applications_dir().join(format!("Claude ({name}).app"))
+pub fn gui_launcher_path(name: &str, spec: &AppSpec) -> PathBuf {
+    applications_dir().join(format!("{} ({name}).app", spec.launcher_prefix))
 }
 
-/// Path to the stock (unmanaged) Claude desktop application bundle. This is
-/// the app the synthetic "default" entry launches — distinct from
-/// `claude_desktop_install_path`, which points at the app's *data* directory
-/// under `~/Library/Application Support`.
-pub fn claude_desktop_app_bundle() -> PathBuf {
-    applications_dir().join("Claude.app")
+/// Path to the stock (unmanaged) desktop application bundle. This is the app
+/// the synthetic "default" entry launches — distinct from `stock_gui_support_dir`,
+/// which points at the app's *data* directory under Application Support.
+pub fn gui_app_bundle(spec: &AppSpec) -> PathBuf {
+    applications_dir().join(spec.gui_bundle_name)
 }
 
 pub fn local_bin_dir() -> AppResult<PathBuf> {
@@ -82,8 +82,8 @@ pub fn local_bin_dir() -> AppResult<PathBuf> {
     Ok(home.join(".local").join("bin"))
 }
 
-pub fn cli_wrapper_path(slug: &str) -> AppResult<PathBuf> {
-    Ok(local_bin_dir()?.join(format!("claude-{slug}")))
+pub fn cli_wrapper_path(slug: &str, spec: &AppSpec) -> AppResult<PathBuf> {
+    Ok(local_bin_dir()?.join(format!("{}-{slug}", spec.cli_wrapper_prefix)))
 }
 
 pub fn cli_config_dir(id: &str) -> AppResult<PathBuf> {
@@ -94,19 +94,19 @@ pub fn activity_log_path(id: &str) -> AppResult<PathBuf> {
     Ok(profile_dir(id)?.join("activity.jsonl"))
 }
 
-pub fn claude_desktop_install_path() -> AppResult<PathBuf> {
+pub fn stock_gui_support_dir(spec: &AppSpec) -> AppResult<PathBuf> {
     let home = dirs::home_dir()
         .ok_or_else(|| AppError::NotFound("could not determine user home directory".to_string()))?;
     Ok(home
         .join("Library")
         .join("Application Support")
-        .join("Claude"))
+        .join(spec.gui_support_dir_name))
 }
 
-pub fn claude_code_install_path() -> AppResult<PathBuf> {
+pub fn stock_cli_config_dir(spec: &AppSpec) -> AppResult<PathBuf> {
     let home = dirs::home_dir()
         .ok_or_else(|| AppError::NotFound("could not determine user home directory".to_string()))?;
-    Ok(home.join(".claude"))
+    Ok(home.join(spec.cli_stock_config_dir_name))
 }
 
 #[allow(dead_code)]
@@ -122,24 +122,29 @@ pub fn next_migration_backup_dir() -> AppResult<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_kind::{CLAUDE, CODEX};
 
     #[test]
-    fn gui_launcher_path_builds_expected_filename() {
-        let path = gui_launcher_path("Personal");
-        assert_eq!(path, PathBuf::from("/Applications/Claude (Personal).app"));
-    }
-
-    #[test]
-    fn gui_launcher_path_handles_names_with_special_chars() {
-        let path = gui_launcher_path("Acme & Co");
-        assert_eq!(path, PathBuf::from("/Applications/Claude (Acme & Co).app"));
-    }
-
-    #[test]
-    fn claude_desktop_app_bundle_points_to_applications_bundle() {
+    fn gui_launcher_path_uses_launcher_prefix() {
         assert_eq!(
-            claude_desktop_app_bundle(),
+            gui_launcher_path("Personal", &CLAUDE),
+            PathBuf::from("/Applications/Claude (Personal).app")
+        );
+        assert_eq!(
+            gui_launcher_path("Personal", &CODEX),
+            PathBuf::from("/Applications/Codex (Personal).app")
+        );
+    }
+
+    #[test]
+    fn gui_app_bundle_points_to_applications_bundle() {
+        assert_eq!(
+            gui_app_bundle(&CLAUDE),
             PathBuf::from("/Applications/Claude.app")
+        );
+        assert_eq!(
+            gui_app_bundle(&CODEX),
+            PathBuf::from("/Applications/Codex.app")
         );
     }
 
@@ -151,10 +156,13 @@ mod tests {
     }
 
     #[test]
-    fn cli_wrapper_path_uses_claude_prefix() {
-        let path = cli_wrapper_path("personal").unwrap();
-        assert!(path.ends_with("claude-personal"));
-        assert!(path.parent().unwrap().ends_with(".local/bin"));
+    fn cli_wrapper_path_uses_wrapper_prefix() {
+        assert!(cli_wrapper_path("personal", &CLAUDE)
+            .unwrap()
+            .ends_with("claude-personal"));
+        assert!(cli_wrapper_path("personal", &CODEX)
+            .unwrap()
+            .ends_with("codex-personal"));
     }
 
     #[test]
@@ -165,15 +173,16 @@ mod tests {
     }
 
     #[test]
-    fn claude_desktop_install_path_lives_under_home_library() {
-        let path = claude_desktop_install_path().unwrap();
-        assert!(path.ends_with("Library/Application Support/Claude"));
+    fn stock_gui_support_dir_lives_under_home_library() {
+        assert!(stock_gui_support_dir(&CODEX)
+            .unwrap()
+            .ends_with("Library/Application Support/Codex"));
     }
 
     #[test]
-    fn claude_code_install_path_is_dot_claude_under_home() {
-        let path = claude_code_install_path().unwrap();
-        assert!(path.ends_with(".claude"));
+    fn stock_cli_config_dir_uses_spec_name() {
+        assert!(stock_cli_config_dir(&CLAUDE).unwrap().ends_with(".claude"));
+        assert!(stock_cli_config_dir(&CODEX).unwrap().ends_with(".codex"));
     }
 
     #[test]

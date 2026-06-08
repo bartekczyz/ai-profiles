@@ -7,8 +7,13 @@ use crate::profiles::Profile;
 ///
 /// `version` is typically `env!("CARGO_PKG_VERSION")`.
 pub fn info_plist(profile: &Profile, version: &str) -> AppResult<Vec<u8>> {
-    let display_name = format!("Claude ({})", profile.name);
-    let identifier = format!("app.claude-profiles.profile.{}", profile.id);
+    let spec = profile.app.spec();
+    let display_name = format!("{} ({})", spec.display_name, profile.name);
+    let identifier = format!(
+        "app.claude-profiles.{}.profile.{}",
+        profile.app.as_str(),
+        profile.id
+    );
 
     let mut dict = Dictionary::new();
     dict.insert("CFBundleName".into(), Value::String(display_name.clone()));
@@ -49,6 +54,7 @@ mod tests {
     fn fixture(name: &str) -> Profile {
         Profile {
             id: "11111111-1111-1111-1111-111111111111".into(),
+            app: crate::app_kind::AppKind::Claude,
             name: name.into(),
             slug: "test".into(),
             color: "#7C3AED".into(),
@@ -77,19 +83,26 @@ mod tests {
     }
 
     #[test]
-    fn plist_display_name_includes_profile_name() {
-        let body = info_plist(&fixture("Personal"), "0.1.0").unwrap();
-        let xml = String::from_utf8(body).unwrap();
+    fn plist_display_name_uses_app_display_name() {
+        let xml = String::from_utf8(info_plist(&fixture("Personal"), "0.1.0").unwrap()).unwrap();
         assert!(xml.contains("<string>Claude (Personal)</string>"));
     }
 
     #[test]
-    fn plist_identifier_uses_uuid_namespace() {
-        let body = info_plist(&fixture("Personal"), "0.1.0").unwrap();
-        let xml = String::from_utf8(body).unwrap();
+    fn plist_identifier_includes_app_segment() {
+        let xml = String::from_utf8(info_plist(&fixture("Personal"), "0.1.0").unwrap()).unwrap();
         assert!(xml.contains(
-            "<string>app.claude-profiles.profile.11111111-1111-1111-1111-111111111111</string>"
+            "<string>app.claude-profiles.claude.profile.11111111-1111-1111-1111-111111111111</string>"
         ));
+    }
+
+    #[test]
+    fn plist_for_codex_profile_uses_codex_display_and_id() {
+        let mut profile = fixture("Work");
+        profile.app = crate::app_kind::AppKind::Codex;
+        let xml = String::from_utf8(info_plist(&profile, "0.1.0").unwrap()).unwrap();
+        assert!(xml.contains("<string>Codex (Work)</string>"));
+        assert!(xml.contains("app.claude-profiles.codex.profile."));
     }
 
     #[test]

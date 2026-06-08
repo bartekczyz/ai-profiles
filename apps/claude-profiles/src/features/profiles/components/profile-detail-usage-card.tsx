@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import type { ProfileUsage, UsageWindow } from '@/lib/types'
+import type { AppId } from '@/lib/app-registry'
+import type { ProfileUsage, QuotaError, UsageWindow } from '@/lib/types'
 
 import { Component, useEffect, useState } from 'react'
 
@@ -7,33 +8,36 @@ import { format } from 'date-fns'
 import { RefreshCw } from 'lucide-react'
 
 import { TooltipBubble } from '@/design'
+import { appSpecs } from '@/lib/app-registry'
 
-import { refetchIntervalMs, useProfileUsage } from '../api/use-profile-usage'
+import { refetchIntervalMs, UsageUnavailableError, useProfileUsage } from '../api/use-profile-usage'
 
 type Props = {
+  app: AppId
   profileId: string
   cliEnabled: boolean
 }
 
-export function ProfileDetailUsageCard({ profileId, cliEnabled }: Props) {
+export function ProfileDetailUsageCard({ app, profileId, cliEnabled }: Props) {
   // Bumped by the in-boundary Retry button to force the inner query
   // to re-run after a render-time crash. We use it (alongside profileId)
   // as the key on the boundary itself, so switching profiles or hitting
   // Retry remounts the boundary — its hasError state resets along with
   // the inner useQuery's cache subscription.
   const [attempt, setAttempt] = useState(0)
-  if (!cliEnabled) {
+  if (!cliEnabled || !appSpecs[app].hasUsage) {
     return null
   }
   return (
     <UsageCardErrorBoundary key={`${profileId}:${attempt}`} onRetry={() => setAttempt((value) => value + 1)}>
-      <UsageCardInner profileId={profileId} />
+      <UsageCardInner app={app} profileId={profileId} />
     </UsageCardErrorBoundary>
   )
 }
 
-function UsageCardInner({ profileId }: { profileId: string }) {
-  const { data, isLoading, isFetching, isError, dataUpdatedAt, refetch } = useProfileUsage(profileId)
+function UsageCardInner({ app, profileId }: { app: AppId; profileId: string }) {
+  const { data, error, isLoading, isFetching, dataUpdatedAt, refetch } = useProfileUsage(profileId)
+  const errorCode = usageErrorCode(error)
 
   return (
     <section className="mb-6 rounded-md border border-border p-4">
@@ -53,7 +57,7 @@ function UsageCardInner({ profileId }: { profileId: string }) {
         </div>
       </header>
 
-      {isLoading ? <MetersSkeleton /> : <Body usage={data ?? null} isError={isError} />}
+      {isLoading ? <MetersSkeleton /> : <Body app={app} quota={data?.quota ?? null} errorCode={errorCode} />}
     </section>
   )
 }
@@ -74,8 +78,14 @@ function RefreshCountdown({ isFetching, dataUpdatedAt }: { isFetching: boolean; 
   if (!dataUpdatedAt) {
     return null
   }
-  const remainingMs = dataUpdatedAt + refetchIntervalMs - Date.now()
-  const label = formatRefreshIn(remainingMs)
+  // Fresh data shows a countdown to the next auto-refresh; data older than the
+  // refresh interval (e.g. a snapshot restored from a previous session) shows
+  // its age instead, so the staleness is visible at a glance.
+  const ageMs = Date.now() - dataUpdatedAt
+  if (ageMs >= refetchIntervalMs) {
+    return <span className="font-mono text-mono text-muted-strong">updated {formatUpdatedAgo(ageMs)}</span>
+  }
+  const label = formatRefreshIn(dataUpdatedAt + refetchIntervalMs - Date.now())
   if (!label) {
     return null
   }
@@ -93,64 +103,131 @@ function formatRefreshIn(deltaMs: number): string | null {
   return `${totalSeconds}s`
 }
 
-function Body({ usage, isError }: { usage: ProfileUsage | null; isError: boolean }) {
-  if (isError) {
-    return <p className="font-mono text-mono text-muted-strong">Couldn't load usage stats.</p>
+function formatUpdatedAgo(ageMs: number): string {
+  const minutes = Math.floor(ageMs / 60_000)
+  if (minutes < 1) {
+    return 'just now'
   }
-  if (!usage) {
-    return <MetersSkeleton />
+  if (minutes < 60) {
+    return `${minutes}m ago`
   }
-  const quotaMessage = quotaErrorMessage(usage.quotaError, usage.quota)
-  if (quotaMessage) {
-    return <p className="font-mono text-mono text-muted-strong">{quotaMessage}</p>
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) {
+    return `${hours}h ago`
   }
-  return <Meters quota={usage.quota} />
+  return `${Math.floor(hours / 24)}d ago`
 }
 
-// Returns the message to show in place of the meters, or null if the
-// meters should render. We treat "quota is null AND no recognised error"
-// the same as `unknown` so we never silently render empty bars when the
-// backend gave us nothing usable.
-function quotaErrorMessage(quotaError: ProfileUsage['quotaError'], quota: ProfileUsage['quota']): string | null {
-  if (quotaError === 'no_credentials') {
-    return 'Sign in to Claude Code once with this profile to see usage.'
+// Maps a thrown query error to a quota error code, or null when there's no
+// error. The query only ever throws `UsageUnavailableError`; anything else
+// is unexpected and maps to the neutral `unknown` message.
+function usageErrorCode(error: unknown): QuotaError | null {
+  if (error instanceof UsageUnavailableError) {
+    return error.code
   }
-  if (quotaError === 'unauthorized') {
-    // Not a real "session expired" — Claude Code's short-lived access
-    // token rolls over every ~hour and is silently refreshed the next
-    // time you invoke `claude`. Same step also handles the rarer case
-    // where the token was actually revoked (claude will prompt re-login).
-    return 'Token refresh needed — run `claude` in a terminal once, then retry.'
-  }
-  if (quotaError === 'rate_limited') {
-    return 'Rate limited by Anthropic. Try again in a few minutes.'
-  }
-  if (quotaError === 'network') {
-    return "Couldn't reach Anthropic — check your connection and retry."
-  }
-  if (quotaError === 'unknown') {
-    return "Couldn't load usage stats. Try again."
-  }
-  if (!quota) {
-    return "Couldn't load usage stats. Try again."
+  if (error) {
+    return 'unknown'
   }
   return null
 }
 
-function Meters({ quota }: { quota: ProfileUsage['quota'] }) {
-  const sevenDaySonnet = quota?.sevenDaySonnet ?? null
-  // Sonnet is the niche meter — most users live in the 5-hour and
-  // weekly windows. Skip the row when the user hasn't touched Sonnet
-  // this window (utilization explicitly 0) so the card stays focused.
-  // Unknown utilization (null) is kept visible — we'd rather show a
-  // placeholder than silently drop a window we don't have data for.
-  const showSonnet = sevenDaySonnet !== null && sevenDaySonnet.utilization !== 0
+function Body({ app, quota, errorCode }: { app: AppId; quota: ProfileUsage['quota']; errorCode: QuotaError | null }) {
+  // Stale-while-revalidate: whenever there's data, show the meters — even if
+  // the latest refresh just failed — with a quiet "couldn't refresh" note so
+  // the staleness stays honest. The full error message is reserved for when
+  // there's nothing cached to show.
+  if (quota) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Meters app={app} quota={quota} />
+        {errorCode ? (
+          <p className="font-mono text-mono text-muted-strong">Couldn't refresh — {quotaErrorShort(errorCode)}.</p>
+        ) : null}
+      </div>
+    )
+  }
+  if (errorCode) {
+    return <p className="font-mono text-mono text-muted-strong">{quotaErrorMessage(app, errorCode)}</p>
+  }
+  return <MetersSkeleton />
+}
+
+// Terse reason appended to the "Couldn't refresh — …" note shown beside stale
+// meters. The full sentences in `quotaErrorMessage` are for the no-data case.
+function quotaErrorShort(quotaError: QuotaError): string {
+  if (quotaError === 'no_credentials') {
+    return 'sign-in needed'
+  }
+  if (quotaError === 'needs_login') {
+    return 'sign-in needed'
+  }
+  if (quotaError === 'unauthorized') {
+    return 'token refresh needed'
+  }
+  if (quotaError === 'rate_limited') {
+    return 'rate limited'
+  }
+  if (quotaError === 'network') {
+    return 'offline'
+  }
+  return 'unavailable'
+}
+
+// Resolves the message shown in place of the meters for a given error code.
+// All app-specific copy lives in the registry so a Codex pane never names
+// Anthropic (and vice versa); unknown stays neutral.
+function quotaErrorMessage(app: AppId, quotaError: QuotaError): string {
+  const usage = appSpecs[app].usage
+  if (quotaError === 'no_credentials') {
+    return usage?.noCredentials ?? 'Sign in once with this profile to see usage.'
+  }
+  if (quotaError === 'needs_login') {
+    return 'Session expired — sign in to this profile again to see usage.'
+  }
+  if (quotaError === 'unauthorized') {
+    // Not a real "session expired" — the CLI's short-lived access token rolls
+    // over and is refreshed the next time you invoke it.
+    return usage?.unauthorized ?? 'Token refresh needed — run the CLI once, then retry.'
+  }
+  if (quotaError === 'rate_limited') {
+    return usage?.rateLimited ?? 'Rate limited. Try again in a few minutes.'
+  }
+  if (quotaError === 'network') {
+    return usage?.networkError ?? "Couldn't reach the usage service — check your connection and retry."
+  }
+  return "Couldn't load usage stats. Try again."
+}
+
+function Meters({ app, quota }: { app: AppId; quota: ProfileUsage['quota'] }) {
+  const usageCopy = appSpecs[app].usage
+  const secondaryExtra = quota?.secondaryExtra ?? null
+  // The third "Sonnet-style" meter only exists for apps that define its
+  // labels (Claude). Within that, skip the row when the user hasn't
+  // touched it this window (utilization explicitly 0) so the card stays
+  // focused. Unknown utilization (null) is kept visible — we'd rather
+  // show a placeholder than silently drop a window we lack data for.
+  const showExtra =
+    usageCopy?.secondaryExtraLabel != null && secondaryExtra !== null && secondaryExtra.utilization !== 0
   return (
     <div className="flex flex-col gap-2">
-      <Meter label="5-hour window" shortLabel="5h" meterWindow={quota?.fiveHour ?? null} />
-      <Meter showDailySegments label="Weekly" shortLabel="W" meterWindow={quota?.sevenDay ?? null} />
-      {showSonnet ? (
-        <Meter showDailySegments label="Weekly Sonnet" shortLabel="WS" meterWindow={sevenDaySonnet} />
+      <Meter
+        label={usageCopy?.primaryLabel ?? '5-hour window'}
+        shortLabel={usageCopy?.primaryShortLabel ?? '5h'}
+        meterWindow={quota?.primary ?? null}
+      />
+      <Meter
+        showDailySegments
+        label={usageCopy?.secondaryLabel ?? 'Weekly'}
+        shortLabel={usageCopy?.secondaryShortLabel ?? 'W'}
+        meterWindow={quota?.secondary ?? null}
+      />
+      {showExtra ? (
+        <Meter
+          showDailySegments
+          label={usageCopy?.secondaryExtraLabel ?? 'Weekly Sonnet'}
+          shortLabel={usageCopy?.secondaryExtraShortLabel ?? 'WS'}
+          meterWindow={secondaryExtra}
+        />
       ) : null}
     </div>
   )

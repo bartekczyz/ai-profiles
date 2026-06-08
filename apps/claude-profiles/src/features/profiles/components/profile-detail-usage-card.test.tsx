@@ -5,23 +5,25 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { useProfileUsage } from '../api/use-profile-usage'
+import { appSpecs } from '@/lib/app-registry'
+
+import { UsageUnavailableError, useProfileUsage } from '../api/use-profile-usage'
 import { ProfileDetailUsageCard } from './profile-detail-usage-card'
 
-// vi.mock is hoisted above all imports — the import above resolves to the
-// mocked module at test time.
-vi.mock('../api/use-profile-usage', () => ({
-  useProfileUsage: vi.fn(),
-  refetchIntervalMs: 5 * 60 * 1000,
-}))
+// Partial mock: keep the real `refetchIntervalMs` and `UsageUnavailableError`
+// (the card does `error instanceof UsageUnavailableError`), stub only the hook.
+vi.mock('../api/use-profile-usage', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/use-profile-usage')>()
+  return { ...actual, useProfileUsage: vi.fn() }
+})
 
 function makeUsage(overrides: Partial<ProfileUsage> = {}): ProfileUsage {
   return {
     quota: {
       // Utilization is a 0..=100 percentage — matches Anthropic's response.
-      fiveHour: { utilization: 63, resetsAt: null },
-      sevenDay: { utilization: 21, resetsAt: null },
-      sevenDaySonnet: { utilization: 8, resetsAt: null },
+      primary: { utilization: 63, resetsAt: null },
+      secondary: { utilization: 21, resetsAt: null },
+      secondaryExtra: { utilization: 8, resetsAt: null },
     },
     quotaError: null,
     fetchedAt: '2099-01-01T00:00:00Z',
@@ -42,7 +44,7 @@ describe('ProfileDetailUsageCard', () => {
       isFetching: false,
       refetch: vi.fn(),
     })
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     const bars = screen.getAllByRole('progressbar')
     expect(bars).toHaveLength(3)
     expect(bars[0]).toHaveAttribute('aria-valuenow', '63')
@@ -54,56 +56,60 @@ describe('ProfileDetailUsageCard', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
       data: makeUsage({
         quota: {
-          fiveHour: { utilization: null, resetsAt: null },
-          sevenDay: { utilization: 21, resetsAt: null },
-          sevenDaySonnet: { utilization: 8, resetsAt: null },
+          primary: { utilization: null, resetsAt: null },
+          secondary: { utilization: 21, resetsAt: null },
+          secondaryExtra: { utilization: 8, resetsAt: null },
         },
       }),
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
     })
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     const bars = screen.getAllByRole('progressbar')
     expect(bars[0]).not.toHaveAttribute('aria-valuenow')
   })
 
-  it('hides the meters when quotaError is no_credentials', () => {
+  it('hides the meters when the query errors with no_credentials', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
-      data: makeUsage({ quota: null, quotaError: 'no_credentials' }),
+      data: undefined,
+      error: new UsageUnavailableError('no_credentials'),
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
     })
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     expect(screen.queryByRole('progressbar')).toBeNull()
   })
 
   it.each([
     ['unauthorized', /token refresh needed/i],
+    ['needs_login', /session expired/i],
     ['rate_limited', /rate limited/i],
     ['network', /couldn't reach anthropic/i],
     ['unknown', /couldn't load usage stats/i],
-  ] as const)('shows an explicit message and no meters when quotaError is %s', (quotaError, expected) => {
+  ] as const)('shows an explicit message and no meters when the query errors with %s', (code, expected) => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
-      data: makeUsage({ quota: null, quotaError }),
+      data: undefined,
+      error: new UsageUnavailableError(code),
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
     })
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     expect(screen.queryByRole('progressbar')).toBeNull()
     expect(screen.getByText(expected)).toBeInTheDocument()
   })
 
-  it('shows the unknown-error message when quota is null with no quotaError (defensive)', () => {
+  it('shows the unknown-error message when the query errors with unknown', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
-      data: makeUsage({ quota: null, quotaError: null }),
+      data: undefined,
+      error: new UsageUnavailableError('unknown'),
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
     })
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     expect(screen.queryByRole('progressbar')).toBeNull()
     expect(screen.getByText(/couldn't load usage stats/i)).toBeInTheDocument()
   })
@@ -116,7 +122,7 @@ describe('ProfileDetailUsageCard', () => {
       isFetching: false,
       refetch,
     })
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     fireEvent.click(screen.getByRole('button', { name: /refresh/i }))
     expect(refetch).toHaveBeenCalledTimes(1)
   })
@@ -128,7 +134,7 @@ describe('ProfileDetailUsageCard', () => {
       isFetching: false,
       refetch: vi.fn(),
     })
-    const { container } = renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={false} />)
+    const { container } = renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={false} />)
     expect(container.firstChild).toBeNull()
   })
 
@@ -143,7 +149,7 @@ describe('ProfileDetailUsageCard', () => {
       dataUpdatedAt: Date.now(),
       refetch: vi.fn(),
     })
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     expect(screen.getByText(/refresh in [45]m/)).toBeInTheDocument()
   })
 
@@ -155,8 +161,36 @@ describe('ProfileDetailUsageCard', () => {
       dataUpdatedAt: Date.now(),
       refetch: vi.fn(),
     })
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     expect(screen.getByText(/refreshing/)).toBeInTheDocument()
+  })
+
+  it('keeps showing the meters with a "couldn\'t refresh" note when a refresh errors but data is cached', () => {
+    // Stale-while-revalidate: a rate-limited refresh must not hide the
+    // last-known meters; it adds a quiet note instead of the full message.
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: makeUsage(),
+      error: new UsageUnavailableError('rate_limited'),
+      isLoading: false,
+      isFetching: false,
+      dataUpdatedAt: Date.now(),
+      refetch: vi.fn(),
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
+    expect(screen.getAllByRole('progressbar')).toHaveLength(3)
+    expect(screen.getByText(/couldn't refresh/i)).toBeInTheDocument()
+  })
+
+  it('shows "updated Xh ago" for data older than the refresh interval', () => {
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: makeUsage(),
+      isLoading: false,
+      isFetching: false,
+      dataUpdatedAt: Date.now() - 2 * 60 * 60 * 1000,
+      refetch: vi.fn(),
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
+    expect(screen.getByText(/updated 2h ago/i)).toBeInTheDocument()
   })
 
   it('clears the error fallback when profileId changes', () => {
@@ -182,14 +216,14 @@ describe('ProfileDetailUsageCard', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { rerender } = render(
       <QueryClientProvider client={client}>
-        <ProfileDetailUsageCard profileId="p1" cliEnabled={true} />
+        <ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />
       </QueryClientProvider>,
     )
     expect(screen.getByText(/couldn't display usage stats/i)).toBeInTheDocument()
 
     rerender(
       <QueryClientProvider client={client}>
-        <ProfileDetailUsageCard profileId="p2" cliEnabled={true} />
+        <ProfileDetailUsageCard app="claude" profileId="p2" cliEnabled={true} />
       </QueryClientProvider>,
     )
     expect(screen.queryByText(/couldn't display usage stats/i)).toBeNull()
@@ -220,7 +254,7 @@ describe('ProfileDetailUsageCard', () => {
       }
     })
 
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     expect(screen.getByText(/couldn't display usage stats/i)).toBeInTheDocument()
 
     throwing = false
@@ -236,16 +270,16 @@ describe('ProfileDetailUsageCard', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
       data: makeUsage({
         quota: {
-          fiveHour: { utilization: 40, resetsAt: '2099-06-15T14:30:00Z' },
-          sevenDay: { utilization: 10, resetsAt: '2099-06-22T09:00:00Z' },
-          sevenDaySonnet: { utilization: 5, resetsAt: null },
+          primary: { utilization: 40, resetsAt: '2099-06-15T14:30:00Z' },
+          secondary: { utilization: 10, resetsAt: '2099-06-22T09:00:00Z' },
+          secondaryExtra: { utilization: 5, resetsAt: null },
         },
       }),
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
     })
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     // Each window with resetsAt contributes a tooltip alongside its
     // "resets in …" label. Tooltip content is the absolute datetime in
     // the "EEE d MMM, HH:mm" pattern (locale-stable across CI hosts;
@@ -267,16 +301,16 @@ describe('ProfileDetailUsageCard', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
       data: makeUsage({
         quota: {
-          fiveHour: { utilization: 40, resetsAt: null },
-          sevenDay: { utilization: 10, resetsAt: null },
-          sevenDaySonnet: { utilization: 0, resetsAt: null },
+          primary: { utilization: 40, resetsAt: null },
+          secondary: { utilization: 10, resetsAt: null },
+          secondaryExtra: { utilization: 0, resetsAt: null },
         },
       }),
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
     })
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     // Only 5-hour and weekly bars render; Weekly Sonnet is suppressed.
     expect(screen.getAllByRole('progressbar')).toHaveLength(2)
   })
@@ -285,16 +319,16 @@ describe('ProfileDetailUsageCard', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
       data: makeUsage({
         quota: {
-          fiveHour: { utilization: 40, resetsAt: null },
-          sevenDay: { utilization: 10, resetsAt: null },
-          sevenDaySonnet: { utilization: null, resetsAt: null },
+          primary: { utilization: 40, resetsAt: null },
+          secondary: { utilization: 10, resetsAt: null },
+          secondaryExtra: { utilization: null, resetsAt: null },
         },
       }),
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
     })
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     // Unknown utilization is not the same as zero — we still surface
     // the row (with a "—" placeholder) so the user can tell data is
     // missing rather than confused with "no usage this week".
@@ -305,19 +339,69 @@ describe('ProfileDetailUsageCard', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
       data: makeUsage({
         quota: {
-          fiveHour: { utilization: 40, resetsAt: null },
-          sevenDay: { utilization: 10, resetsAt: null },
-          sevenDaySonnet: { utilization: 5, resetsAt: null },
+          primary: { utilization: 40, resetsAt: null },
+          secondary: { utilization: 10, resetsAt: null },
+          secondaryExtra: { utilization: 5, resetsAt: null },
         },
       }),
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
     })
-    renderWithQuery(<ProfileDetailUsageCard profileId="p1" cliEnabled={true} />)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     const datetimePattern = /^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}, \d{2}:\d{2}$/
     const tooltips = screen.queryAllByRole('tooltip')
     const datetimeTooltips = tooltips.filter((node) => datetimePattern.test((node.textContent ?? '').trim()))
     expect(datetimeTooltips).toHaveLength(0)
+  })
+
+  it('renders only two meters for a Codex profile even when secondaryExtra is present', () => {
+    // Codex has no third "Sonnet-style" window — its spec leaves the
+    // secondaryExtra labels null, so the card must never render a third
+    // meter regardless of the payload.
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: makeUsage({
+        quota: {
+          primary: { utilization: 1, resetsAt: null },
+          secondary: { utilization: 10, resetsAt: null },
+          secondaryExtra: { utilization: 8, resetsAt: null },
+        },
+      }),
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled={true} />)
+    expect(screen.getAllByRole('progressbar')).toHaveLength(2)
+  })
+
+  it('renders three meters for a Claude profile with a secondaryExtra window', () => {
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: makeUsage({
+        quota: {
+          primary: { utilization: 63, resetsAt: null },
+          secondary: { utilization: 21, resetsAt: null },
+          secondaryExtra: { utilization: 8, resetsAt: null },
+        },
+      }),
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
+    expect(screen.getAllByRole('progressbar')).toHaveLength(3)
+  })
+
+  it('shows the Codex no-credentials copy from the app spec', () => {
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: undefined,
+      error: new UsageUnavailableError('no_credentials'),
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled={true} />)
+    const expected = appSpecs.codex.usage?.noCredentials ?? ''
+    expect(screen.getByText(expected)).toBeInTheDocument()
   })
 })

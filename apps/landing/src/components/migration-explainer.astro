@@ -8,7 +8,7 @@
     id="migration-heading"
     class="m-0 mb-[18px] text-[22px] font-semibold tracking-[-0.014em]"
   >
-    Already using Claude?
+    Already using Claude or Codex?
   </h2>
   <p class="m-0 mb-4 text-[15.5px] leading-[1.65] text-ink-soft">
     On first launch, claude-profiles asks how you want to start. You pick
@@ -30,10 +30,14 @@
     </li>
   </ul>
   <p class="m-0 text-[15.5px] leading-[1.65] text-ink-soft">
-    Either way, claude-profiles never reads or copies your Keychain
-    credentials. You'll log in once per migrated profile — that's a Claude
+    Either way, claude-profiles never reads or copies your credentials. For
+    Claude profiles you'll log in once per migrated profile — that's a Claude
     Code constraint (Keychain service names derive from
     <code class="rounded bg-cream-2 px-1.5 py-px font-mono text-[0.88em]">CLAUDE_CONFIG_DIR</code>),
-    not ours.
+    not ours. Codex stores credentials in a plain
+    <code class="rounded bg-cream-2 px-1.5 py-px font-mono text-[0.88em]">auth.json</code>
+    inside each profile's
+    <code class="rounded bg-cream-2 px-1.5 py-px font-mono text-[0.88em]">CODEX_HOME</code>,
+    so isolation is automatic.
   </p>
 </section>

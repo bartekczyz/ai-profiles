@@ -1,4 +1,6 @@
+pub(crate) mod codex;
 pub(crate) mod credentials;
+pub(crate) mod dead_credentials;
 pub(crate) mod quota;
 pub(crate) mod refresh;
 
@@ -15,9 +17,10 @@ pub struct ProfileUsage {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuotaUsage {
-    pub five_hour: Option<Window>,
-    pub seven_day: Option<Window>,
-    pub seven_day_sonnet: Option<Window>,
+    pub primary: Option<Window>,
+    pub secondary: Option<Window>,
+    /// Third "Sonnet-style" window — Claude only; Codex leaves it None.
+    pub secondary_extra: Option<Window>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -32,6 +35,10 @@ pub struct Window {
 pub enum QuotaError {
     NoCredentials,
     Unauthorized,
+    /// Stored credentials are dead and cannot be auto-refreshed — the user
+    /// must sign in to this profile again. Distinct from the transient
+    /// `Unauthorized`, which a CLI refresh can fix.
+    NeedsLogin,
     RateLimited,
     Network,
     Unknown,
@@ -41,6 +48,17 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
+
+/// Fetches a profile's quota for a managed app. Claude drives an HTTP request
+/// to Anthropic; Codex drives `codex app-server` over JSON-RPC. The
+/// orchestration in `build`/`build_with_cli_refresh` is app-agnostic — it only
+/// sees this trait.
+#[async_trait::async_trait]
+pub trait QuotaProvider: Send + Sync {
+    /// Fetch the profile's quota for the config dir (Claude: cli-config;
+    /// Codex: CODEX_HOME). Returns a categorised `QuotaError` on failure.
+    async fn fetch(&self, config_dir: &std::path::Path) -> Result<QuotaUsage, QuotaError>;
+}
 
 /// Pure: true when `cli_config_dir` is the stock-default `$HOME/.claude`
 /// location.
@@ -68,9 +86,10 @@ pub fn is_stock_default_cli_config_dir(cli_config_dir: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Fetches the profile's quota and wraps it in a `ProfileUsage`.
-pub async fn build(cli_config_dir: &Path, client: &dyn quota::UsageClient) -> ProfileUsage {
-    let (quota, quota_error) = match quota::fetch_quota(cli_config_dir, client).await {
+/// Fetches the profile's quota via the provider and wraps it in a
+/// `ProfileUsage`.
+pub async fn build(config_dir: &Path, provider: &dyn QuotaProvider) -> ProfileUsage {
+    let (quota, quota_error) = match provider.fetch(config_dir).await {
         Ok(value) => (Some(value), None),
         Err(error) => (None, Some(error)),
     };
@@ -83,37 +102,43 @@ pub async fn build(cli_config_dir: &Path, client: &dyn quota::UsageClient) -> Pr
 
 /// Same as `build`, but on a `QuotaError::Unauthorized` first response we
 /// ask the `refresher` to trigger Claude Code's own OAuth refresh and
-/// then retry the quota fetch once. If the retry also fails the result
-/// surfaces the second error to the user, who then sees the same
-/// "Token refresh needed" message as before — so this strictly improves
-/// the success path without regressing the failure path.
+/// then retry the quota fetch once. If the refresh did not change the
+/// token, the credential is marked dead and `NeedsLogin` is returned
+/// without a futile retry.
 pub async fn build_with_cli_refresh(
     cli_config_dir: &Path,
-    client: &dyn quota::UsageClient,
+    provider: &dyn QuotaProvider,
     refresher: &dyn refresh::CliRefresher,
+    dead_credentials: &dead_credentials::DeadCredentialRegistry,
 ) -> ProfileUsage {
-    let first = build(cli_config_dir, client).await;
+    let first = build(cli_config_dir, provider).await;
     if !matches!(first.quota_error, Some(QuotaError::Unauthorized)) {
+        // Anything other than a transient 401 — success, 429, network, or a
+        // NeedsLogin from a token already known dead — is returned as-is.
+        // Only Unauthorized is worth attempting a refresh.
         return first;
     }
-    // Capture the pre-refresh token so we can wait for it to actually
-    // change before retrying. `claude` may exit on stdin-EOF before its
-    // async token-persistence write has fsynced; without this poll a
-    // fast retry would read the stale token and surface Unauthorized
-    // again as if recovery were impossible.
+    // Capture the pre-refresh token so we can tell whether the refresh
+    // actually rotated it.
     let token_before = credentials::read_access_token(cli_config_dir).ok();
     refresher.try_refresh(cli_config_dir).await;
     wait_for_token_change(cli_config_dir, token_before.as_deref()).await;
-    let retry = quota::fetch_quota(cli_config_dir, client).await;
-    let (quota, quota_error) = match retry {
-        Ok(value) => (Some(value), None),
-        Err(error) => (None, Some(error)),
-    };
-    ProfileUsage {
-        quota,
-        quota_error,
-        fetched_at: Utc::now().to_rfc3339(),
+    let token_after = credentials::read_access_token(cli_config_dir).ok();
+    if token_after == token_before {
+        // The refresh did not change the token: the refresh token is dead and
+        // the CLI cannot recover it. Mark the credential so later polls
+        // short-circuit instead of re-spawning `claude` and re-poking Anthropic
+        // with invalid-auth requests; skip the futile retry fetch.
+        if let Some(token) = token_before {
+            dead_credentials.mark_dead(&token);
+        }
+        return ProfileUsage {
+            quota: None,
+            quota_error: Some(QuotaError::NeedsLogin),
+            fetched_at: Utc::now().to_rfc3339(),
+        };
     }
+    build(cli_config_dir, provider).await
 }
 
 /// Bound on how long we'll wait for the credentials store to reflect a
@@ -150,29 +175,28 @@ mod tests {
     use async_trait::async_trait;
     use tempfile::TempDir;
 
-    use super::quota::{HttpResponse, UsageClient};
     use super::refresh::CliRefresher;
     use super::*;
 
-    struct AlwaysFailsClient;
+    struct AlwaysFailsProvider;
 
     #[async_trait]
-    impl UsageClient for AlwaysFailsClient {
-        async fn fetch(&self, _: &str) -> Result<HttpResponse, QuotaError> {
+    impl QuotaProvider for AlwaysFailsProvider {
+        async fn fetch(&self, _: &Path) -> Result<QuotaUsage, QuotaError> {
             Err(QuotaError::Network)
         }
     }
 
-    /// Returns a queued list of responses in order. Once the queue is
-    /// empty, every subsequent call returns Network. Each call records
-    /// the access token it was handed.
-    struct QueuedClient {
-        responses: Mutex<Vec<Result<HttpResponse, QuotaError>>>,
+    /// Returns a queued list of results in order (popped from the end).
+    /// Once the queue is empty, every subsequent call returns Network, and
+    /// each call is counted.
+    struct QueuedProvider {
+        responses: Mutex<Vec<Result<QuotaUsage, QuotaError>>>,
         calls: Mutex<u32>,
     }
 
-    impl QueuedClient {
-        fn new(responses: Vec<Result<HttpResponse, QuotaError>>) -> Self {
+    impl QueuedProvider {
+        fn new(responses: Vec<Result<QuotaUsage, QuotaError>>) -> Self {
             Self {
                 responses: Mutex::new(responses),
                 calls: Mutex::new(0),
@@ -181,14 +205,25 @@ mod tests {
     }
 
     #[async_trait]
-    impl UsageClient for QueuedClient {
-        async fn fetch(&self, _: &str) -> Result<HttpResponse, QuotaError> {
+    impl QuotaProvider for QueuedProvider {
+        async fn fetch(&self, _: &Path) -> Result<QuotaUsage, QuotaError> {
             *self.calls.lock().unwrap() += 1;
             self.responses
                 .lock()
                 .unwrap()
                 .pop()
                 .unwrap_or(Err(QuotaError::Network))
+        }
+    }
+
+    fn one_window() -> QuotaUsage {
+        QuotaUsage {
+            primary: Some(Window {
+                utilization: Some(50.0),
+                resets_at: None,
+            }),
+            secondary: None,
+            secondary_extra: None,
         }
     }
 
@@ -215,6 +250,44 @@ mod tests {
         }
     }
 
+    /// A refresher that simulates a successful token rotation by writing a new
+    /// access token to the profile's credentials file — so `wait_for_token_change`
+    /// observes a change and the recovery (retry) path runs.
+    struct RotatingRefresher {
+        dir: PathBuf,
+        new_token: String,
+        calls: Mutex<usize>,
+    }
+
+    impl RotatingRefresher {
+        fn new(dir: PathBuf, new_token: &str) -> Self {
+            Self {
+                dir,
+                new_token: new_token.to_string(),
+                calls: Mutex::new(0),
+            }
+        }
+
+        fn call_count(&self) -> usize {
+            *self.calls.lock().unwrap()
+        }
+    }
+
+    #[async_trait]
+    impl CliRefresher for RotatingRefresher {
+        async fn try_refresh(&self, _dir: &Path) {
+            *self.calls.lock().unwrap() += 1;
+            fs::write(
+                self.dir.join(".credentials.json"),
+                format!(
+                    r#"{{"claudeAiOauth":{{"accessToken":"{}"}}}}"#,
+                    self.new_token
+                ),
+            )
+            .unwrap();
+        }
+    }
+
     fn dir_with_token() -> TempDir {
         let dir = TempDir::new().unwrap();
         fs::write(
@@ -225,28 +298,25 @@ mod tests {
         dir
     }
 
-    fn body_with_one_window() -> Vec<u8> {
-        br#"{"five_hour":{"utilization":50.0,"resets_at":null}}"#.to_vec()
-    }
-
     #[tokio::test]
     async fn quota_network_failure_surfaces_network_error() {
         let dir = TempDir::new().unwrap();
-        fs::write(
-            dir.path().join(".credentials.json"),
-            r#"{"claudeAiOauth":{"accessToken":"sk"}}"#,
-        )
-        .unwrap();
-        let result = build(dir.path(), &AlwaysFailsClient).await;
+        let result = build(dir.path(), &AlwaysFailsProvider).await;
         assert!(result.quota.is_none());
         assert!(matches!(result.quota_error, Some(QuotaError::Network)));
     }
 
     #[tokio::test]
-    async fn missing_credentials_returns_nocredentials() {
+    async fn provider_no_credentials_surfaces_nocredentials() {
+        struct NoCreds;
+        #[async_trait]
+        impl QuotaProvider for NoCreds {
+            async fn fetch(&self, _: &Path) -> Result<QuotaUsage, QuotaError> {
+                Err(QuotaError::NoCredentials)
+            }
+        }
         let dir = TempDir::new().unwrap();
-        let client = AlwaysFailsClient;
-        let result = build(dir.path(), &client).await;
+        let result = build(dir.path(), &NoCreds).await;
         assert!(matches!(
             result.quota_error,
             Some(QuotaError::NoCredentials)
@@ -258,16 +328,14 @@ mod tests {
     #[tokio::test]
     async fn refresh_is_not_triggered_when_first_fetch_succeeds() {
         let dir = dir_with_token();
-        let client = QueuedClient::new(vec![Ok(HttpResponse {
-            status: 200,
-            body: body_with_one_window(),
-        })]);
+        let provider = QueuedProvider::new(vec![Ok(one_window())]);
         let refresher = RecordingRefresher::new();
-        let result = build_with_cli_refresh(dir.path(), &client, &refresher).await;
+        let registry = dead_credentials::DeadCredentialRegistry::new();
+        let result = build_with_cli_refresh(dir.path(), &provider, &refresher, &registry).await;
         assert!(result.quota.is_some());
         assert!(result.quota_error.is_none());
         assert_eq!(refresher.call_count(), 0);
-        assert_eq!(*client.calls.lock().unwrap(), 1);
+        assert_eq!(*provider.calls.lock().unwrap(), 1);
     }
 
     #[tokio::test]
@@ -275,46 +343,65 @@ mod tests {
         // Network errors should NOT trigger a refresh — only Unauthorized
         // is plausibly recoverable by re-running `claude`.
         let dir = dir_with_token();
-        let client = QueuedClient::new(vec![Err(QuotaError::Network)]);
+        let provider = QueuedProvider::new(vec![Err(QuotaError::Network)]);
         let refresher = RecordingRefresher::new();
-        let result = build_with_cli_refresh(dir.path(), &client, &refresher).await;
+        let registry = dead_credentials::DeadCredentialRegistry::new();
+        let result = build_with_cli_refresh(dir.path(), &provider, &refresher, &registry).await;
         assert!(matches!(result.quota_error, Some(QuotaError::Network)));
         assert_eq!(refresher.call_count(), 0);
     }
 
     #[tokio::test]
-    async fn refresh_recovers_on_unauthorized_then_success() {
+    async fn refresh_recovers_when_token_rotates() {
         let dir = dir_with_token();
-        // QueuedClient::pop returns from the end, so order responses in
-        // reverse: first call returns Unauthorized, second returns 200.
-        let client = QueuedClient::new(vec![
-            Ok(HttpResponse {
-                status: 200,
-                body: body_with_one_window(),
-            }),
-            Err(QuotaError::Unauthorized),
-        ]);
-        let refresher = RecordingRefresher::new();
-        let result = build_with_cli_refresh(dir.path(), &client, &refresher).await;
+        // First call: Unauthorized; the refresh rotates the token; retry succeeds.
+        let provider = QueuedProvider::new(vec![Ok(one_window()), Err(QuotaError::Unauthorized)]);
+        let refresher = RotatingRefresher::new(dir.path().to_path_buf(), "sk-fresh");
+        let registry = dead_credentials::DeadCredentialRegistry::new();
+
+        let result = build_with_cli_refresh(dir.path(), &provider, &refresher, &registry).await;
+
         assert!(result.quota.is_some(), "expected recovered quota");
         assert!(result.quota_error.is_none());
         assert_eq!(refresher.call_count(), 1);
-        assert_eq!(*client.calls.lock().unwrap(), 2);
+        assert_eq!(*provider.calls.lock().unwrap(), 2);
+        assert!(!registry.is_dead("sk-fresh"));
     }
 
     #[tokio::test]
-    async fn refresh_only_runs_once_and_surfaces_second_unauthorized() {
+    async fn failed_refresh_marks_dead_and_returns_needs_login() {
+        // accessToken "sk-test"; the (recording) refresher does NOT change the
+        // token — i.e. the refresh token is dead. We must mark it dead, skip the
+        // retry, and surface NeedsLogin.
         let dir = dir_with_token();
-        let client = QueuedClient::new(vec![
-            Err(QuotaError::Unauthorized),
-            Err(QuotaError::Unauthorized),
-        ]);
+        let provider = QueuedProvider::new(vec![Err(QuotaError::Unauthorized)]);
         let refresher = RecordingRefresher::new();
-        let result = build_with_cli_refresh(dir.path(), &client, &refresher).await;
-        assert!(matches!(result.quota_error, Some(QuotaError::Unauthorized)));
+        let registry = dead_credentials::DeadCredentialRegistry::new();
+
+        let result = build_with_cli_refresh(dir.path(), &provider, &refresher, &registry).await;
+
+        assert!(matches!(result.quota_error, Some(QuotaError::NeedsLogin)));
         assert!(result.quota.is_none());
         assert_eq!(refresher.call_count(), 1);
-        assert_eq!(*client.calls.lock().unwrap(), 2);
+        // Only the first fetch — the futile retry is skipped.
+        assert_eq!(*provider.calls.lock().unwrap(), 1);
+        assert!(registry.is_dead("sk-test"));
+    }
+
+    #[tokio::test]
+    async fn needs_login_from_provider_is_returned_without_refresh() {
+        // The provider (real one short-circuits dead tokens) yields NeedsLogin.
+        // build_with_cli_refresh must pass it through and NOT spawn a refresh.
+        let dir = dir_with_token();
+        let provider = QueuedProvider::new(vec![Err(QuotaError::NeedsLogin)]);
+        let refresher = RecordingRefresher::new();
+        let registry = dead_credentials::DeadCredentialRegistry::new();
+
+        let result = build_with_cli_refresh(dir.path(), &provider, &refresher, &registry).await;
+
+        assert!(matches!(result.quota_error, Some(QuotaError::NeedsLogin)));
+        assert_eq!(refresher.call_count(), 0);
+        assert_eq!(*provider.calls.lock().unwrap(), 1);
     }
 
     // --- wait_for_token_change ---
@@ -371,6 +458,13 @@ mod tests {
     }
 
     // --- is_stock_default (pure) ---
+
+    #[test]
+    fn needs_login_serializes_to_snake_case() {
+        // Wire contract: the frontend QuotaError union expects `needs_login`.
+        let json = serde_json::to_string(&QuotaError::NeedsLogin).unwrap();
+        assert_eq!(json, "\"needs_login\"");
+    }
 
     #[test]
     fn is_stock_default_recognises_home_dot_claude() {

@@ -21,20 +21,22 @@ vi.mock('@/lib/commands', async () => {
     })),
     getProfileUsage: vi.fn(async () => ({
       quota: {
-        fiveHour: { utilization: 10, resetsAt: null },
-        sevenDay: { utilization: 5, resetsAt: null },
-        sevenDaySonnet: { utilization: 2, resetsAt: null },
+        primary: { utilization: 10, resetsAt: null },
+        secondary: { utilization: 5, resetsAt: null },
+        secondaryExtra: { utilization: 2, resetsAt: null },
       },
       quotaError: null,
       fetchedAt: '2099-01-01T00:00:00Z',
     })),
     checkDependencies: vi.fn(async () => ({
-      claudeAppInstalled: true,
-      claudeCliInstalled: true,
+      apps: {
+        claude: { guiInstalled: true, cliInstalled: true },
+        codex: { guiInstalled: false, cliInstalled: false },
+      },
       localBinOnPath: true,
     })),
     openInFinder: vi.fn(async () => {}),
-    openClaudeGui: vi.fn(async () => {}),
+    openDefaultGui: vi.fn(async () => {}),
     copyToClipboard: vi.fn(async () => {}),
   }
 })
@@ -52,13 +54,13 @@ function entry(overrides: Partial<DefaultEntry> = {}): DefaultEntry {
 describe('DefaultProfileDetail', () => {
   it('renders the header without an Edit button', async () => {
     renderWithQuery(<DefaultProfileDetail entry={entry()} onMigrate={vi.fn()} />)
-    await screen.findByText('Default')
+    await screen.findByRole('heading', { level: 2 })
     expect(screen.queryByRole('button', { name: /Edit/ })).toBeNull()
   })
 
   it('does not render a Recent Activity section', async () => {
     renderWithQuery(<DefaultProfileDetail entry={entry()} onMigrate={vi.fn()} />)
-    await screen.findByText('Default')
+    await screen.findByRole('heading', { level: 2 })
     expect(screen.queryByText(/Recent activity/i)).toBeNull()
   })
 
@@ -73,6 +75,17 @@ describe('DefaultProfileDetail', () => {
   it('labels the CLI primary action as "Copy claude"', async () => {
     renderWithQuery(<DefaultProfileDetail entry={entry()} onMigrate={vi.fn()} />)
     const button = await screen.findByRole('button', { name: /Copy\s+claude\b/ })
+    expect(button).toBeInTheDocument()
+  })
+
+  it('labels the CLI primary action as "Copy codex" for a Codex default entry', async () => {
+    renderWithQuery(
+      <DefaultProfileDetail
+        entry={entry({ id: 'default:codex', app: 'codex', name: 'Default' })}
+        onMigrate={vi.fn()}
+      />,
+    )
+    const button = await screen.findByRole('button', { name: /Copy\s+codex\b/ })
     expect(button).toBeInTheDocument()
   })
 })

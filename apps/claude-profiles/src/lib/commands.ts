@@ -1,3 +1,4 @@
+import type { AppId } from './app-registry'
 import type {
   Activity,
   ActivityKind,
@@ -26,7 +27,12 @@ export function listProfiles(): Promise<Array<Profile>> {
   return invoke<Array<Profile>>('list_profiles')
 }
 
-export function createProfile(input: { name: string; color: string; surfaces: Surfaces }): Promise<Profile> {
+export function createProfile(input: {
+  app: AppId
+  name: string
+  color: string
+  surfaces: Surfaces
+}): Promise<Profile> {
   return invoke<Profile>('create_profile', input)
 }
 
@@ -66,8 +72,8 @@ export function openInFinder(path: string): Promise<void> {
   return invoke('open_in_finder', { path })
 }
 
-export function openClaudeGui(dataDir: string): Promise<void> {
-  return invoke('open_claude_gui', { dataDir })
+export function openDefaultGui(app: AppId, dataDir: string): Promise<void> {
+  return invoke('open_default_gui', { app, dataDir })
 }
 
 export function profilePaths(id: string): Promise<ProfilePaths> {
@@ -78,16 +84,16 @@ export function copyToClipboard(text: string): Promise<void> {
   return writeText(text)
 }
 
-export function detectExistingClaudeInstall(): Promise<ExistingInstallInfo> {
-  return invoke<ExistingInstallInfo>('detect_existing_claude_install')
+export function detectExistingInstall(app: AppId): Promise<ExistingInstallInfo> {
+  return invoke<ExistingInstallInfo>('detect_existing_install', { app })
 }
 
-export function detectExistingClaudeSizes(): Promise<ExistingInstallSizes> {
-  return invoke<ExistingInstallSizes>('detect_existing_claude_sizes')
+export function detectExistingSizes(app: AppId): Promise<ExistingInstallSizes> {
+  return invoke<ExistingInstallSizes>('detect_existing_sizes', { app })
 }
 
-export function importExistingInstall(input: ImportExistingInput): Promise<Profile> {
-  return invoke<Profile>('import_existing_install', { input })
+export function importExistingInstall(app: AppId, input: ImportExistingInput): Promise<Profile> {
+  return invoke<Profile>('import_existing_install', { app, input })
 }
 
 export function listMigrationBackups(): Promise<Array<MigrationBackupInfo>> {

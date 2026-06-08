@@ -1,3 +1,7 @@
+import type { AppId } from './app-registry'
+
+export type { AppId } from './app-registry'
+
 export type Surfaces = {
   gui: boolean
   cli: boolean
@@ -5,6 +9,7 @@ export type Surfaces = {
 
 export type Profile = {
   id: string
+  app: AppId
   name: string
   slug: string
   color: string
@@ -17,11 +22,9 @@ export type Profile = {
   lastUsedAt: string | null
 }
 
-export type DefaultEntryApp = 'claude'
-
 export type DefaultEntry = {
   id: string
-  app: DefaultEntryApp
+  app: AppId
   name: string
   surfaces: Surfaces
 }
@@ -64,24 +67,23 @@ export type ProfilePaths = {
 }
 
 export type ExistingInstallInfo = {
-  claudeDesktopPath: string | null
-  claudeCodePath: string | null
+  guiPath: string | null
+  cliPath: string | null
   /**
    * Bytes on disk for each detected install. `null` when the corresponding
    * path is also `null` (nothing detected) OR when the size walk hasn't
-   * run yet — the boot-time `detect_existing_claude_install` IPC returns
-   * `null` here to keep startup fast; sizes arrive later via
-   * `detect_existing_claude_sizes`. Permission-denied subpaths during the
-   * walk are silently skipped on the Rust side, so the eventual value is
-   * best-effort.
+   * run yet — the boot-time `detect_existing_install` IPC returns `null`
+   * here to keep startup fast; sizes arrive later via `detect_existing_sizes`.
+   * Permission-denied subpaths during the walk are silently skipped on the
+   * Rust side, so the eventual value is best-effort.
    */
-  claudeDesktopSizeBytes: number | null
-  claudeCodeSizeBytes: number | null
+  guiSizeBytes: number | null
+  cliSizeBytes: number | null
 }
 
 export type ExistingInstallSizes = {
-  claudeDesktopSizeBytes: number | null
-  claudeCodeSizeBytes: number | null
+  guiSizeBytes: number | null
+  cliSizeBytes: number | null
 }
 
 export type ImportExistingInput = {
@@ -98,9 +100,13 @@ export type MigrationBackupInfo = {
   eligibleForCleanup: boolean
 }
 
+export type AppDependency = {
+  guiInstalled: boolean
+  cliInstalled: boolean
+}
+
 export type Dependencies = {
-  claudeAppInstalled: boolean
-  claudeCliInstalled: boolean
+  apps: Record<AppId, AppDependency>
   localBinOnPath: boolean
 }
 
@@ -153,12 +159,12 @@ export type UsageWindow = {
 }
 
 export type QuotaUsage = {
-  fiveHour: UsageWindow | null
-  sevenDay: UsageWindow | null
-  sevenDaySonnet: UsageWindow | null
+  primary: UsageWindow | null
+  secondary: UsageWindow | null
+  secondaryExtra: UsageWindow | null
 }
 
-export type QuotaError = 'no_credentials' | 'unauthorized' | 'rate_limited' | 'network' | 'unknown'
+export type QuotaError = 'no_credentials' | 'unauthorized' | 'needs_login' | 'rate_limited' | 'network' | 'unknown'
 
 export type ProfileUsage = {
   quota: QuotaUsage | null

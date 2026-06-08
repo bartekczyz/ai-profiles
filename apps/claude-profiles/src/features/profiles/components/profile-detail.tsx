@@ -2,6 +2,8 @@ import type { Profile, Surface } from '@/lib/types'
 
 import { Suspense, useState } from 'react'
 
+import { wrapperCommand } from '@/lib/app-registry'
+
 import { useProfileLastUsed } from '../api/use-profile-last-used'
 import { useProfilePaths } from '../api/use-profile-paths'
 import { formatLastUsed } from './format-last-used'
@@ -30,7 +32,7 @@ export function ProfileDetail({ profile, onEdit, onDelete }: Props) {
         swatch={<ProfileSwatch color={profile.color} />}
         subline={
           <>
-            <span>{profile.slug}</span>
+            <span>{profile.app}</span>
             <span className="mx-2 text-border">·</span>
             <span className="text-muted-strong">{formatLastUsed(profile.lastUsedAt)}</span>
           </>
@@ -38,7 +40,7 @@ export function ProfileDetail({ profile, onEdit, onDelete }: Props) {
         onEdit={onEdit}
       />
 
-      <ProfileDetailUsageCard profileId={profile.id} cliEnabled={profile.surfaces.cli} />
+      <ProfileDetailUsageCard app={profile.app} profileId={profile.id} cliEnabled={profile.surfaces.cli} />
 
       <div className="mb-6 grid grid-cols-1 gap-3.5 lg:grid-cols-2">
         <Suspense key={profile.id} fallback={<ManagedSurfaceCardsFallback profile={profile} />}>
@@ -66,13 +68,15 @@ type ManagedSurfaceCardsProps = {
 function ManagedSurfaceCards({ profile, onError }: ManagedSurfaceCardsProps) {
   const paths = useProfilePaths(profile.id)
   const lastUsed = useProfileLastUsed()
+  const command = wrapperCommand(profile.app, profile.slug)
   return (
     <ProfileDetailSurfaceCards
+      app={profile.app}
       paths={paths}
       surfaces={profile.surfaces}
-      cliCommandLabel={<code className="font-mono">claude-{profile.slug}</code>}
+      cliCommandLabel={<code className="font-mono">{command}</code>}
       onLaunchGui={() => lastUsed.launchDesktop(profile.id)}
-      onCopyCli={() => lastUsed.copyCli({ profileId: profile.id, command: `claude-${profile.slug}` })}
+      onCopyCli={() => lastUsed.copyCli({ profileId: profile.id, command })}
       onError={onError}
     />
   )
@@ -80,12 +84,14 @@ function ManagedSurfaceCards({ profile, onError }: ManagedSurfaceCardsProps) {
 
 function ManagedSurfaceCardsFallback({ profile }: { profile: Profile }) {
   const lastUsed = useProfileLastUsed()
+  const command = wrapperCommand(profile.app, profile.slug)
   return (
     <ProfileDetailSurfaceCardsFallback
+      app={profile.app}
       surfaces={profile.surfaces}
-      cliCommandLabel={<code className="font-mono">claude-{profile.slug}</code>}
+      cliCommandLabel={<code className="font-mono">{command}</code>}
       onLaunchGui={() => lastUsed.launchDesktop(profile.id)}
-      onCopyCli={() => lastUsed.copyCli({ profileId: profile.id, command: `claude-${profile.slug}` })}
+      onCopyCli={() => lastUsed.copyCli({ profileId: profile.id, command })}
     />
   )
 }

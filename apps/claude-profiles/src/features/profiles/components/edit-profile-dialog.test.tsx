@@ -21,6 +21,7 @@ function renderEdit(props: DialogProps) {
 function fixture(overrides: Partial<Profile> = {}): Profile {
   return {
     id: '1',
+    app: 'claude',
     name: 'Personal',
     slug: 'personal',
     color: '#d97757',
@@ -33,8 +34,10 @@ function fixture(overrides: Partial<Profile> = {}): Profile {
 }
 
 const DEPS: Dependencies = {
-  claudeAppInstalled: true,
-  claudeCliInstalled: true,
+  apps: {
+    claude: { guiInstalled: true, cliInstalled: true },
+    codex: { guiInstalled: false, cliInstalled: false },
+  },
   localBinOnPath: true,
 }
 

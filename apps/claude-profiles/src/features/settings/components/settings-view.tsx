@@ -1,3 +1,5 @@
+import type { AppId } from '@/lib/app-registry'
+
 import { Suspense } from 'react'
 
 import { Button, Kbd } from '@/design'
@@ -9,7 +11,7 @@ import { SystemSection, SystemSectionFallback } from './system-section'
 
 type Props = {
   onClose: () => void
-  onOpenMigration: () => void
+  onOpenMigration: (app: AppId) => void
   onOpenAbout: () => void
 }
 
@@ -21,7 +23,7 @@ type Props = {
  * `useMigration` + `useMigrationBackups`) sit behind their own Suspense
  * boundaries so the rest of the pane paints instantly when the user opens
  * Settings — previously a single outer boundary made the whole pane wait
- * on the filesystem walk in `detect_existing_claude_install`.
+ * on the filesystem walk in `detect_existing_install`.
  */
 export function SettingsView({ onClose, onOpenMigration, onOpenAbout }: Props) {
   return (

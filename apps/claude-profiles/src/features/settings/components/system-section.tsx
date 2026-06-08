@@ -1,5 +1,5 @@
 import type { StatusTone } from '@/design'
-import type { Shell } from '@/lib/types'
+import type { Dependencies, Shell } from '@/lib/types'
 
 import { useEffect, useState } from 'react'
 
@@ -9,6 +9,7 @@ import { Button, Skeleton, StatusDot } from '@/design'
 import { useAppMetadata } from '@/features/about/api/use-app-metadata'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
 import { type UpdaterStatus, useUpdater } from '@/features/updater/api/use-updater'
+import { appIds, appSpecs } from '@/lib/app-registry'
 import { detectShell, installPathHook } from '@/lib/commands'
 
 const rcDisplay: Record<Shell, string> = {
@@ -48,23 +49,25 @@ const MISSING_DETAIL = '—'
 
 const REFRESH_FLASH_MS = 1500
 
+function buildAppRows(dependencies: Dependencies): Array<Row> {
+  return appIds.flatMap((id) => {
+    const spec = appSpecs[id]
+    const deps = dependencies.apps[id]
+    return [
+      { label: `${spec.displayName} Desktop`, tone: deps.guiInstalled ? 'success' : 'warning', detail: MISSING_DETAIL },
+      { label: `${spec.displayName} CLI`, tone: deps.cliInstalled ? 'success' : 'warning', detail: MISSING_DETAIL },
+    ]
+  })
+}
+
 function buildRows(
-  deps: { claudeAppInstalled: boolean; claudeCliInstalled: boolean; localBinOnPath: boolean },
+  deps: Dependencies,
   shell: Shell | null,
   updater: { tone: StatusTone; detail: string },
   version: string,
 ): Array<Row> {
   return [
-    {
-      label: 'Claude Desktop',
-      tone: deps.claudeAppInstalled ? 'success' : 'warning',
-      detail: MISSING_DETAIL,
-    },
-    {
-      label: 'Claude Code CLI',
-      tone: deps.claudeCliInstalled ? 'success' : 'warning',
-      detail: MISSING_DETAIL,
-    },
+    ...buildAppRows(deps),
     {
       label: 'Shell PATH',
       tone: deps.localBinOnPath ? 'success' : 'warning',
@@ -82,13 +85,12 @@ function buildRows(
 /**
  * Consolidated System status card.
  *
- * Four rows (Desktop / CLI / Shell PATH / Updates) sit in one rounded card.
- * Each row shows a status dot (success/warning/neutral), a label, and a
- * mono detail string — version numbers if available (currently `—`
- * everywhere for deps, see follow-up in 99-todo.md), the resolved rc path
- * for the PATH row, or the live updater status. Beneath the card a
- * hookline lets the user re-install the shell hook in one click and an
- * updater hookline lets them trigger a manual update check.
+ * Rows: two per managed app (Desktop / CLI) from the registry, plus Shell
+ * PATH and Updates — six rows in total when both Claude and Codex are
+ * registered. Each row shows a status dot (success/warning/neutral), a
+ * label, and a mono detail string. Beneath the card a hookline lets the
+ * user re-install the shell hook in one click and an updater hookline lets
+ * them trigger a manual update check.
  *
  * The section owns its own data: `useDependencies` suspends here (not at
  * the SettingsView level) so the rest of the Settings pane can paint
@@ -184,7 +186,7 @@ export function SystemSection() {
       <div className="rounded-xl border border-border bg-white py-1 dark:bg-cream-2">
         {rows.map((row, index) => (
           <div
-            // biome-ignore lint/suspicious/noArrayIndexKey: rows are a fixed tuple of three deps with no insert/reorder semantics
+            // biome-ignore lint/suspicious/noArrayIndexKey: rows are a stable ordered list with no insert/reorder semantics
             key={index}
             className="grid grid-cols-[7px_1fr_auto] items-center gap-3 border-b border-border-soft px-4 py-3 text-[13px] tracking-[-0.003em] text-ink-soft last:border-b-0"
           >
@@ -241,7 +243,7 @@ export function SystemSectionFallback() {
         <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">System</span>
         <Skeleton className="h-7 w-[88px] rounded-md" />
       </div>
-      <Skeleton className="h-[126px] w-full rounded-xl" />
+      <Skeleton className="h-[190px] w-full rounded-xl" />
       <Skeleton className="mt-2.5 h-4 w-[280px] rounded-sm" />
     </section>
   )

@@ -24,8 +24,10 @@ vi.mock('@tauri-apps/api/app', () => ({ getVersion: vi.fn().mockResolvedValue('0
 const mockInvoke = vi.mocked(invoke)
 
 const HEALTHY_DEPS = {
-  claudeAppInstalled: true,
-  claudeCliInstalled: true,
+  apps: {
+    claude: { guiInstalled: true, cliInstalled: true },
+    codex: { guiInstalled: false, cliInstalled: false },
+  },
   localBinOnPath: true,
 }
 
@@ -37,10 +39,10 @@ const DEFAULT_STATE = {
 }
 
 const DEFAULT_EXISTING = {
-  claudeDesktopPath: null,
-  claudeCodePath: null,
-  claudeDesktopSizeBytes: null,
-  claudeCodeSizeBytes: null,
+  guiPath: null,
+  cliPath: null,
+  guiSizeBytes: null,
+  cliSizeBytes: null,
 }
 
 const DEFAULT_METADATA = {
@@ -75,7 +77,7 @@ function primeInitialLoads({
   existing?: unknown
   metadata?: unknown
 } = {}) {
-  mockInvoke.mockImplementation(async (command: string) => {
+  mockInvoke.mockImplementation(async (command: string, args?: unknown) => {
     if (command === 'check_dependencies') {
       return deps
     }
@@ -88,8 +90,11 @@ function primeInitialLoads({
     if (command === 'detect_shell') {
       return shell
     }
-    if (command === 'detect_existing_claude_install') {
-      return existing
+    if (command === 'detect_existing_install') {
+      // `existing` describes the Claude stock install under test; Codex
+      // detects nothing so exactly one Re-import card renders.
+      const app = (args as { app?: string } | undefined)?.app
+      return app === 'codex' ? DEFAULT_EXISTING : existing
     }
     if (command === 'get_app_metadata') {
       return metadata
@@ -109,7 +114,9 @@ describe('SettingsView', () => {
     primeInitialLoads()
     renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} onOpenAbout={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('Claude Desktop')).toBeInTheDocument())
-    expect(screen.getByText('Claude Code CLI')).toBeInTheDocument()
+    expect(screen.getByText('Claude CLI')).toBeInTheDocument()
+    expect(screen.getByText('Codex Desktop')).toBeInTheDocument()
+    expect(screen.getByText('Codex CLI')).toBeInTheDocument()
     expect(screen.getByText('Shell PATH')).toBeInTheDocument()
   })
 
@@ -122,10 +129,10 @@ describe('SettingsView', () => {
   it('renders the Re-import action card when an install is detected', async () => {
     primeInitialLoads({
       existing: {
-        claudeDesktopPath: '/Users/me/Library/Application Support/Claude',
-        claudeCodePath: null,
-        claudeDesktopSizeBytes: 248 * 1024 * 1024,
-        claudeCodeSizeBytes: null,
+        guiPath: '/Users/me/Library/Application Support/Claude',
+        cliPath: null,
+        guiSizeBytes: 248 * 1024 * 1024,
+        cliSizeBytes: null,
       },
     })
     renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} onOpenAbout={vi.fn()} />)
@@ -143,16 +150,16 @@ describe('SettingsView', () => {
   it('Re-import button calls onOpenMigration', async () => {
     primeInitialLoads({
       existing: {
-        claudeDesktopPath: '/Users/me/Library/Application Support/Claude',
-        claudeCodePath: null,
-        claudeDesktopSizeBytes: null,
-        claudeCodeSizeBytes: null,
+        guiPath: '/Users/me/Library/Application Support/Claude',
+        cliPath: null,
+        guiSizeBytes: null,
+        cliSizeBytes: null,
       },
     })
     const onOpenMigration = vi.fn()
     renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={onOpenMigration} onOpenAbout={vi.fn()} />)
     await userEvent.setup().click(await screen.findByRole('button', { name: /Re-import/ }))
-    expect(onOpenMigration).toHaveBeenCalled()
+    expect(onOpenMigration).toHaveBeenCalledWith('claude')
   })
 
   it('shows a confirmation dialog before resetting onboarding flags', async () => {

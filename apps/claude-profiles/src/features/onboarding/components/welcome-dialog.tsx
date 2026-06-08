@@ -10,7 +10,7 @@ export function WelcomeDialog({ open, onContinue }: Props) {
     <Dialog
       open={open}
       title="Welcome to claude-profiles"
-      description="Run multiple Anthropic Claude accounts on one Mac — the desktop app and the Claude Code CLI, side by side."
+      description="Run multiple isolated Claude and Codex accounts on one Mac — desktop apps and CLIs, side by side."
       onClose={onContinue}
       onSubmit={onContinue}
       foot={

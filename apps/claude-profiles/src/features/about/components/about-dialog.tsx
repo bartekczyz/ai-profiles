@@ -75,7 +75,8 @@ export function AboutDialog({ open, onClose }: Props) {
         </Field>
       </dl>
       <p className="mt-5 border-t border-border-soft pt-4 text-[11.5px] text-muted-strong">
-        Not affiliated with Anthropic. Claude and Claude.app are trademarks of Anthropic, PBC.
+        Not affiliated with Anthropic or OpenAI. Claude and Claude.app are trademarks of Anthropic, PBC. Codex and
+        ChatGPT are trademarks of OpenAI.
       </p>
     </Dialog>
   )

@@ -1,4 +1,4 @@
-import type { Dependencies, Profile, SidebarEntry } from '@/lib/types'
+import type { Profile, SidebarEntry } from '@/lib/types'
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -9,6 +9,7 @@ import { CommandPalette } from './command-palette'
 function profile(overrides: Partial<Profile> = {}): Profile {
   return {
     id: '1',
+    app: 'claude',
     name: 'Personal',
     slug: 'personal',
     color: '#d97757',
@@ -35,12 +36,6 @@ function defaultEntry(): SidebarEntry {
   }
 }
 
-const DEPS: Dependencies = {
-  claudeAppInstalled: true,
-  claudeCliInstalled: true,
-  localBinOnPath: true,
-}
-
 type RenderProps = Partial<Parameters<typeof CommandPalette>[0]>
 
 function setup(props: RenderProps = {}) {
@@ -53,7 +48,7 @@ function setup(props: RenderProps = {}) {
     onSettings: vi.fn(),
     onImport: vi.fn(),
   }
-  render(<CommandPalette open entries={[managedEntry()]} selectedId="1" dependencies={DEPS} {...handlers} {...props} />)
+  render(<CommandPalette open entries={[managedEntry()]} selectedId="1" importableApps={[]} {...handlers} {...props} />)
   return { ...handlers, user: userEvent.setup() }
 }
 
@@ -70,6 +65,11 @@ describe('CommandPalette', () => {
     expect(screen.getByText('Switch to Work')).toBeInTheDocument()
   })
 
+  it('shows the codex-<slug> command for a Codex profile', () => {
+    setup({ entries: [managedEntry({ id: '3', name: 'Codex Work', slug: 'codex-work', app: 'codex' })] })
+    expect(screen.getByText(/codex-codex-work/)).toBeInTheDocument()
+  })
+
   it('hides launch when GUI surface is off', () => {
     setup({ entries: [managedEntry({ surfaces: { gui: false, cli: true } })] })
     expect(screen.queryByText(/Launch desktop app/)).not.toBeInTheDocument()
@@ -82,11 +82,22 @@ describe('CommandPalette', () => {
     expect(screen.getByText(/Launch desktop app/)).toBeInTheDocument()
   })
 
-  it('always shows the three global actions', () => {
+  it('shows the create and settings actions', () => {
     setup({ entries: [] })
     expect(screen.getByText('Create new profile')).toBeInTheDocument()
     expect(screen.getByText('Open settings')).toBeInTheDocument()
-    expect(screen.getByText('Detect and import…')).toBeInTheDocument()
+  })
+
+  it('renders a per-app "Detect and import" row for each importable app', () => {
+    setup({ entries: [], importableApps: ['claude', 'codex'] })
+    expect(screen.getByText('Detect and import Claude…')).toBeInTheDocument()
+    expect(screen.getByText('Detect and import Codex…')).toBeInTheDocument()
+  })
+
+  it('fires onImport with the app when an import row is selected', async () => {
+    const { onImport, user } = setup({ entries: [], importableApps: ['codex'] })
+    await user.click(screen.getByText('Detect and import Codex…'))
+    expect(onImport).toHaveBeenCalledWith('codex')
   })
 
   it('clicking switch fires onSwitch and onClose', async () => {

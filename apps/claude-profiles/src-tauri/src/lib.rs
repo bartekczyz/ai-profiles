@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 mod activity;
+mod app_kind;
 mod app_state;
 mod commands;
 mod deps;
@@ -100,10 +101,10 @@ pub fn run() {
             commands::toggle_surface,
             commands::open_profile_in_app,
             commands::open_in_finder,
-            commands::open_claude_gui,
+            commands::open_default_gui,
             commands::profile_paths,
-            commands::detect_existing_claude_install,
-            commands::detect_existing_claude_sizes,
+            commands::detect_existing_install,
+            commands::detect_existing_sizes,
             commands::import_existing_install,
             commands::list_migration_backups,
             commands::delete_migration_backup,

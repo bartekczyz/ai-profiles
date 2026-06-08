@@ -11,6 +11,7 @@ function managedEntry(overrides: Partial<Profile> = {}): SidebarEntry {
     kind: 'managed',
     profile: {
       id: '1',
+      app: 'claude',
       name: 'Personal',
       slug: 'personal',
       color: '#d97757',
@@ -22,13 +23,13 @@ function managedEntry(overrides: Partial<Profile> = {}): SidebarEntry {
   }
 }
 
-function defaultEntry(): SidebarEntry {
+function defaultEntry(app: 'claude' | 'codex' = 'claude'): SidebarEntry {
   return {
     kind: 'default',
     entry: {
-      id: 'default:claude',
-      app: 'claude',
-      name: 'Default',
+      id: `default:${app}`,
+      app,
+      name: app === 'codex' ? 'Codex' : 'Default',
       surfaces: { gui: true, cli: true },
     },
   }
@@ -142,5 +143,24 @@ describe('Sidebar', () => {
     )
     expect(screen.getByText('⌘1')).toBeInTheDocument()
     expect(screen.getByText('⌘2')).toBeInTheDocument()
+  })
+
+  it('shows app glyphs when entries span both Claude and Codex', () => {
+    const entries = [
+      defaultEntry('claude'),
+      defaultEntry('codex'),
+      managedEntry({ id: '1', name: 'Personal', app: 'claude' }),
+    ]
+    render(<Sidebar entries={entries} selectedId={null} onSelect={vi.fn()} onCreate={vi.fn()} onSettings={vi.fn()} />)
+    // At least one glyph must be present (the data-app-glyph attribute is set by AppGlyph)
+    const glyphs = document.querySelectorAll('[data-app-glyph]')
+    expect(glyphs.length).toBeGreaterThan(0)
+  })
+
+  it('does not show app glyphs when all entries belong to one app', () => {
+    const entries = [defaultEntry('claude'), managedEntry({ id: '1', name: 'Personal', app: 'claude' })]
+    render(<Sidebar entries={entries} selectedId={null} onSelect={vi.fn()} onCreate={vi.fn()} onSettings={vi.fn()} />)
+    const glyphs = document.querySelectorAll('[data-app-glyph]')
+    expect(glyphs.length).toBe(0)
   })
 })

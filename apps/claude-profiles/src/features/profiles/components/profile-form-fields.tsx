@@ -1,19 +1,25 @@
-import type { Dependencies, Surfaces } from '@/lib/types'
+import type { AppId, Dependencies, Surfaces } from '@/lib/types'
 
 import { Check } from 'lucide-react'
 
 // cross-feature: form fields use the profile color picker primitive
 import { cn } from '@/design'
+import { Input } from '@/design/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/design/ui/select'
+import { appIds, appSpecs } from '@/lib/app-registry'
 import { presetColors } from '@/lib/colors'
 
 import { ColorSwatchPicker } from './color-swatch-picker'
 
 type Props = {
+  app?: AppId | ''
   name: string
   color: string
   surfaces: Surfaces
   dependencies: Dependencies
+  installedApps?: ReadonlyArray<AppId>
   showSlugPreview?: boolean
+  onAppChange?: (app: AppId) => void
   onNameChange: (name: string) => void
   onColorChange: (color: string) => void
   onSurfacesChange: (next: Surfaces) => void
@@ -40,29 +46,51 @@ export function slugifyPreview(name: string): string {
 }
 
 /**
- * Shared form body for the create + edit modals.
+ * Shared form body for the create modal.
  *
- * Layout: tracked-uppercase eyebrow label + name input + live slug helper,
- * color swatch row, two surface toggle cards. Surface cards self-disable
- * when the underlying dependency is missing; the parent renders the
- * actionable copy ("Install Claude Code first…") underneath if it cares.
+ * Layout: app-type Select, tracked-uppercase eyebrow label + name input + live
+ * slug helper, color swatch row, two surface toggle cards. Surface cards
+ * self-disable when the underlying dependency is missing; the parent renders
+ * the actionable copy ("Install … first") underneath if it cares.
  */
 export function ProfileFormFields({
+  app,
   name,
   color,
   surfaces,
   dependencies,
+  installedApps,
   showSlugPreview = true,
+  onAppChange,
   onNameChange,
   onColorChange,
   onSurfacesChange,
 }: Props) {
   const slugPreview = name.trim().length > 0 ? slugifyPreview(name) : ''
+  const resolvedApp = app !== '' && app !== undefined ? app : undefined
+  const spec = resolvedApp !== undefined ? appSpecs[resolvedApp] : null
+  const appDeps = resolvedApp !== undefined ? dependencies.apps[resolvedApp] : null
+
   return (
     <div className="space-y-4">
+      {onAppChange !== undefined && installedApps !== undefined ? (
+        <Field label="Type">
+          <Select value={app ?? ''} onValueChange={(value) => onAppChange(value as AppId)}>
+            <SelectTrigger aria-label="App type" className="w-full">
+              <SelectValue placeholder="Choose an app" />
+            </SelectTrigger>
+            <SelectContent>
+              {appIds.map((id) => (
+                <SelectItem key={id} disabled={!installedApps.includes(id)} value={id}>
+                  {appSpecs[id].displayName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      ) : null}
       <Field htmlFor="profile-name" label="Name">
-        <input
-          // biome-ignore lint/a11y/noAutofocus: focus inside a modal lands on the primary input by convention
+        <Input
           autoFocus
           id="profile-name"
           type="text"
@@ -73,10 +101,13 @@ export function ProfileFormFields({
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          className="w-full appearance-none rounded-md border border-border bg-white px-3 py-2.5 font-sans text-[13.5px] text-ink outline-none transition-[border-color,box-shadow] duration-(--duration-snap) ease-(--ease-natural) focus:border-orange focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-orange)_15%,transparent)] dark:bg-cream-2"
         />
-        {showSlugPreview && slugPreview ? (
-          <p className="mt-1.5 font-mono text-mono text-muted-strong">Slug: {slugPreview}</p>
+        {/* Always rendered (non-breaking space when empty) so the slug line
+            reserves its height and the dialog doesn't shift when typing. */}
+        {showSlugPreview ? (
+          <p className="mt-1.5 font-mono text-mono text-muted-strong">
+            {slugPreview ? `Slug: ${slugPreview}` : '\u00A0'}
+          </p>
         ) : null}
       </Field>
       <Field label="Color">
@@ -85,31 +116,35 @@ export function ProfileFormFields({
       <Field label="Surfaces">
         <div className="flex flex-col gap-2.5">
           <SurfaceToggle
-            checked={surfaces.gui && dependencies.claudeAppInstalled}
-            disabled={!dependencies.claudeAppInstalled}
-            title="Desktop App launcher"
-            description="Creates /Applications/Claude (Name).app with an isolated user-data directory."
+            checked={surfaces.gui && (appDeps?.guiInstalled ?? false)}
+            disabled={!(appDeps?.guiInstalled ?? false)}
+            title={spec?.gui.label ?? 'Desktop App launcher'}
+            description={spec?.gui.description ?? ''}
             onChange={(next) => onSurfacesChange({ ...surfaces, gui: next })}
           />
-          {!dependencies.claudeAppInstalled ? (
+          {appDeps !== null && !appDeps.guiInstalled ? (
             <p className="pl-7 font-mono text-mono text-muted-strong">
               Install{' '}
-              <a className="underline" href="https://claude.ai/download" target="_blank" rel="noreferrer">
-                Claude Desktop
+              <a className="underline" href={spec?.gui.installUrl} target="_blank" rel="noreferrer">
+                {spec?.displayName} Desktop
               </a>{' '}
               first.
             </p>
           ) : null}
           <SurfaceToggle
-            checked={surfaces.cli && dependencies.claudeCliInstalled}
-            disabled={!dependencies.claudeCliInstalled}
-            title="Claude Code CLI wrapper"
-            description="Exposes claude-{slug} in ~/.local/bin, pointed at this profile."
+            checked={surfaces.cli && (appDeps?.cliInstalled ?? false)}
+            disabled={!(appDeps?.cliInstalled ?? false)}
+            title={spec?.cli.label ?? 'CLI wrapper'}
+            description={spec?.cli.description ?? ''}
             onChange={(next) => onSurfacesChange({ ...surfaces, cli: next })}
           />
-          {!dependencies.claudeCliInstalled ? (
+          {appDeps !== null && !appDeps.cliInstalled ? (
             <p className="pl-7 font-mono text-mono text-muted-strong">
-              Install Claude Code first: <code>npm install -g @anthropic-ai/claude-code</code>
+              Install{' '}
+              <a className="underline" href={spec?.cli.installUrl} target="_blank" rel="noreferrer">
+                {spec?.displayName}
+              </a>{' '}
+              first.
             </p>
           ) : null}
         </div>

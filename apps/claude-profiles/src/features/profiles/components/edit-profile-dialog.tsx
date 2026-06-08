@@ -79,6 +79,7 @@ export function EditProfileDialog({ open, profile, dependencies, submitting, onC
       }
     >
       <ProfileFormFields
+        app={profile.app}
         name={name}
         color={color}
         surfaces={surfaces}
