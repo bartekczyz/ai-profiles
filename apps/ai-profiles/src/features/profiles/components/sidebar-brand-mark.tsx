@@ -14,7 +14,7 @@ export function SidebarBrandMark() {
         <BrandSparkle size={14} />
       </span>
       <span className="text-[14.5px] font-semibold tracking-[-0.018em] text-ink">
-        claude<span className="font-medium text-muted">-profiles</span>
+        ai<span className="font-medium text-muted">-profiles</span>
       </span>
     </div>
   )
