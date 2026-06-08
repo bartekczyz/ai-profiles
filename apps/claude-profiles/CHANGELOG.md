@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/bartekczyz/claude-profiles/compare/v0.5.0...v0.6.0) (2026-06-08)
+
+
+### Added
+
+* Codex multi-app support + dead credential handling ([#25](https://github.com/bartekczyz/claude-profiles/issues/25)) ([2fcc942](https://github.com/bartekczyz/claude-profiles/commit/2fcc942d22c140a5be93de001bd796ea51a2afe7))
+
+
+### Fixed
+
+* Default profile launch — open the stock app, single-instance per entry ([#24](https://github.com/bartekczyz/claude-profiles/issues/24)) ([80e7056](https://github.com/bartekczyz/claude-profiles/commit/80e705667615f8b8ff6f965217a3dd77ab4a02ca))
+
 ## [0.5.0](https://github.com/bartekczyz/claude-profiles/compare/v0.4.0...v0.5.0) (2026-05-29)
 
 
