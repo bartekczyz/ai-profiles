@@ -19,8 +19,8 @@
     { "type": "style", "hidden": true }
   ],
   "packages": {
-    "apps/claude-profiles": {
-      "package-name": "claude-profiles",
+    "apps/ai-profiles": {
+      "package-name": "ai-profiles",
       "draft": true,
       "extra-files": [
         {

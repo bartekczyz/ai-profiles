@@ -5,8 +5,8 @@ pre-commit:
       run: pnpm biome check --staged --no-errors-on-unmatched --reporter=summary
 
     - name: rustfmt
-      glob: "apps/claude-profiles/src-tauri/**/*.rs"
-      run: PATH="$HOME/.cargo/bin:$PATH" cargo fmt --manifest-path apps/claude-profiles/src-tauri/Cargo.toml --all -- --check
+      glob: "apps/ai-profiles/src-tauri/**/*.rs"
+      run: PATH="$HOME/.cargo/bin:$PATH" cargo fmt --manifest-path apps/ai-profiles/src-tauri/Cargo.toml --all -- --check
 
 pre-push:
   jobs:
@@ -15,12 +15,12 @@ pre-push:
       run: pnpm turbo run typecheck
 
     - name: cargo clippy
-      glob: "apps/claude-profiles/src-tauri/**/*.{rs,toml}"
-      run: PATH="$HOME/.cargo/bin:$PATH" cargo clippy --manifest-path apps/claude-profiles/src-tauri/Cargo.toml --all-targets -- -D warnings
+      glob: "apps/ai-profiles/src-tauri/**/*.{rs,toml}"
+      run: PATH="$HOME/.cargo/bin:$PATH" cargo clippy --manifest-path apps/ai-profiles/src-tauri/Cargo.toml --all-targets -- -D warnings
 
     - name: cargo test
-      glob: "apps/claude-profiles/src-tauri/**/*.{rs,toml}"
-      run: PATH="$HOME/.cargo/bin:$PATH" cargo test --manifest-path apps/claude-profiles/src-tauri/Cargo.toml
+      glob: "apps/ai-profiles/src-tauri/**/*.{rs,toml}"
+      run: PATH="$HOME/.cargo/bin:$PATH" cargo test --manifest-path apps/ai-profiles/src-tauri/Cargo.toml
 
     - name: landing test
       glob: "apps/landing/**/*.{ts,tsx}"

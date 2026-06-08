@@ -13,7 +13,7 @@ const rows: ReadonlyArray<Row> = [
   {
     id: 'install-source',
     label: 'Build from source',
-    cmd: 'git clone https://github.com/bartekczyz/claude-profiles',
+    cmd: 'git clone https://github.com/bartekczyz/ai-profiles',
     kind: 'command',
   },
 ]
@@ -28,7 +28,7 @@ const rows: ReadonlyArray<Row> = [
         {kind === 'download' ? (
           <a
             id="install-download-link"
-            href="https://github.com/bartekczyz/claude-profiles/releases/latest"
+            href="https://github.com/bartekczyz/ai-profiles/releases/latest"
             aria-label={`Download ${cmd}`}
             class="cursor-pointer text-[11px] text-orange-deep hover:text-orange"
           >

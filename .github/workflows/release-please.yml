@@ -13,14 +13,14 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     # Expose release-please's per-package outputs to downstream jobs.
-    # The package path lives at `apps/claude-profiles` (see
+    # The package path lives at `apps/ai-profiles` (see
     # release-please-config.json), so the output keys are namespaced
     # accordingly. Bracket syntax is required because the keys contain
     # `/` and `--`.
     outputs:
-      release_created: ${{ steps.release.outputs['apps/claude-profiles--release_created'] }}
-      tag_name: ${{ steps.release.outputs['apps/claude-profiles--tag_name'] }}
-      sha: ${{ steps.release.outputs['apps/claude-profiles--sha'] }}
+      release_created: ${{ steps.release.outputs['apps/ai-profiles--release_created'] }}
+      tag_name: ${{ steps.release.outputs['apps/ai-profiles--tag_name'] }}
+      sha: ${{ steps.release.outputs['apps/ai-profiles--sha'] }}
     steps:
       # Guard against the race where release-please runs while the
       # previous release's binaries are still building. During that

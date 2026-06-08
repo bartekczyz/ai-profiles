@@ -1,10 +1,10 @@
-# claude-profiles
+# ai-profiles
 
 > Run multiple Claude and Codex accounts on one Mac — the desktop app and the CLI, side by side. Free and open-source.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="apps/landing/public/screenshot-dark.png">
-  <img alt="claude-profiles app" src="apps/landing/public/screenshot-light.png">
+  <img alt="ai-profiles app" src="apps/landing/public/screenshot-light.png">
 </picture>
 
 ## Landing page
@@ -15,18 +15,18 @@ The marketing landing page lives in [`apps/landing/`](apps/landing/README.md) (A
 
 ### Download
 
-Download the latest `.dmg` from [Releases](https://github.com/bartekczyz/claude-profiles/releases/latest). Open it, drag `claude-profiles.app` to `/Applications`. Launch.
+Download the latest `.dmg` from [Releases](https://github.com/bartekczyz/ai-profiles/releases/latest). Open it, drag `ai-profiles.app` to `/Applications`. Launch.
 
 ### Build from source
 
 ```sh
-git clone https://github.com/bartekczyz/claude-profiles.git
-cd claude-profiles
+git clone https://github.com/bartekczyz/ai-profiles.git
+cd ai-profiles
 pnpm install
-pnpm --filter claude-profiles tauri build
+pnpm --filter ai-profiles tauri build
 ```
 
-The `.dmg` lands in `apps/claude-profiles/src-tauri/target/release/bundle/dmg/`. macOS will warn on first launch because the local build isn't notarized — right-click the `.app` → Open → Open to bypass Gatekeeper.
+The `.dmg` lands in `apps/ai-profiles/src-tauri/target/release/bundle/dmg/`. macOS will warn on first launch because the local build isn't notarized — right-click the `.app` → Open → Open to bypass Gatekeeper.
 
 ## Supported apps
 
@@ -35,7 +35,7 @@ The `.dmg` lands in `apps/claude-profiles/src-tauri/target/release/bundle/dmg/`.
 | **Claude** (Desktop + Claude Code CLI) | `Claude (<Name>).app` | `claude-<slug>` (sets `CLAUDE_CONFIG_DIR`) | macOS Keychain entry derived from config dir |
 | **Codex** (Desktop + Codex CLI) | `Codex (<Name>).app` | `codex-<slug>` (sets `CODEX_HOME`) | plain `auth.json` inside profile's `CODEX_HOME` — isolation is automatic |
 
-## Using claude-profiles
+## Using ai-profiles
 
 Create a profile from the sidebar — choose an app (Claude or Codex), give it a name, pick a colour, and choose which surfaces you want (desktop app, CLI, or both). The app generates everything you need on the spot:
 
@@ -69,8 +69,8 @@ Each profile's detail page shows that profile's current quota utilization alongs
 
 Three steps, in order:
 
-1. **Copies** your existing data into the new profile dir under `~/Library/Application Support/claude-profiles/profiles/<id>/`.
-2. **Moves** the originals (`~/.claude` and/or `~/Library/Application Support/Claude` for Claude; `~/.codex` and/or `~/Library/Application Support/Codex` for Codex) into a timestamped backup dir under `~/Library/Application Support/claude-profiles/migration-backup-<timestamp>/`.
+1. **Copies** your existing data into the new profile dir under `~/Library/Application Support/ai-profiles/profiles/<id>/`.
+2. **Moves** the originals (`~/.claude` and/or `~/Library/Application Support/Claude` for Claude; `~/.codex` and/or `~/Library/Application Support/Codex` for Codex) into a timestamped backup dir under `~/Library/Application Support/ai-profiles/migration-backup-<timestamp>/`.
 3. **Generates** the per-profile launcher (`Claude (<Name>).app` or `Codex (<Name>).app`) and CLI wrapper (`claude-<slug>` or `codex-<slug>` in `~/.local/bin`).
 
 ### After migrating
@@ -87,19 +87,19 @@ Backups stay on disk for 7 days, then auto-delete. To roll back manually before 
 
 For a Claude migration:
 ```sh
-# 1. Delete the profile from claude-profiles (Trash or keep, your choice).
+# 1. Delete the profile from ai-profiles (Trash or keep, your choice).
 # 2. Restore the originals from the backup dir:
-mv ~/Library/Application\ Support/claude-profiles/migration-backup-<timestamp>/.claude ~/.claude
-mv ~/Library/Application\ Support/claude-profiles/migration-backup-<timestamp>/Claude ~/Library/Application\ Support/Claude
+mv ~/Library/Application\ Support/ai-profiles/migration-backup-<timestamp>/.claude ~/.claude
+mv ~/Library/Application\ Support/ai-profiles/migration-backup-<timestamp>/Claude ~/Library/Application\ Support/Claude
 # 3. Open Claude. It'll see your old config again.
 ```
 
 For a Codex migration:
 ```sh
-# 1. Delete the profile from claude-profiles (Trash or keep, your choice).
+# 1. Delete the profile from ai-profiles (Trash or keep, your choice).
 # 2. Restore the originals from the backup dir:
-mv ~/Library/Application\ Support/claude-profiles/migration-backup-<timestamp>/.codex ~/.codex
-mv ~/Library/Application\ Support/claude-profiles/migration-backup-<timestamp>/Codex ~/Library/Application\ Support/Codex
+mv ~/Library/Application\ Support/ai-profiles/migration-backup-<timestamp>/.codex ~/.codex
+mv ~/Library/Application\ Support/ai-profiles/migration-backup-<timestamp>/Codex ~/Library/Application\ Support/Codex
 # 3. Open Codex. It'll see your old config again.
 ```
 
@@ -143,15 +143,15 @@ macOS deprecated "Preferences" in favor of "Settings" in Ventura. We follow the 
 
 ## Support
 
-If claude-profiles saves you time, you can [buy me a coffee](https://buymeacoffee.com/bartekczyz). It helps keep the project active — thanks!
+If ai-profiles saves you time, you can [buy me a coffee](https://buymeacoffee.com/bartekczyz). It helps keep the project active — thanks!
 
 ## Not affiliated with Anthropic or OpenAI
 
-claude-profiles is an independent project. It is not endorsed by, affiliated with, or supported by Anthropic or OpenAI. "Claude" and "Anthropic" are trademarks of Anthropic, PBC. "Codex" and "ChatGPT" are trademarks of OpenAI.
+ai-profiles is an independent project. It is not endorsed by, affiliated with, or supported by Anthropic or OpenAI. "Claude" and "Anthropic" are trademarks of Anthropic, PBC. "Codex" and "ChatGPT" are trademarks of OpenAI.
 
 ## Acknowledgements
 
-claude-profiles is inspired by [Multi-Claude](https://multiclaude.app/), a paid macOS app that pioneered the `--user-data-dir` profile-wrapper approach for Claude Desktop. claude-profiles extends the idea to the Claude Code CLI and ships free + open-source.
+ai-profiles is inspired by [Multi-Claude](https://multiclaude.app/), a paid macOS app that pioneered the `--user-data-dir` profile-wrapper approach for Claude Desktop. ai-profiles extends the idea to the Claude Code CLI and ships free + open-source.
 
 ## License
 

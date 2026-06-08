@@ -9,7 +9,7 @@ export interface Release {
   assets: ReadonlyArray<ReleaseAsset>
 }
 
-const repo = 'bartekczyz/claude-profiles'
+const repo = 'bartekczyz/ai-profiles'
 
 export async function fetchLatest(): Promise<Release | null> {
   try {

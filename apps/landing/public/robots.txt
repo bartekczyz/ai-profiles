@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://claude-profiles.vercel.app/sitemap-index.xml
+Sitemap: https://ai-profiles.vercel.app/sitemap-index.xml
