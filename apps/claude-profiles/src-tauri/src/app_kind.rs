@@ -158,7 +158,9 @@ mod tests {
         // Codex auth lives in CODEX_HOME, so its GUI launcher must export it;
         // Claude keeps GUI auth in the user-data-dir and exports nothing.
         assert!(codex.gui_auth_via_config_env);
-        assert!(!CLAUDE.gui_auth_via_config_env);
+        const {
+            assert!(!CLAUDE.gui_auth_via_config_env);
+        }
     }
 
     #[test]
