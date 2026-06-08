@@ -35,6 +35,10 @@ pub struct Window {
 pub enum QuotaError {
     NoCredentials,
     Unauthorized,
+    /// Stored credentials are dead and cannot be auto-refreshed — the user
+    /// must sign in to this profile again. Distinct from the transient
+    /// `Unauthorized`, which a CLI refresh can fix.
+    NeedsLogin,
     RateLimited,
     Network,
     Unknown,
@@ -375,6 +379,13 @@ mod tests {
     }
 
     // --- is_stock_default (pure) ---
+
+    #[test]
+    fn needs_login_serializes_to_snake_case() {
+        // Wire contract: the frontend QuotaError union expects `needs_login`.
+        let json = serde_json::to_string(&QuotaError::NeedsLogin).unwrap();
+        assert_eq!(json, "\"needs_login\"");
+    }
 
     #[test]
     fn is_stock_default_recognises_home_dot_claude() {
