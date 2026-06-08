@@ -1,5 +1,6 @@
 pub(crate) mod codex;
 pub(crate) mod credentials;
+pub(crate) mod dead_credentials;
 pub(crate) mod quota;
 pub(crate) mod refresh;
 
