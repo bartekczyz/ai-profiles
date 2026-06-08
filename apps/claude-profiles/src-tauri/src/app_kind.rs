@@ -50,6 +50,16 @@ pub struct AppSpec {
     pub cli_stock_config_dir_name: &'static str,
     /// Whether this app exposes account usage/quota stats.
     pub has_usage: bool,
+    /// Whether the GUI app reads its account/auth from the [`cli_config_env`]
+    /// config home rather than from its Chromium `--user-data-dir`. Codex keeps
+    /// auth in `CODEX_HOME` (default `~/.codex`), so isolating its GUI per
+    /// profile requires the launcher to export that env var at the profile's
+    /// `cli-config` dir; `--user-data-dir` alone only isolates the browser
+    /// layer. Claude stores its GUI auth inside the `--user-data-dir`, so it
+    /// exports nothing.
+    ///
+    /// [`cli_config_env`]: AppSpec::cli_config_env
+    pub gui_auth_via_config_env: bool,
 }
 
 pub const CLAUDE: AppSpec = AppSpec {
@@ -64,6 +74,7 @@ pub const CLAUDE: AppSpec = AppSpec {
     cli_config_env: "CLAUDE_CONFIG_DIR",
     cli_stock_config_dir_name: ".claude",
     has_usage: true,
+    gui_auth_via_config_env: false,
 };
 
 pub const CODEX: AppSpec = AppSpec {
@@ -78,6 +89,7 @@ pub const CODEX: AppSpec = AppSpec {
     cli_config_env: "CODEX_HOME",
     cli_stock_config_dir_name: ".codex",
     has_usage: true,
+    gui_auth_via_config_env: true,
 };
 
 /// Borrow the static [`AppSpec`] for a kind.
@@ -143,6 +155,10 @@ mod tests {
         assert_eq!(codex.cli_config_env, "CODEX_HOME");
         assert_eq!(codex.cli_stock_config_dir_name, ".codex");
         assert!(codex.has_usage);
+        // Codex auth lives in CODEX_HOME, so its GUI launcher must export it;
+        // Claude keeps GUI auth in the user-data-dir and exports nothing.
+        assert!(codex.gui_auth_via_config_env);
+        assert!(!CLAUDE.gui_auth_via_config_env);
     }
 
     #[test]
