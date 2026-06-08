@@ -469,6 +469,12 @@ static CLAUDE_REFRESHER: OnceLock<usage::refresh::ClaudeCliRefresher> = OnceLock
 /// 5-minute success cache and the 429 back-off survive between calls. A new
 /// instance per command would defeat both.
 static CLAUDE_QUOTA_CACHE: OnceLock<ClaudeQuotaCache> = OnceLock::new();
+/// One shared dead-credential registry across all `get_profile_usage`
+/// invocations, so a token marked "needs login" stays marked between calls
+/// (until the user re-auths and the access token rotates). Keyed per token
+/// hash, not per profile.
+static CLAUDE_DEAD_CREDS: OnceLock<usage::dead_credentials::DeadCredentialRegistry> =
+    OnceLock::new();
 
 #[tauri::command]
 pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
@@ -486,10 +492,15 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
     match app {
         AppKind::Claude => {
             let cache = CLAUDE_QUOTA_CACHE.get_or_init(ClaudeQuotaCache::new);
-            let provider = ClaudeQuotaProvider::new(user_agent, cache)
+            let dead_credentials =
+                CLAUDE_DEAD_CREDS.get_or_init(usage::dead_credentials::DeadCredentialRegistry::new);
+            let provider = ClaudeQuotaProvider::new(user_agent, cache, dead_credentials)
                 .map_err(|_| AppError::Io(std::io::Error::other("could not build HTTP client")))?;
             let refresher = CLAUDE_REFRESHER.get_or_init(usage::refresh::ClaudeCliRefresher::new);
-            Ok(usage::build_with_cli_refresh(&config_dir, &provider, refresher).await)
+            Ok(
+                usage::build_with_cli_refresh(&config_dir, &provider, refresher, dead_credentials)
+                    .await,
+            )
         }
         AppKind::Codex => {
             // app-server refreshes its own token per call, so no external
