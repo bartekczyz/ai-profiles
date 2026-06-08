@@ -84,6 +84,7 @@ describe('ProfileDetailUsageCard', () => {
 
   it.each([
     ['unauthorized', /token refresh needed/i],
+    ['needs_login', /session expired/i],
     ['rate_limited', /rate limited/i],
     ['network', /couldn't reach anthropic/i],
     ['unknown', /couldn't load usage stats/i],

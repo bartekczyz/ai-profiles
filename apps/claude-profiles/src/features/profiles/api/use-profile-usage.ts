@@ -9,6 +9,7 @@ export const refetchIntervalMs = 5 * 60 * 1000
 const knownQuotaErrors: ReadonlyArray<QuotaError> = [
   'no_credentials',
   'unauthorized',
+  'needs_login',
   'rate_limited',
   'network',
   'unknown',

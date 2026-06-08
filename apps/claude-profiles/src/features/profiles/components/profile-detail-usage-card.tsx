@@ -158,6 +158,9 @@ function quotaErrorShort(quotaError: QuotaError): string {
   if (quotaError === 'no_credentials') {
     return 'sign-in needed'
   }
+  if (quotaError === 'needs_login') {
+    return 'sign-in needed'
+  }
   if (quotaError === 'unauthorized') {
     return 'token refresh needed'
   }
@@ -177,6 +180,9 @@ function quotaErrorMessage(app: AppId, quotaError: QuotaError): string {
   const usage = appSpecs[app].usage
   if (quotaError === 'no_credentials') {
     return usage?.noCredentials ?? 'Sign in once with this profile to see usage.'
+  }
+  if (quotaError === 'needs_login') {
+    return 'Session expired — sign in to this profile again to see usage.'
   }
   if (quotaError === 'unauthorized') {
     // Not a real "session expired" — the CLI's short-lived access token rolls
