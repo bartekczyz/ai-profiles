@@ -61,6 +61,18 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          # On the push that merges a release PR, this same run creates
+          # the new GitHub release as a draft, and the v* tag only gets
+          # pushed by the next job — so the just-released version is
+          # invisible to release-please's own baseline lookup within
+          # this run. If it builds the next release PR anyway, it
+          # replays the entire commit history and an old
+          # `Release-As: 0.2.2` footer (7bfd98f) pins the proposed
+          # version to 0.2.2 — see PR #26. Skip PR building on release
+          # merges (both squash titles and branch merge commits); the
+          # next push to main generates the correct release PR, which
+          # is the same self-heal that already happened in practice.
+          skip-github-pull-request: "${{ startsWith(github.event.head_commit.message, 'chore(main): release') || contains(github.event.head_commit.message, 'release-please--branches--') }}"
 
   push-release-tag:
     # release-please creates the GitHub Release as a draft (configured
