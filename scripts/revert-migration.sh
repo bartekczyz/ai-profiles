@@ -4,15 +4,15 @@
 #
 # Restores the most recent backup of ~/.claude and ~/Library/Application Support/Claude
 # from <app-data>/migration-backup-<ts>/, removes every generated launcher for every
-# profile listed in profiles.json, then deletes the claude-profiles app-data dir.
+# profile listed in profiles.json, then deletes the ai-profiles app-data dir.
 #
-# WARNING: this nukes ALL claude-profiles state, not just the imported profile.
+# WARNING: this nukes ALL ai-profiles state, not just the imported profile.
 # If you've created additional profiles manually, their launchers and data will
 # be removed too. This script is intended for testing the migration flow.
 
 set -euo pipefail
 
-APP_DATA="$HOME/Library/Application Support/claude-profiles"
+APP_DATA="$HOME/Library/Application Support/ai-profiles"
 PROFILES_JSON="$APP_DATA/profiles.json"
 CLAUDE_DESKTOP="$HOME/Library/Application Support/Claude"
 CLAUDE_CODE="$HOME/.claude"
@@ -30,7 +30,7 @@ fi
 # fixed-width unix-ms suffixes).
 backup_dir=$(ls -1d "$APP_DATA"/migration-backup-* 2>/dev/null | sort -r | head -1 || true)
 
-echo "About to revert claude-profiles state."
+echo "About to revert ai-profiles state."
 echo
 echo "App data dir:        $APP_DATA"
 echo "Profiles registry:   $PROFILES_JSON"
@@ -108,4 +108,4 @@ rm -rf "$APP_DATA"
 green "Removed: $APP_DATA"
 
 echo
-green "Done. claude-profiles is back to its pre-import state."
+green "Done. ai-profiles is back to its pre-import state."

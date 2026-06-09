@@ -16,7 +16,7 @@
     "@astrojs/react": "5.0.5",
     "@astrojs/sitemap": "3.7.2",
     "@c15t/react": "2.1.0",
-    "@claude-profiles/design-tokens": "workspace:*",
+    "@ai-profiles/design-tokens": "workspace:*",
     "@fontsource-variable/geist": "5.2.9",
     "@fontsource-variable/geist-mono": "5.2.8",
     "astro": "6.3.7",
@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "0.9.9",
-    "@claude-profiles/tsconfig": "workspace:*",
+    "@ai-profiles/tsconfig": "workspace:*",
     "@tailwindcss/vite": "4.3.0",
     "@types/react": "19.2.15",
     "@types/react-dom": "19.2.3",

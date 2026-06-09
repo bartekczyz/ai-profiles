@@ -44,7 +44,7 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: './apps/claude-profiles/src-tauri -> target'
+          workspaces: './apps/ai-profiles/src-tauri -> target'
 
       - name: Restore turbo cache
         uses: actions/cache@v5
@@ -104,10 +104,10 @@ jobs:
           # injected by the previous step via $GITHUB_ENV only when
           # APPLE_CERTIFICATE is configured.
         with:
-          projectPath: apps/claude-profiles
+          projectPath: apps/ai-profiles
           tagName: ${{ inputs.tag || github.ref_name }}
-          releaseName: 'claude-profiles ${{ inputs.tag || github.ref_name }}'
-          releaseBody: 'See [CHANGELOG.md](./apps/claude-profiles/CHANGELOG.md) for details. Auto-update will pick this up on the next 6-hour check.'
+          releaseName: 'ai-profiles ${{ inputs.tag || github.ref_name }}'
+          releaseBody: 'See [CHANGELOG.md](./apps/ai-profiles/CHANGELOG.md) for details. Auto-update will pick this up on the next 6-hour check.'
           releaseDraft: true
           prerelease: false
           args: --target universal-apple-darwin

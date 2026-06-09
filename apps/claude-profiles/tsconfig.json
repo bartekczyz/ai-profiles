@@ -1,9 +1,0 @@
-{
-  "extends": "@claude-profiles/tsconfig/base.json",
-  "compilerOptions": {
-    "paths": {
-      "@/*": ["./src/*"]
-    }
-  },
-  "include": ["src", "vite.config.ts"]
-}

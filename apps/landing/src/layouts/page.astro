@@ -11,7 +11,7 @@ interface Props {
 }
 
 const { title, description } = Astro.props
-const rawSiteUrl = (Astro.site ?? new URL('https://claude-profiles.vercel.app')).toString()
+const rawSiteUrl = (Astro.site ?? new URL('https://ai-profiles.vercel.app')).toString()
 const siteUrl = rawSiteUrl.endsWith('/') ? rawSiteUrl.slice(0, -1) : rawSiteUrl
 const ogImage = `${siteUrl}/og-image.png`
 // JSON-LD is SSR-rendered for crawlers; Phase 6's runtime release
@@ -35,7 +35,7 @@ const faqLd = JSON.stringify(faqPageLd())
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={siteUrl} />
-    <link rel="alternate" type="application/rss+xml" href="https://github.com/bartekczyz/claude-profiles/releases.atom" title="Release feed" />
+    <link rel="alternate" type="application/rss+xml" href="https://github.com/bartekczyz/ai-profiles/releases.atom" title="Release feed" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="preconnect" href="https://api.github.com" />
 

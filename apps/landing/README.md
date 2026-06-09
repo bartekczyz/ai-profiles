@@ -1,6 +1,6 @@
 # apps/landing
 
-Marketing landing page for claude-profiles. Static Astro + Tailwind v4.
+Marketing landing page for ai-profiles. Static Astro + Tailwind v4.
 
 ## Scripts
 
@@ -15,7 +15,7 @@ Hosted on Vercel.
 
 ### Vercel project setup (one-time)
 
-1. New Project → Import from GitHub → select `bartekczyz/claude-profiles`.
+1. New Project → Import from GitHub → select `bartekczyz/ai-profiles`.
 2. **Root Directory**: `apps/landing`.
 3. **Framework Preset**: leave on auto (Vercel detects Astro).
 4. **Build Command**: pre-set by `vercel.json` to `pnpm --filter landing build`.

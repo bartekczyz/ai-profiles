@@ -104,7 +104,7 @@ function AnalyticsBridge() {
       track('faq_open', { question_index: detail?.index })
     }
     const cta = document.getElementById('download-cta')
-    const githubLinks = document.querySelectorAll('a[href="https://github.com/bartekczyz/claude-profiles"]')
+    const githubLinks = document.querySelectorAll('a[href="https://github.com/bartekczyz/ai-profiles"]')
     cta?.addEventListener('click', onDownload)
     githubLinks.forEach((link) => {
       link.addEventListener('click', onGithub)
