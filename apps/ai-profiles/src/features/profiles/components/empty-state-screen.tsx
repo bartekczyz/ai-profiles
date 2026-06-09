@@ -6,8 +6,6 @@ import { Plus, RotateCw } from 'lucide-react'
 
 import { ariaKeyshortcutsFor, Button, Kbd } from '@/design'
 
-import { BrandSparkle } from './brand-sparkle'
-
 type Props = {
   dependencies: Dependencies
   onCreate: () => void
@@ -39,14 +37,7 @@ export function EmptyStateScreen({ dependencies, onCreate, onRefresh }: Props) {
 }
 
 function BrandMark() {
-  return (
-    <span
-      aria-hidden
-      className="mb-7 grid h-[72px] w-[72px] place-items-center rounded-2xl bg-[linear-gradient(160deg,var(--color-orange),var(--color-orange-deep))] text-white shadow-[0_8px_24px_-8px_rgba(217,119,87,0.6),inset_0_1px_0_rgba(255,255,255,0.3)]"
-    >
-      <BrandSparkle size={42} />
-    </span>
-  )
+  return <img src="/icon.svg" alt="" aria-hidden className="mb-7 size-[72px]" />
 }
 
 type NoProfilesYetProps = {
