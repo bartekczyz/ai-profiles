@@ -164,6 +164,9 @@ function quotaErrorShort(quotaError: QuotaError): string {
   if (quotaError === 'unauthorized') {
     return 'token refresh needed'
   }
+  if (quotaError === 'forbidden') {
+    return 'blocked upstream'
+  }
   if (quotaError === 'rate_limited') {
     return 'rate limited'
   }
@@ -188,6 +191,9 @@ function quotaErrorMessage(app: AppId, quotaError: QuotaError): string {
     // Not a real "session expired" — the CLI's short-lived access token rolls
     // over and is refreshed the next time you invoke it.
     return usage?.unauthorized ?? 'Token refresh needed — run the CLI once, then retry.'
+  }
+  if (quotaError === 'forbidden') {
+    return 'Usage request was blocked upstream — usually transient. Try again later.'
   }
   if (quotaError === 'rate_limited') {
     return usage?.rateLimited ?? 'Rate limited. Try again in a few minutes.'
