@@ -459,22 +459,10 @@ pub fn get_app_metadata() -> AppMetadata {
     }
 }
 
-/// One shared refresher across all `get_profile_usage` invocations so
-/// its per-profile mutex + backoff registry survives across calls.
-/// A new instance per command would defeat both: two simultaneous
-/// commands on the same profile would race, and a 5-minute auto-refetch
-/// would never see the previous "tried at" timestamp.
-static CLAUDE_REFRESHER: OnceLock<usage::refresh::ClaudeCliRefresher> = OnceLock::new();
 /// One shared usage cache across all `get_profile_usage` invocations so the
 /// 5-minute success cache and the 429 back-off survive between calls. A new
 /// instance per command would defeat both.
 static CLAUDE_QUOTA_CACHE: OnceLock<ClaudeQuotaCache> = OnceLock::new();
-/// One shared dead-credential registry across all `get_profile_usage`
-/// invocations, so a token marked "needs login" stays marked between calls
-/// (until the user re-auths and the access token rotates). Keyed per token
-/// hash, not per profile.
-static CLAUDE_DEAD_CREDS: OnceLock<usage::dead_credentials::DeadCredentialRegistry> =
-    OnceLock::new();
 
 #[tauri::command]
 pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
@@ -491,20 +479,19 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
     let user_agent = format!("ai-profiles/{}", env!("CARGO_PKG_VERSION"));
     match app {
         AppKind::Claude => {
+            // No automatic token refresh: Anthropic refresh tokens are
+            // single-use, and spawning `claude` non-interactively either
+            // does nothing (non-TTY stdin exits before refreshing) or
+            // destroys the stored refresh token (`-p` wipes it on a 401).
+            // A 401 surfaces as Unauthorized and clears the next time the
+            // user runs the profile's CLI interactively.
             let cache = CLAUDE_QUOTA_CACHE.get_or_init(ClaudeQuotaCache::new);
-            let dead_credentials =
-                CLAUDE_DEAD_CREDS.get_or_init(usage::dead_credentials::DeadCredentialRegistry::new);
-            let provider = ClaudeQuotaProvider::new(user_agent, cache, dead_credentials)
+            let provider = ClaudeQuotaProvider::new(user_agent, cache)
                 .map_err(|_| AppError::Io(std::io::Error::other("could not build HTTP client")))?;
-            let refresher = CLAUDE_REFRESHER.get_or_init(usage::refresh::ClaudeCliRefresher::new);
-            Ok(
-                usage::build_with_cli_refresh(&config_dir, &provider, refresher, dead_credentials)
-                    .await,
-            )
+            Ok(usage::build(&config_dir, &provider).await)
         }
         AppKind::Codex => {
-            // app-server refreshes its own token per call, so no external
-            // refresher dance is needed.
+            // app-server refreshes its own token per call.
             let provider = CodexQuotaProvider::new(
                 "ai-profiles".to_string(),
                 env!("CARGO_PKG_VERSION").to_string(),

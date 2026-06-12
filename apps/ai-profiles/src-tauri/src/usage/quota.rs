@@ -9,7 +9,6 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::usage::credentials::read_access_token;
-use crate::usage::dead_credentials::DeadCredentialRegistry;
 use crate::usage::{QuotaError, QuotaUsage, Window};
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
@@ -146,15 +145,8 @@ pub async fn fetch_quota_cached(
     cli_config_dir: &Path,
     client: &dyn UsageClient,
     cache: &ClaudeQuotaCache,
-    dead_credentials: &DeadCredentialRegistry,
 ) -> Result<QuotaUsage, QuotaError> {
     let token = read_access_token(cli_config_dir)?;
-    // Credentials already known unrecoverable: surface NeedsLogin without a
-    // network request or any cache poke. Re-auth rotates the token, which is a
-    // different hash, so this naturally stops short-circuiting after sign-in.
-    if dead_credentials.is_dead(&token) {
-        return Err(QuotaError::NeedsLogin);
-    }
     let key = token_cache_key(&token);
     if let Some(cached) = cache.get(&key) {
         return cached;
@@ -175,9 +167,9 @@ pub async fn fetch_quota_cached(
             cache.store_success(key, usage.clone());
             Ok(usage)
         }
-        // Only rate limits are negatively cached. Network errors are
-        // transient and Unauthorized drives the token-refresh retry in
-        // `build_with_cli_refresh`, so neither must be pinned here.
+        // Only rate limits are negatively cached. Network errors and
+        // Unauthorized are transient (the latter clears the moment the
+        // user runs the CLI interactively), so neither must be pinned here.
         Err(QuotaError::RateLimited) => {
             cache.store_rate_limited(key, retry_after);
             Err(QuotaError::RateLimited)
@@ -337,19 +329,13 @@ fn into_window(raw: ApiWindow) -> Window {
 pub struct ClaudeQuotaProvider {
     client: ReqwestUsageClient,
     cache: &'static ClaudeQuotaCache,
-    dead_credentials: &'static DeadCredentialRegistry,
 }
 
 impl ClaudeQuotaProvider {
-    pub fn new(
-        user_agent: String,
-        cache: &'static ClaudeQuotaCache,
-        dead_credentials: &'static DeadCredentialRegistry,
-    ) -> Result<Self, QuotaError> {
+    pub fn new(user_agent: String, cache: &'static ClaudeQuotaCache) -> Result<Self, QuotaError> {
         Ok(Self {
             client: ReqwestUsageClient::new(user_agent)?,
             cache,
-            dead_credentials,
         })
     }
 }
@@ -357,7 +343,7 @@ impl ClaudeQuotaProvider {
 #[async_trait]
 impl crate::usage::QuotaProvider for ClaudeQuotaProvider {
     async fn fetch(&self, config_dir: &Path) -> Result<QuotaUsage, QuotaError> {
-        fetch_quota_cached(config_dir, &self.client, self.cache, self.dead_credentials).await
+        fetch_quota_cached(config_dir, &self.client, self.cache).await
     }
 }
 
@@ -692,7 +678,6 @@ mod tests {
         let first = dir_with_named_token("sk-shared");
         let second = dir_with_named_token("sk-shared");
         let cache = ClaudeQuotaCache::new();
-        let registry = DeadCredentialRegistry::new();
         let client = CountingClient {
             calls: std::sync::Mutex::new(0),
             status: 200,
@@ -700,10 +685,10 @@ mod tests {
             retry_after: None,
         };
 
-        let a = fetch_quota_cached(first.path(), &client, &cache, &registry)
+        let a = fetch_quota_cached(first.path(), &client, &cache)
             .await
             .unwrap();
-        let b = fetch_quota_cached(second.path(), &client, &cache, &registry)
+        let b = fetch_quota_cached(second.path(), &client, &cache)
             .await
             .unwrap();
 
@@ -719,7 +704,6 @@ mod tests {
         // served from cache and does NOT poke the endpoint again.
         let dir = dir_with_token();
         let cache = ClaudeQuotaCache::new();
-        let registry = DeadCredentialRegistry::new();
         let client = CountingClient {
             calls: std::sync::Mutex::new(0),
             status: 429,
@@ -729,7 +713,7 @@ mod tests {
 
         for _ in 0..3 {
             assert!(matches!(
-                fetch_quota_cached(dir.path(), &client, &cache, &registry)
+                fetch_quota_cached(dir.path(), &client, &cache)
                     .await
                     .unwrap_err(),
                 QuotaError::RateLimited,
@@ -744,7 +728,6 @@ mod tests {
         // and the next request is allowed to hit the endpoint again.
         let dir = dir_with_token();
         let cache = ClaudeQuotaCache::new();
-        let registry = DeadCredentialRegistry::new();
         let client = CountingClient {
             calls: std::sync::Mutex::new(0),
             status: 429,
@@ -752,9 +735,9 @@ mod tests {
             retry_after: Some(Duration::from_millis(40)),
         };
 
-        let _ = fetch_quota_cached(dir.path(), &client, &cache, &registry).await;
+        let _ = fetch_quota_cached(dir.path(), &client, &cache).await;
         tokio::time::sleep(Duration::from_millis(80)).await;
-        let _ = fetch_quota_cached(dir.path(), &client, &cache, &registry).await;
+        let _ = fetch_quota_cached(dir.path(), &client, &cache).await;
 
         assert_eq!(*client.calls.lock().unwrap(), 2);
     }
@@ -765,7 +748,6 @@ mod tests {
         // later call retries rather than being stuck.
         let dir = dir_with_token();
         let cache = ClaudeQuotaCache::new();
-        let registry = DeadCredentialRegistry::new();
         let client = CountingClient {
             calls: std::sync::Mutex::new(0),
             status: 503,
@@ -773,30 +755,9 @@ mod tests {
             retry_after: None,
         };
 
-        let _ = fetch_quota_cached(dir.path(), &client, &cache, &registry).await;
-        let _ = fetch_quota_cached(dir.path(), &client, &cache, &registry).await;
+        let _ = fetch_quota_cached(dir.path(), &client, &cache).await;
+        let _ = fetch_quota_cached(dir.path(), &client, &cache).await;
         assert_eq!(*client.calls.lock().unwrap(), 2);
-    }
-
-    #[tokio::test]
-    async fn dead_token_short_circuits_without_calling_upstream() {
-        // A token marked dead must NOT hit the network — that's the whole point:
-        // stop feeding Anthropic's abuse limiter with invalid-auth requests.
-        let dir = dir_with_token(); // writes accessToken "sk-test"
-        let cache = ClaudeQuotaCache::new();
-        let registry = DeadCredentialRegistry::new();
-        registry.mark_dead("sk-test");
-        let client = CountingClient {
-            calls: std::sync::Mutex::new(0),
-            status: 200,
-            body: br#"{"five_hour":{"utilization":1.0}}"#.to_vec(),
-            retry_after: None,
-        };
-
-        let result = fetch_quota_cached(dir.path(), &client, &cache, &registry).await;
-
-        assert!(matches!(result.unwrap_err(), QuotaError::NeedsLogin));
-        assert_eq!(*client.calls.lock().unwrap(), 0, "must not call upstream");
     }
 
     #[test]
