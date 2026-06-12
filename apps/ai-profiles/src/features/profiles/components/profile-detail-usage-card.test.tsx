@@ -392,6 +392,32 @@ describe('ProfileDetailUsageCard', () => {
     expect(screen.getAllByRole('progressbar')).toHaveLength(3)
   })
 
+  it('names the profile CLI command when sign-in is needed', () => {
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: undefined,
+      error: new UsageUnavailableError('needs_login'),
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })
+    renderWithQuery(
+      <ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} cliCommand="claude-personal" />,
+    )
+    expect(screen.getByText(/claude-personal/)).toBeInTheDocument()
+  })
+
+  it('falls back to the stock CLI binary name when no cliCommand is given', () => {
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: undefined,
+      error: new UsageUnavailableError('unauthorized'),
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
+    expect(screen.getByText(/run `claude` once/i)).toBeInTheDocument()
+  })
+
   it('shows the Codex no-credentials copy from the app spec', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
       data: undefined,

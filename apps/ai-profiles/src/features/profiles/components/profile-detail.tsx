@@ -40,7 +40,12 @@ export function ProfileDetail({ profile, onEdit, onDelete }: Props) {
         onEdit={onEdit}
       />
 
-      <ProfileDetailUsageCard app={profile.app} profileId={profile.id} cliEnabled={profile.surfaces.cli} />
+      <ProfileDetailUsageCard
+        app={profile.app}
+        cliCommand={wrapperCommand(profile.app, profile.slug)}
+        cliEnabled={profile.surfaces.cli}
+        profileId={profile.id}
+      />
 
       <div className="mb-6 grid grid-cols-1 gap-3.5 lg:grid-cols-2">
         <Suspense key={profile.id} fallback={<ManagedSurfaceCardsFallback profile={profile} />}>

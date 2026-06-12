@@ -16,9 +16,12 @@ type Props = {
   app: AppId
   profileId: string
   cliEnabled: boolean
+  /** Exact CLI command for this profile (`claude-<slug>` wrapper for managed
+   * profiles). Falls back to the stock binary name for the default entry. */
+  cliCommand?: string
 }
 
-export function ProfileDetailUsageCard({ app, profileId, cliEnabled }: Props) {
+export function ProfileDetailUsageCard({ app, profileId, cliEnabled, cliCommand }: Props) {
   // Bumped by the in-boundary Retry button to force the inner query
   // to re-run after a render-time crash. We use it (alongside profileId)
   // as the key on the boundary itself, so switching profiles or hitting
@@ -30,12 +33,12 @@ export function ProfileDetailUsageCard({ app, profileId, cliEnabled }: Props) {
   }
   return (
     <UsageCardErrorBoundary key={`${profileId}:${attempt}`} onRetry={() => setAttempt((value) => value + 1)}>
-      <UsageCardInner app={app} profileId={profileId} />
+      <UsageCardInner app={app} cliCommand={cliCommand ?? appSpecs[app].cliBinary} profileId={profileId} />
     </UsageCardErrorBoundary>
   )
 }
 
-function UsageCardInner({ app, profileId }: { app: AppId; profileId: string }) {
+function UsageCardInner({ app, profileId, cliCommand }: { app: AppId; profileId: string; cliCommand: string }) {
   const { data, error, isLoading, isFetching, dataUpdatedAt, refetch } = useProfileUsage(profileId)
   const errorCode = usageErrorCode(error)
 
@@ -57,7 +60,11 @@ function UsageCardInner({ app, profileId }: { app: AppId; profileId: string }) {
         </div>
       </header>
 
-      {isLoading ? <MetersSkeleton /> : <Body app={app} quota={data?.quota ?? null} errorCode={errorCode} />}
+      {isLoading ? (
+        <MetersSkeleton />
+      ) : (
+        <Body app={app} cliCommand={cliCommand} quota={data?.quota ?? null} errorCode={errorCode} />
+      )}
     </section>
   )
 }
@@ -131,7 +138,17 @@ function usageErrorCode(error: unknown): QuotaError | null {
   return null
 }
 
-function Body({ app, quota, errorCode }: { app: AppId; quota: ProfileUsage['quota']; errorCode: QuotaError | null }) {
+function Body({
+  app,
+  quota,
+  errorCode,
+  cliCommand,
+}: {
+  app: AppId
+  quota: ProfileUsage['quota']
+  errorCode: QuotaError | null
+  cliCommand: string
+}) {
   // Stale-while-revalidate: whenever there's data, show the meters — even if
   // the latest refresh just failed — with a quiet "couldn't refresh" note so
   // the staleness stays honest. The full error message is reserved for when
@@ -147,7 +164,7 @@ function Body({ app, quota, errorCode }: { app: AppId; quota: ProfileUsage['quot
     )
   }
   if (errorCode) {
-    return <p className="font-mono text-mono text-muted-strong">{quotaErrorMessage(app, errorCode)}</p>
+    return <p className="font-mono text-mono text-muted-strong">{quotaErrorMessage(app, errorCode, cliCommand)}</p>
   }
   return <MetersSkeleton />
 }
@@ -179,18 +196,18 @@ function quotaErrorShort(quotaError: QuotaError): string {
 // Resolves the message shown in place of the meters for a given error code.
 // All app-specific copy lives in the registry so a Codex pane never names
 // Anthropic (and vice versa); unknown stays neutral.
-function quotaErrorMessage(app: AppId, quotaError: QuotaError): string {
+function quotaErrorMessage(app: AppId, quotaError: QuotaError, cliCommand: string): string {
   const usage = appSpecs[app].usage
   if (quotaError === 'no_credentials') {
     return usage?.noCredentials ?? 'Sign in once with this profile to see usage.'
   }
   if (quotaError === 'needs_login') {
-    return 'Session expired — sign in to this profile again to see usage.'
+    return `Session expired — run \`${cliCommand}\` and sign in to this profile again.`
   }
   if (quotaError === 'unauthorized') {
     // Not a real "session expired" — the CLI's short-lived access token rolls
-    // over and is refreshed the next time you invoke it.
-    return usage?.unauthorized ?? 'Token refresh needed — run the CLI once, then retry.'
+    // over and is refreshed the next time you invoke it interactively.
+    return `Token refresh needed — run \`${cliCommand}\` once, then retry.`
   }
   if (quotaError === 'forbidden') {
     return 'Usage request was blocked upstream — usually transient. Try again later.'
