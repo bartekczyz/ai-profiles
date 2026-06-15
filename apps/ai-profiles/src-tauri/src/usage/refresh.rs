@@ -1,6 +1,6 @@
-//! Triggers Claude Code's built-in OAuth token refresh by spawning the
-//! `claude` binary as a subprocess with the profile's `CLAUDE_CONFIG_DIR`
-//! set and stdin closed.
+//! Triggers Claude Code's built-in OAuth token refresh by driving a real
+//! interactive `claude` session under a pseudo-terminal far enough that it
+//! rotates and persists its own token, then exiting.
 //!
 //! ## Why we delegate to Claude Code instead of refreshing ourselves
 //!
@@ -10,30 +10,50 @@
 //! the refresh token and a `client_id` — neither of which is publicly
 //! documented. Reverse-engineering them would couple us to undocumented
 //! internals that can change without notice. Delegating to Claude Code
-//! itself sidesteps that entire problem: when invoked it silently
-//! refreshes its own token using its own knowledge of those endpoints.
+//! itself sidesteps that entire problem: when invoked interactively it
+//! silently refreshes its own token using its own knowledge of those
+//! endpoints, and — unlike `claude -p` — *persists* the rotated refresh
+//! token back to the keychain.
 //!
-//! ## How the spawn works
+//! ## Why a pseudo-terminal, and why a prompt
 //!
-//! `claude < /dev/null > /dev/null 2>&1` exits cleanly within a few
-//! hundred milliseconds — the REPL detects EOF on stdin during its
-//! startup pass and exits before showing a prompt. The auth refresh
-//! happens early in that startup pass, before stdin is read. We bound
-//! the wait at 8s (matching the quota fetch timeout) and `kill_on_drop`
-//! ensures the child is reaped if our timeout fires.
+//! With a plain piped / `/dev/null` stdin, claude detects "no TTY" and treats
+//! the invocation as `--print` mode, exiting with a usage error *before any
+//! auth work*. So a non-pty spawn never refreshes anything. We allocate a real
+//! pty (via `portable-pty`, so we own claude's pid and can reap it cleanly —
+//! no orphaned children), wait for the REPL to finish starting, then send a
+//! trivial prompt. The prompt forces an API interaction, which is what
+//! reliably triggers the refresh + persist. We then wait (bounded by
+//! [`REFRESH_TIMEOUT`]) for the stored token to change, send `/exit`, and kill
+//! the child. Success is verified by the caller re-reading the token, never by
+//! the child's exit status.
 
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use tokio::sync::Mutex as TokioMutex;
 
-/// How long we'll wait for the spawned `claude` to finish refreshing
-/// its token before giving up. Matches the quota fetch timeout.
-const REFRESH_TIMEOUT: Duration = Duration::from_secs(8);
+/// How long we'll wait for the spawned `claude` to persist a refreshed token
+/// before giving up. Generous: a refresh behind a slow network can take a few
+/// seconds, and the child is reaped cleanly either way.
+const REFRESH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Quiet stretch with no new pty output that we take to mean the REPL has
+/// finished starting and is ready for input. Sending the prompt earlier would
+/// lose it into a not-yet-ready readline.
+const SETTLE_QUIET: Duration = Duration::from_millis(500);
+
+/// Ceiling on how long we wait for the REPL to settle before sending the
+/// prompt anyway.
+const SETTLE_CAP: Duration = Duration::from_secs(10);
+
+/// How often we re-read the credential while waiting for the refresh to land.
+const ROTATE_POLL: Duration = Duration::from_millis(150);
 
 /// After a refresh attempt completes, skip further attempts for the
 /// same profile inside this window. Without this, a profile whose
@@ -132,7 +152,6 @@ async fn spawn_claude(cli_config_dir: &Path) {
     let Some(binary) = find_claude_binary() else {
         return;
     };
-    let mut command = tokio::process::Command::new(&binary);
     // For the stock default profile we deliberately do NOT set
     // CLAUDE_CONFIG_DIR. Setting it — even to its implicit default
     // (`$HOME/.claude`) — flips Claude Code's keychain layout from the
@@ -140,20 +159,112 @@ async fn spawn_claude(cli_config_dir: &Path) {
     // `Claude Code-credentials-<sha256(dir)[:8]>` form. The refreshed
     // token would land in the hashed entry while we keep reading from
     // bare, leaving the next quota fetch unauthorised again.
-    if !crate::usage::is_stock_default_cli_config_dir(cli_config_dir) {
-        command.env("CLAUDE_CONFIG_DIR", cli_config_dir);
+    let set_config = !crate::usage::is_stock_default_cli_config_dir(cli_config_dir);
+    let dir = cli_config_dir.to_path_buf();
+    // `portable-pty` is blocking; run the whole dance off the async runtime.
+    let _ = tokio::task::spawn_blocking(move || run_pty_refresh(&binary, &dir, set_config)).await;
+}
+
+/// Pure: true once the pty has produced output and then gone quiet for
+/// [`SETTLE_QUIET`], or the [`SETTLE_CAP`] ceiling has been reached. Used to
+/// decide when the REPL is ready to receive the prompt.
+fn prompt_is_ready(saw_output: bool, quiet_for: Duration, settle_elapsed: Duration) -> bool {
+    if settle_elapsed >= SETTLE_CAP {
+        return true;
     }
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let Ok(mut child) = command.spawn() else {
+    saw_output && quiet_for >= SETTLE_QUIET
+}
+
+/// Drives a real interactive `claude` under a pty far enough to refresh +
+/// persist its token, then exits. Best-effort: any failure just returns, and
+/// the caller verifies success by re-reading the credential.
+fn run_pty_refresh(binary: &Path, cli_config_dir: &Path, set_config: bool) {
+    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+
+    let Ok(pair) = native_pty_system().openpty(PtySize {
+        rows: 40,
+        cols: 120,
+        pixel_width: 0,
+        pixel_height: 0,
+    }) else {
         return;
     };
-    // We don't care about the exit status. If the timeout fires, the
-    // future is dropped and `kill_on_drop` reaps the child.
-    let _ = tokio::time::timeout(REFRESH_TIMEOUT, child.wait()).await;
+    let portable_pty::PtyPair { master, slave } = pair;
+
+    let mut cmd = CommandBuilder::new(binary);
+    if set_config {
+        cmd.env("CLAUDE_CONFIG_DIR", cli_config_dir);
+    }
+    if let Some(home) = dirs::home_dir() {
+        cmd.cwd(home);
+    }
+
+    let Ok(mut child) = slave.spawn_command(cmd) else {
+        return;
+    };
+    // The child holds the slave fd now; drop ours so EOF propagates on exit.
+    drop(slave);
+
+    let (Ok(mut reader), Ok(mut writer)) = (master.try_clone_reader(), master.take_writer()) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return;
+    };
+
+    // Drain output on a thread — an unread pty fills its buffer and stalls the
+    // child — while tracking when the last byte arrived so we can tell when
+    // startup has settled.
+    let last_byte = Arc::new(StdMutex::new(Instant::now()));
+    let saw_output = Arc::new(AtomicBool::new(false));
+    {
+        let last_byte = Arc::clone(&last_byte);
+        let saw_output = Arc::clone(&saw_output);
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(read) = reader.read(&mut buf) {
+                if read == 0 {
+                    break;
+                }
+                *last_byte.lock().unwrap() = Instant::now();
+                saw_output.store(true, Ordering::SeqCst);
+            }
+        });
+    }
+
+    // Wait for the REPL to settle before sending the prompt.
+    let settle_start = Instant::now();
+    while !prompt_is_ready(
+        saw_output.load(Ordering::SeqCst),
+        last_byte.lock().unwrap().elapsed(),
+        settle_start.elapsed(),
+    ) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // A trivial prompt forces an API interaction → claude refreshes + persists
+    // its token. `\r` is Enter inside a TTY.
+    let token_before = crate::usage::credentials::read_access_token(cli_config_dir).ok();
+    let _ = writer.write_all(b"hi\r");
+    let _ = writer.flush();
+
+    // Wait (bounded) for the persisted token to change.
+    let rotate_deadline = Instant::now() + REFRESH_TIMEOUT;
+    loop {
+        let current = crate::usage::credentials::read_access_token(cli_config_dir).ok();
+        if current != token_before || Instant::now() >= rotate_deadline {
+            break;
+        }
+        std::thread::sleep(ROTATE_POLL);
+    }
+
+    // Clean shutdown first (lets claude reap its own children), then ensure it.
+    let _ = writer.write_all(b"/exit\r");
+    let _ = writer.flush();
+    std::thread::sleep(Duration::from_millis(300));
+    let _ = child.kill();
+    let _ = child.wait();
+    // `master` stays alive until here so the pty isn't torn down early.
+    drop(master);
 }
 
 /// Locate the `claude` binary. Tauri apps launched from Finder/Dock have
@@ -215,6 +326,65 @@ mod tests {
         let mut perms = fs::metadata(path).unwrap().permissions();
         perms.set_mode(0o755);
         fs::set_permissions(path, perms).unwrap();
+    }
+
+    // --- prompt_is_ready (pure) ---
+
+    #[test]
+    fn prompt_is_not_ready_before_any_output() {
+        // No output yet → not ready, even after a quiet stretch.
+        assert!(!prompt_is_ready(
+            false,
+            Duration::from_secs(2),
+            Duration::from_secs(2)
+        ));
+    }
+
+    #[test]
+    fn prompt_is_not_ready_while_output_is_still_flowing() {
+        // Output seen, but the last byte was too recent → REPL still starting.
+        assert!(!prompt_is_ready(
+            true,
+            Duration::from_millis(100),
+            Duration::from_secs(2)
+        ));
+    }
+
+    #[test]
+    fn prompt_is_ready_after_output_then_quiet() {
+        assert!(prompt_is_ready(true, SETTLE_QUIET, Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn prompt_is_ready_at_the_settle_ceiling_regardless_of_output() {
+        // Even if claude never produced output, stop waiting at the cap.
+        assert!(prompt_is_ready(false, Duration::ZERO, SETTLE_CAP));
+    }
+
+    // --- manual end-to-end smoke (real claude + keychain) ---
+    // Gated behind an env var pointing at a profile's cli-config dir, since it
+    // spawns the real binary and makes one trivial API call. Run with:
+    //   AI_PROFILES_PTY_SMOKE="<cli-config dir>" cargo test \
+    //     --manifest-path apps/ai-profiles/src-tauri/Cargo.toml \
+    //     usage::refresh::tests::pty_refresh_smoke -- --nocapture --ignored
+    #[test]
+    #[ignore = "spawns real claude; opt in via AI_PROFILES_PTY_SMOKE"]
+    fn pty_refresh_smoke() {
+        let Ok(dir) = std::env::var("AI_PROFILES_PTY_SMOKE") else {
+            eprintln!("set AI_PROFILES_PTY_SMOKE=<cli-config dir> to run");
+            return;
+        };
+        let dir = std::path::PathBuf::from(dir);
+        let binary = find_claude_binary().expect("claude binary on PATH");
+        let before = crate::usage::credentials::read_access_token(&dir).ok();
+        let started = Instant::now();
+        run_pty_refresh(&binary, &dir, true);
+        let after = crate::usage::credentials::read_access_token(&dir).ok();
+        eprintln!(
+            "pty_refresh_smoke: elapsed={:?} rotated={}",
+            started.elapsed(),
+            before != after
+        );
     }
 
     #[test]
