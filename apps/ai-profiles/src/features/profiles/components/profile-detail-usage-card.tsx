@@ -9,6 +9,7 @@ import { RefreshCw } from 'lucide-react'
 
 import { TooltipBubble } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
+import { openCliLogin } from '@/lib/commands'
 
 import { refetchIntervalMs, UsageUnavailableError, useProfileUsage } from '../api/use-profile-usage'
 
@@ -63,7 +64,13 @@ function UsageCardInner({ app, profileId, cliCommand }: { app: AppId; profileId:
       {isLoading ? (
         <MetersSkeleton />
       ) : (
-        <Body app={app} cliCommand={cliCommand} quota={data?.quota ?? null} errorCode={errorCode} />
+        <Body
+          app={app}
+          cliCommand={cliCommand}
+          errorCode={errorCode}
+          profileId={profileId}
+          quota={data?.quota ?? null}
+        />
       )}
     </section>
   )
@@ -143,11 +150,13 @@ function Body({
   quota,
   errorCode,
   cliCommand,
+  profileId,
 }: {
   app: AppId
   quota: ProfileUsage['quota']
   errorCode: QuotaError | null
   cliCommand: string
+  profileId: string
 }) {
   // Stale-while-revalidate: whenever there's data, show the meters — even if
   // the latest refresh just failed — with a quiet "couldn't refresh" note so
@@ -160,13 +169,39 @@ function Body({
         {errorCode ? (
           <p className="font-mono text-mono text-muted-strong">Couldn't refresh — {quotaErrorShort(errorCode)}.</p>
         ) : null}
+        {canRelogin(errorCode) ? <ReloginButton profileId={profileId} /> : null}
       </div>
     )
   }
   if (errorCode) {
-    return <p className="font-mono text-mono text-muted-strong">{quotaErrorMessage(app, errorCode, cliCommand)}</p>
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="font-mono text-mono text-muted-strong">{quotaErrorMessage(app, errorCode, cliCommand)}</p>
+        {canRelogin(errorCode) ? <ReloginButton profileId={profileId} /> : null}
+      </div>
+    )
   }
   return <MetersSkeleton />
+}
+
+// A failed token refresh and an expired session both recover the same way:
+// run the profile's CLI interactively once. The button opens it in Terminal.
+function canRelogin(errorCode: QuotaError | null): boolean {
+  return errorCode === 'needs_login' || errorCode === 'unauthorized'
+}
+
+function ReloginButton({ profileId }: { profileId: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void openCliLogin(profileId)
+      }}
+      className="cursor-pointer self-start font-mono text-mono text-muted-strong underline hover:text-fg"
+    >
+      Refresh sign-in
+    </button>
+  )
 }
 
 // Terse reason appended to the "Couldn't refresh — …" note shown beside stale

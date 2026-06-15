@@ -6,6 +6,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { appSpecs } from '@/lib/app-registry'
+import { openCliLogin } from '@/lib/commands'
 
 import { UsageUnavailableError, useProfileUsage } from '../api/use-profile-usage'
 import { ProfileDetailUsageCard } from './profile-detail-usage-card'
@@ -16,6 +17,8 @@ vi.mock('../api/use-profile-usage', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/use-profile-usage')>()
   return { ...actual, useProfileUsage: vi.fn() }
 })
+
+vi.mock('@/lib/commands', () => ({ openCliLogin: vi.fn() }))
 
 function makeUsage(overrides: Partial<ProfileUsage> = {}): ProfileUsage {
   return {
@@ -404,6 +407,21 @@ describe('ProfileDetailUsageCard', () => {
       <ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} cliCommand="claude-personal" />,
     )
     expect(screen.getByText(/claude-personal/)).toBeInTheDocument()
+  })
+
+  it('opens the profile CLI in Terminal when "Refresh sign-in" is clicked', () => {
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: undefined,
+      error: new UsageUnavailableError('needs_login'),
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })
+    renderWithQuery(
+      <ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} cliCommand="claude-personal" />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /refresh sign-in/i }))
+    expect(openCliLogin).toHaveBeenCalledWith('p1')
   })
 
   it('falls back to the stock CLI binary name when no cliCommand is given', () => {

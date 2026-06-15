@@ -219,6 +219,57 @@ pub fn open_external_url(url: String) -> AppResult<()> {
     Ok(())
 }
 
+/// Opens the profile's CLI in a new Terminal window so the user can sign in
+/// again (`/login`). Used by the usage card when a token can't be refreshed:
+/// running the wrapper interactively is what rotates+persists the credential.
+///
+/// We resolve the command server-side (the per-profile wrapper `claude-<slug>`,
+/// or the stock binary for the default entry) rather than trusting a string
+/// from the frontend, then hand it to Terminal via `osascript`.
+#[tauri::command]
+pub fn open_cli_login(id: String) -> AppResult<()> {
+    let all = profiles::load()?;
+    let command = cli_login_command(&id, &all)?;
+    let script = terminal_applescript(&command);
+    let status = Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(&script)
+        .status()
+        .map_err(AppError::Io)?;
+    if !status.success() {
+        return Err(AppError::Validation(format!(
+            "osascript exited with status {status}"
+        )));
+    }
+    Ok(())
+}
+
+/// Pure: the interactive CLI command for a profile entry — the per-profile
+/// wrapper (`claude-<slug>`) for managed profiles, or the stock binary
+/// (`claude` / `codex`) for the default entry.
+fn cli_login_command(id: &str, profiles: &[Profile]) -> AppResult<String> {
+    if let Some(kind) = AppKind::from_default_id(id) {
+        return Ok(spec(kind).cli_binary.to_string());
+    }
+    let profile = profiles
+        .iter()
+        .find(|candidate| candidate.id == id)
+        .ok_or_else(|| AppError::NotFound(format!("profile {id} not found")))?;
+    Ok(format!(
+        "{}-{}",
+        profile.app.spec().cli_wrapper_prefix,
+        profile.slug
+    ))
+}
+
+/// Pure: AppleScript that opens a new Terminal window running `command` and
+/// brings Terminal to the foreground. `command` is escaped for the AppleScript
+/// string literal — defensive only; profile slugs are already a safe charset.
+fn terminal_applescript(command: &str) -> String {
+    let escaped = command.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("tell application \"Terminal\"\n    activate\n    do script \"{escaped}\"\nend tell")
+}
+
 #[tauri::command]
 pub fn list_activity(profile_id: String, limit: usize) -> AppResult<Vec<Activity>> {
     let path = activity_log_path(&profile_id)?;
@@ -555,5 +606,69 @@ mod usage_routing_tests {
     fn resolve_cli_config_dir_for_managed_id_is_per_profile() {
         let resolved = resolve_cli_config_dir("some-managed-id").expect("ok");
         assert!(resolved.ends_with("cli-config"));
+    }
+}
+
+#[cfg(test)]
+mod cli_login_tests {
+    use super::*;
+
+    fn managed(id: &str, app: AppKind, slug: &str) -> Profile {
+        Profile {
+            id: id.into(),
+            app,
+            name: "X".into(),
+            slug: slug.into(),
+            color: "#000000".into(),
+            created_at: "2026-06-14T00:00:00Z".into(),
+            surfaces: Surfaces {
+                gui: false,
+                cli: true,
+            },
+            last_used_at: None,
+        }
+    }
+
+    #[test]
+    fn cli_login_command_uses_the_wrapper_for_a_managed_profile() {
+        let profiles = vec![managed("abc", AppKind::Claude, "personal")];
+        assert_eq!(
+            cli_login_command("abc", &profiles).unwrap(),
+            "claude-personal"
+        );
+    }
+
+    #[test]
+    fn cli_login_command_uses_the_codex_prefix_for_a_codex_profile() {
+        let profiles = vec![managed("xyz", AppKind::Codex, "work")];
+        assert_eq!(cli_login_command("xyz", &profiles).unwrap(), "codex-work");
+    }
+
+    #[test]
+    fn cli_login_command_uses_the_stock_binary_for_default_entries() {
+        assert_eq!(cli_login_command("default:claude", &[]).unwrap(), "claude");
+        assert_eq!(cli_login_command("default:codex", &[]).unwrap(), "codex");
+    }
+
+    #[test]
+    fn cli_login_command_is_not_found_for_an_unknown_id() {
+        assert!(matches!(
+            cli_login_command("nope", &[]).unwrap_err(),
+            AppError::NotFound(_)
+        ));
+    }
+
+    #[test]
+    fn terminal_applescript_runs_the_command_and_activates() {
+        let script = terminal_applescript("claude-personal");
+        assert!(script.contains(r#"do script "claude-personal""#));
+        assert!(script.contains("activate"));
+    }
+
+    #[test]
+    fn terminal_applescript_escapes_quotes_and_backslashes() {
+        // Defensive: a stray quote must not break out of the string literal.
+        let script = terminal_applescript(r#"a"b\c"#);
+        assert!(script.contains(r#"do script "a\"b\\c""#));
     }
 }
