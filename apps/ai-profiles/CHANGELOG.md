@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.0](https://github.com/bartekczyz/ai-profiles/compare/v0.6.0...v1.0.0) (2026-06-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* the macOS bundle identifier (app.claude-profiles -> app.ai-profiles), the app data dir (~/Library/Application Support/ claude-profiles -> ai-profiles), and the shell-rc / CLI-wrapper markers all change. Existing installs do not auto-update across the new identifier and won't see prior profiles. First stable release.
+
+* release 1.0.0 ([464674c](https://github.com/bartekczyz/ai-profiles/commit/464674c29d3627efc54bcfcc31dfd668120972cf))
+
+
+### Changed
+
+* rename product claude-profiles to ai-profiles ([#27](https://github.com/bartekczyz/ai-profiles/issues/27)) ([89b8c5f](https://github.com/bartekczyz/ai-profiles/commit/89b8c5f394f0c89ee2875d528e4bd445e22ca9b9))
+
 ## [0.6.0](https://github.com/bartekczyz/claude-profiles/compare/v0.5.0...v0.6.0) (2026-06-08)
 
 
