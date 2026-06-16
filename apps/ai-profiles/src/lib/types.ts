@@ -164,7 +164,14 @@ export type QuotaUsage = {
   secondaryExtra: UsageWindow | null
 }
 
-export type QuotaError = 'no_credentials' | 'unauthorized' | 'needs_login' | 'rate_limited' | 'network' | 'unknown'
+export type QuotaError =
+  | 'no_credentials'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'needs_login'
+  | 'rate_limited'
+  | 'network'
+  | 'unknown'
 
 export type ProfileUsage = {
   quota: QuotaUsage | null

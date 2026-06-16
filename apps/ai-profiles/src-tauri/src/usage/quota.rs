@@ -191,7 +191,11 @@ pub async fn fetch_quota_cached(
 fn parse_response(response: HttpResponse) -> Result<QuotaUsage, QuotaError> {
     match response.status {
         200 => parse_body(&response.body),
-        401 | 403 => Err(QuotaError::Unauthorized),
+        401 => Err(QuotaError::Unauthorized),
+        // 403 is typically an edge/WAF policy block in front of the
+        // endpoint, not an auth problem — mapping it to Unauthorized
+        // would tell the user to re-auth for a transient block.
+        403 => Err(QuotaError::Forbidden),
         429 => Err(QuotaError::RateLimited),
         500..=599 => Err(QuotaError::Network),
         // Other 4xx (400 bad request, 404 endpoint moved, 410 gone, …)
@@ -486,7 +490,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forbidden_status_maps_to_unauthorized() {
+    async fn forbidden_status_maps_to_forbidden() {
+        // 403 here is typically an edge/WAF policy block, not bad credentials.
+        // It must NOT map to Unauthorized — that would trigger a refresh spawn
+        // that churns the single-use refresh token for nothing.
         let dir = dir_with_token();
         let client = StubClient {
             status: 403,
@@ -494,7 +501,7 @@ mod tests {
         };
         assert!(matches!(
             fetch_quota(dir.path(), &client).await.unwrap_err(),
-            QuotaError::Unauthorized,
+            QuotaError::Forbidden,
         ));
     }
 

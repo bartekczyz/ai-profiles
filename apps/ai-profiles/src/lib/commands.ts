@@ -132,6 +132,10 @@ export function openExternalUrl(url: string): Promise<void> {
   return invoke('open_external_url', { url })
 }
 
+export function openCliLogin(id: string): Promise<void> {
+  return invoke('open_cli_login', { id })
+}
+
 export function getProfileUsage(profileId: string): Promise<ProfileUsage> {
   return invoke<ProfileUsage>('get_profile_usage', { profileId })
 }

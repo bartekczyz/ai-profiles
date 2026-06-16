@@ -35,6 +35,10 @@ pub struct Window {
 pub enum QuotaError {
     NoCredentials,
     Unauthorized,
+    /// HTTP 403 from the usage endpoint. In practice an edge/WAF policy
+    /// block (Cloudflare), not bad credentials — must never trigger a CLI
+    /// refresh spawn or a dead-credential mark.
+    Forbidden,
     /// Stored credentials are dead and cannot be auto-refreshed — the user
     /// must sign in to this profile again. Distinct from the transient
     /// `Unauthorized`, which a CLI refresh can fix.
@@ -352,6 +356,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn refresh_is_not_triggered_for_forbidden() {
+        let dir = dir_with_token();
+        let provider = QueuedProvider::new(vec![Err(QuotaError::Forbidden)]);
+        let refresher = RecordingRefresher::new();
+        let registry = dead_credentials::DeadCredentialRegistry::new();
+        let result = build_with_cli_refresh(dir.path(), &provider, &refresher, &registry).await;
+        assert!(matches!(result.quota_error, Some(QuotaError::Forbidden)));
+        assert_eq!(refresher.call_count(), 0);
+    }
+
+    #[tokio::test]
     async fn refresh_recovers_when_token_rotates() {
         let dir = dir_with_token();
         // First call: Unauthorized; the refresh rotates the token; retry succeeds.
@@ -464,6 +479,13 @@ mod tests {
         // Wire contract: the frontend QuotaError union expects `needs_login`.
         let json = serde_json::to_string(&QuotaError::NeedsLogin).unwrap();
         assert_eq!(json, "\"needs_login\"");
+    }
+
+    #[test]
+    fn forbidden_serializes_to_snake_case() {
+        // Wire contract: the frontend QuotaError union expects `forbidden`.
+        let json = serde_json::to_string(&QuotaError::Forbidden).unwrap();
+        assert_eq!(json, "\"forbidden\"");
     }
 
     #[test]
