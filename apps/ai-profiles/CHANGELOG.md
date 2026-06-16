@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/bartekczyz/ai-profiles/compare/v1.0.0...v1.0.1) (2026-06-16)
+
+
+### Fixed
+
+* **usage:** fix daily profile logouts — working token refresh, safer polling, clearer recovery ([#29](https://github.com/bartekczyz/ai-profiles/issues/29)) ([1d4c077](https://github.com/bartekczyz/ai-profiles/commit/1d4c07705760bf43820821fe09793de234c60c56))
+
 ## [1.0.0](https://github.com/bartekczyz/ai-profiles/compare/v0.6.0...v1.0.0) (2026-06-09)
 
 
