@@ -27,6 +27,23 @@
 //! [`REFRESH_TIMEOUT`]) for the stored token to change, send `/exit`, and kill
 //! the child. Success is verified by the caller re-reading the token, never by
 //! the child's exit status.
+//!
+//! ## Why an empty scratch working directory
+//!
+//! Claude Code scans its working directory on startup (ripgrep, slash-command
+//! discovery). Running this refresh in `$HOME` made that scan descend into the
+//! TCC-protected home folders (`~/Downloads`, `~/Documents`, `~/Pictures`, …);
+//! macOS attributes a subprocess's protected-folder access to the *responsible*
+//! app — ai-profiles.app, the Finder-launched parent — so every cold-start
+//! refresh flooded the user with "would like to access files in your Downloads
+//! folder" prompts. We don't need claude to see any real project, so we run it
+//! in a stable, empty, app-owned scratch dir ([`crate::paths::refresh_cwd_dir`])
+//! where the scan has nothing protected to touch.
+//!
+//! A never-visited directory triggers claude's one-time "trust this folder"
+//! dialog, so before the prompt we send a bare Enter to accept it (the default
+//! option). Trust is then persisted per profile, and on an already-trusted dir
+//! that Enter is an inert empty submit.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -161,8 +178,20 @@ async fn spawn_claude(cli_config_dir: &Path) {
     // bare, leaving the next quota fetch unauthorised again.
     let set_config = !crate::usage::is_stock_default_cli_config_dir(cli_config_dir);
     let dir = cli_config_dir.to_path_buf();
+    let cwd = refresh_cwd();
     // `portable-pty` is blocking; run the whole dance off the async runtime.
-    let _ = tokio::task::spawn_blocking(move || run_pty_refresh(&binary, &dir, set_config)).await;
+    let _ =
+        tokio::task::spawn_blocking(move || run_pty_refresh(&binary, &dir, &cwd, set_config)).await;
+}
+
+/// An empty, app-owned directory to use as claude's cwd for the refresh, with a
+/// `temp_dir` fallback so a best-effort refresh still has a valid, non-`$HOME`
+/// cwd if the app data dir can't be resolved. Ensured to exist before returning.
+fn refresh_cwd() -> PathBuf {
+    let dir = crate::paths::refresh_cwd_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("ai-profiles-refresh-cwd"));
+    let _ = std::fs::create_dir_all(&dir);
+    dir
 }
 
 /// Pure: true once the pty has produced output and then gone quiet for
@@ -175,10 +204,24 @@ fn prompt_is_ready(saw_output: bool, quiet_for: Duration, settle_elapsed: Durati
     saw_output && quiet_for >= SETTLE_QUIET
 }
 
+/// Block until [`prompt_is_ready`] holds (bounded by [`SETTLE_CAP`] from this
+/// call). Called once after startup and again after accepting the trust dialog,
+/// so each re-render of the REPL settles before we send the next keystrokes.
+fn wait_until_settled(saw_output: &AtomicBool, last_byte: &StdMutex<Instant>) {
+    let settle_start = Instant::now();
+    while !prompt_is_ready(
+        saw_output.load(Ordering::SeqCst),
+        last_byte.lock().unwrap().elapsed(),
+        settle_start.elapsed(),
+    ) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// Drives a real interactive `claude` under a pty far enough to refresh +
 /// persist its token, then exits. Best-effort: any failure just returns, and
 /// the caller verifies success by re-reading the credential.
-fn run_pty_refresh(binary: &Path, cli_config_dir: &Path, set_config: bool) {
+fn run_pty_refresh(binary: &Path, cli_config_dir: &Path, cwd: &Path, set_config: bool) {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
     let Ok(pair) = native_pty_system().openpty(PtySize {
@@ -195,9 +238,10 @@ fn run_pty_refresh(binary: &Path, cli_config_dir: &Path, set_config: bool) {
     if set_config {
         cmd.env("CLAUDE_CONFIG_DIR", cli_config_dir);
     }
-    if let Some(home) = dirs::home_dir() {
-        cmd.cwd(home);
-    }
+    // Run in an empty scratch dir, never `$HOME` — see the module header for why
+    // (avoids TCC prompts from claude's startup scan descending into protected
+    // home folders).
+    cmd.cwd(cwd);
 
     let Ok(mut child) = slave.spawn_command(cmd) else {
         return;
@@ -231,15 +275,16 @@ fn run_pty_refresh(binary: &Path, cli_config_dir: &Path, set_config: bool) {
         });
     }
 
-    // Wait for the REPL to settle before sending the prompt.
-    let settle_start = Instant::now();
-    while !prompt_is_ready(
-        saw_output.load(Ordering::SeqCst),
-        last_byte.lock().unwrap().elapsed(),
-        settle_start.elapsed(),
-    ) {
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    // Wait for the REPL (or the trust dialog) to finish rendering.
+    wait_until_settled(&saw_output, &last_byte);
+
+    // Accept claude's one-time "trust this folder" dialog for the scratch dir
+    // (default option is "Yes, I trust this folder"; Enter confirms and persists
+    // it). On an already-trusted dir this is an inert empty submit. Then let the
+    // now-ready REPL settle again before the real prompt.
+    let _ = writer.write_all(b"\r");
+    let _ = writer.flush();
+    wait_until_settled(&saw_output, &last_byte);
 
     // A trivial prompt forces an API interaction → claude refreshes + persists
     // its token. `\r` is Enter inside a TTY.
@@ -376,9 +421,10 @@ mod tests {
         };
         let dir = std::path::PathBuf::from(dir);
         let binary = find_claude_binary().expect("claude binary on PATH");
+        let cwd = refresh_cwd();
         let before = crate::usage::credentials::read_access_token(&dir).ok();
         let started = Instant::now();
-        run_pty_refresh(&binary, &dir, true);
+        run_pty_refresh(&binary, &dir, &cwd, true);
         let after = crate::usage::credentials::read_access_token(&dir).ok();
         eprintln!(
             "pty_refresh_smoke: elapsed={:?} rotated={}",
