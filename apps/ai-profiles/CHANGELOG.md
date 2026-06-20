@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/bartekczyz/ai-profiles/compare/v1.0.1...v1.0.2) (2026-06-20)
+
+
+### Fixed
+
+* **usage:** run claude token refresh in an empty scratch dir ([#31](https://github.com/bartekczyz/ai-profiles/issues/31)) ([c5be401](https://github.com/bartekczyz/ai-profiles/commit/c5be401e3ea33598ad6427941b3376b8c072a1a8))
+
 ## [1.0.1](https://github.com/bartekczyz/ai-profiles/compare/v1.0.0...v1.0.1) (2026-06-16)
 
 
