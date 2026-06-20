@@ -90,6 +90,22 @@ pub fn cli_config_dir(id: &str) -> AppResult<PathBuf> {
     Ok(profile_dir(id)?.join("cli-config"))
 }
 
+/// Empty, app-owned directory used as `claude`'s working directory during a
+/// token refresh.
+///
+/// Kept deliberately empty so claude's startup ripgrep scan finds nothing to
+/// descend into. Running the refresh in `$HOME` made that scan walk into the
+/// TCC-protected home folders (`~/Downloads`, `~/Documents`, `~/Pictures`, …),
+/// which macOS blames on the responsible app (ai-profiles.app, the Finder-
+/// launched parent) — flooding the user with "would like to access files in
+/// your Downloads folder" prompts on every cold-start refresh.
+///
+/// Stable (not a fresh tempdir each time) so claude's one-time workspace-trust
+/// acceptance persists per profile instead of re-prompting.
+pub fn refresh_cwd_dir() -> AppResult<PathBuf> {
+    Ok(app_data_dir()?.join("refresh-cwd"))
+}
+
 pub fn activity_log_path(id: &str) -> AppResult<PathBuf> {
     Ok(profile_dir(id)?.join("activity.jsonl"))
 }
@@ -170,6 +186,13 @@ mod tests {
         let id = "11111111-1111-1111-1111-111111111111";
         let path = cli_config_dir(id).unwrap();
         assert!(path.ends_with(format!("profiles/{id}/cli-config")));
+    }
+
+    #[test]
+    fn refresh_cwd_dir_lives_under_app_data_dir() {
+        let path = refresh_cwd_dir().unwrap();
+        assert_eq!(path.parent(), Some(app_data_dir().unwrap().as_path()));
+        assert!(path.ends_with("ai-profiles/refresh-cwd"));
     }
 
     #[test]
