@@ -48,7 +48,7 @@ pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
     perms.set_mode(0o755);
     fs::set_permissions(&launcher_path, perms)?;
 
-    let icns_bytes = icons::render_icns(&profile.color)?;
+    let icns_bytes = icons::render_icns(&profile.color, &resolved_gui_app.bundle_path)?;
     fs::write(resources.join("AppIcon.icns"), icns_bytes)?;
 
     // Best-effort: clean up a bundle generated under a prefix this app used

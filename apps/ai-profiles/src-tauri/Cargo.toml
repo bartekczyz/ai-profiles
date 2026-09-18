@@ -62,7 +62,15 @@ tauri-plugin-window-state = "2"
 # (single-instance launch behaviour). Already present transitively via tauri.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSRunningApplication"] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSBitmapImageRep",
+    "NSGraphics",
+    "NSGraphicsContext",
+    "NSImage",
+    "NSImageRep",
+    "NSRunningApplication",
+    "NSWorkspace",
+] }
 objc2-foundation = { version = "0.3", features = [
     "NSAppleEventDescriptor",
     "objc2-core-services",
