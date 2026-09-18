@@ -21,7 +21,8 @@ jobs:
           workspaces: './apps/ai-profiles/src-tauri -> target'
 
       - name: cargo fmt --check
-        run: cargo fmt --check
+        # --all: without it only the root package is checked, not the shim.
+        run: cargo fmt --all --check
         working-directory: apps/ai-profiles/src-tauri
 
       - name: cargo clippy

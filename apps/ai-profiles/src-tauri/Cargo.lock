@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "ai-profiles"
-version = "0.6.0"
+version = "1.1.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -30,6 +30,7 @@ dependencies = [
  "objc2-foundation",
  "plist",
  "portable-pty",
+ "profile-shim",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -2795,6 +2796,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "profile-shim"
+version = "0.0.0"
+dependencies = [
+ "plist",
 ]
 
 [[package]]
