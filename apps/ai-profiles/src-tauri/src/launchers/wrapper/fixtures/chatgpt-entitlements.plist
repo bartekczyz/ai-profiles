@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.application-identifier</key>
+	<string>2DC432GLL2.com.openai.codex</string>
+	<key>com.apple.developer.aps-environment</key>
+	<string>production</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>2DC432GLL2</string>
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>2DC432GLL2.com.openai.codex.notifications</string>
+		<string>2DC432GLL2.com.openai.sky.CUAService</string>
+	</array>
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.device.camera</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>2DC432GLL2.*</string>
+		<string>2DC432GLL2.com.openai.shared</string>
+	</array>
+</dict>
+</plist>

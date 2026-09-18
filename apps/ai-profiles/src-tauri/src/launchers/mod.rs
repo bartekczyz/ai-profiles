@@ -7,3 +7,5 @@ pub mod script;
 pub mod shim;
 #[cfg(target_os = "macos")]
 mod system_icon;
+#[allow(dead_code)]
+pub mod wrapper;
