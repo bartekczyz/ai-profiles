@@ -148,6 +148,7 @@ mod tests {
                 gui: false,
                 cli: true,
             },
+            distinct_dock_icon: false,
             last_used_at: None,
         }
     }

@@ -27,14 +27,23 @@ pub fn list_profiles() -> AppResult<Vec<Profile>> {
     profiles::load()
 }
 
+/// `distinct_dock_icon` is opt-in: leaving it out means the profile gets the
+/// plain script launcher. Building a wrapper is something the user chooses.
 #[tauri::command]
 pub fn create_profile(
     app: AppKind,
     name: String,
     color: String,
     surfaces: Surfaces,
+    distinct_dock_icon: Option<bool>,
 ) -> AppResult<Profile> {
-    profiles::create(app, &name, &color, surfaces)
+    profiles::create(
+        app,
+        &name,
+        &color,
+        surfaces,
+        distinct_dock_icon.unwrap_or(false),
+    )
 }
 
 #[tauri::command]
@@ -561,6 +570,7 @@ mod cli_login_tests {
                 gui: false,
                 cli: true,
             },
+            distinct_dock_icon: false,
             last_used_at: None,
         }
     }

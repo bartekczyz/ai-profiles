@@ -179,6 +179,45 @@ fn warm_up_within(shim: &Path, limit: Duration) {
     }
 }
 
+/// The `CFBundleVersion` of the app at `bundle`, if it can be read.
+pub fn bundle_version(bundle: &Path) -> Option<String> {
+    let info = read_info_plist(bundle).ok()?;
+    info.get("CFBundleVersion")
+        .and_then(Value::as_string)
+        .map(str::to_owned)
+}
+
+/// The vendor version the wrapper at `wrapper` recorded when it was built.
+pub fn built_from_version(wrapper: &Path) -> Option<String> {
+    let info = read_info_plist(wrapper).ok()?;
+    info.get(info_plist::VENDOR_VERSION_KEY)
+        .and_then(Value::as_string)
+        .map(str::to_owned)
+}
+
+/// Whether a wrapper built from `built_from` is out of step with a vendor now
+/// at `current`.
+///
+/// Any difference counts, a downgrade or a replacement as much as an update,
+/// and so does a wrapper that does not say what it was built from, since there
+/// is no telling. Left alone, a stale wrapper goes on running the version it was
+/// cloned from without any error.
+pub fn version_drifted(current: &str, built_from: Option<&str>) -> bool {
+    built_from != Some(current)
+}
+
+/// Whether the wrapper at `wrapper` has to be (re)built: it does not exist, or
+/// it was cloned from another version of the vendor app than is installed now.
+/// A vendor whose version cannot be read leaves an existing wrapper alone,
+/// because there is nothing to compare it with and a rebuild would fail anyway.
+pub fn is_stale(vendor_bundle: &Path, wrapper: &Path) -> bool {
+    if !wrapper.exists() {
+        return true;
+    }
+    bundle_version(vendor_bundle)
+        .is_some_and(|current| version_drifted(&current, built_from_version(wrapper).as_deref()))
+}
+
 /// Fail unless the signed wrapper verifies and neither of its binaries still
 /// claims anything of the vendor's team. The shim is what LaunchServices
 /// starts, and the vendor binary is what it becomes, so both count.
@@ -761,6 +800,62 @@ mod tests {
         let problem = check_entitlements(&stripped, Some(CLAUDE_TEAM)).unwrap_err();
 
         assert!(problem.contains("library validation"), "{problem}");
+    }
+
+    /// `<dir>/<name>` as a bundle whose `Info.plist` holds `entries`.
+    fn bundle_with_info(dir: &Path, name: &str, entries: &[(&str, &str)]) -> PathBuf {
+        let bundle = dir.join(name);
+        fs::create_dir_all(bundle.join("Contents")).unwrap();
+        let mut info = Dictionary::new();
+        for (key, value) in entries {
+            info.insert((*key).to_owned(), Value::String((*value).to_owned()));
+        }
+        write_dictionary(&bundle.join("Contents/Info.plist"), info);
+        bundle
+    }
+
+    #[test]
+    fn a_wrapper_has_drifted_unless_built_from_the_installed_vendor_version() {
+        assert!(!version_drifted("2.2553.1", Some("2.2553.1")), "equal");
+        assert!(
+            version_drifted("2.2554.0", Some("2.2553.1")),
+            "vendor newer"
+        );
+        assert!(
+            version_drifted("2.2552.0", Some("2.2553.1")),
+            "vendor older"
+        );
+        assert!(version_drifted("2.2553.1", None), "no recorded version");
+    }
+
+    #[test]
+    fn is_stale_compares_the_installed_vendor_with_what_the_wrapper_recorded() {
+        let dir = tempfile::tempdir().unwrap();
+        let record = info_plist::VENDOR_VERSION_KEY;
+        let vendor = bundle_with_info(dir.path(), "Vendor.app", &[("CFBundleVersion", "2.0")]);
+
+        let current = bundle_with_info(dir.path(), "Current.app", &[(record, "2.0")]);
+        assert!(!is_stale(&vendor, &current));
+
+        let older = bundle_with_info(dir.path(), "Older.app", &[(record, "1.9")]);
+        assert!(is_stale(&vendor, &older));
+
+        let unrecorded = bundle_with_info(dir.path(), "Unrecorded.app", &[]);
+        assert!(is_stale(&vendor, &unrecorded));
+
+        assert!(is_stale(&vendor, &dir.path().join("Missing.app")));
+    }
+
+    #[test]
+    fn is_stale_leaves_an_existing_wrapper_alone_when_the_vendor_cannot_be_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let wrapper = bundle_with_info(
+            dir.path(),
+            "Wrapper.app",
+            &[(info_plist::VENDOR_VERSION_KEY, "2.0")],
+        );
+
+        assert!(!is_stale(&dir.path().join("NoVendor.app"), &wrapper));
     }
 
     /// Opt-in: builds wrappers from whichever vendor apps are installed, into a

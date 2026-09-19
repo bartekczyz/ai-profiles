@@ -65,6 +65,7 @@ function profile(overrides: Partial<Profile> = {}): Profile {
     color: '#d97757',
     createdAt: '2026-01-01T00:00:00Z',
     surfaces: { gui: true, cli: true },
+    distinctDockIcon: false,
     lastUsedAt: null,
     ...overrides,
   }

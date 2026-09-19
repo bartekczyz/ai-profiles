@@ -16,6 +16,12 @@ export type Profile = {
   createdAt: string
   surfaces: Surfaces
   /**
+   * Whether the desktop launcher is a wrapper app with a Dock identity of its
+   * own (icon, label, pinnable tile) rather than a script that opens the stock
+   * app. Off for profiles saved before the setting existed.
+   */
+  distinctDockIcon: boolean
+  /**
    * RFC 3339 timestamp of the last `launched_gui` or `copied_cli` event,
    * or `null` if this profile has never been used.
    */
@@ -41,6 +47,8 @@ export type Surface = 'gui' | 'cli'
 export type ProfilePatch = {
   name?: string
   color?: string
+  /** Switching this rebuilds the launcher in the other shape. */
+  distinctDockIcon?: boolean
 }
 
 export type ProfilePaths = {

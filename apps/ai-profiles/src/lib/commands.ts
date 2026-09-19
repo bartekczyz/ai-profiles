@@ -30,6 +30,8 @@ export function createProfile(input: {
   name: string
   color: string
   surfaces: Surfaces
+  /** Opt-in: leaving it out gives the profile the plain script launcher. */
+  distinctDockIcon?: boolean
 }): Promise<Profile> {
   return invoke<Profile>('create_profile', input)
 }
