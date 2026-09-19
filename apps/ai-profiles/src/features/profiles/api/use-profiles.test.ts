@@ -79,6 +79,46 @@ describe('useProfiles', () => {
     await waitFor(() => expect(result.current.profiles).toEqual([updated]))
   })
 
+  it('create sends the Dock icon setting to the command and keeps the profile it returns', async () => {
+    mockInvoke.mockResolvedValueOnce([])
+    const { result } = renderHookWithQuery(() => useProfiles())
+    await waitFor(() => expect(result.current).not.toBeNull())
+
+    const created = profileFixture({ id: '2', name: 'Work', slug: 'work', distinctDockIcon: true })
+    mockInvoke.mockResolvedValueOnce(created)
+    const input = {
+      app: 'claude' as const,
+      name: 'Work',
+      color: '#6b8db5',
+      surfaces: { gui: true, cli: false },
+      distinctDockIcon: true,
+    }
+
+    await act(async () => {
+      await result.current.create(input)
+    })
+
+    expect(mockInvoke).toHaveBeenLastCalledWith('create_profile', input)
+    await waitFor(() => expect(result.current.profiles).toEqual([created]))
+  })
+
+  it('update sends the Dock icon setting to the command and reflects the profile it returns', async () => {
+    const original = profileFixture()
+    mockInvoke.mockResolvedValueOnce([original])
+    const { result } = renderHookWithQuery(() => useProfiles())
+    await waitFor(() => expect(result.current).not.toBeNull())
+
+    const updated = { ...original, distinctDockIcon: true }
+    mockInvoke.mockResolvedValueOnce(updated)
+
+    await act(async () => {
+      await result.current.update({ id: '1', patch: { distinctDockIcon: true } })
+    })
+
+    expect(mockInvoke).toHaveBeenLastCalledWith('update_profile', { id: '1', patch: { distinctDockIcon: true } })
+    await waitFor(() => expect(result.current.profiles).toEqual([updated]))
+  })
+
   it('remove drops the profile from the list', async () => {
     const fixture = profileFixture()
     mockInvoke.mockResolvedValueOnce([fixture])

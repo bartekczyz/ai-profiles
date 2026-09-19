@@ -144,6 +144,11 @@ export type AppState = {
   pathBannerDismissedAt: string | null
   themeMode: ThemeMode
   selectedEntryId: string | null
+  /**
+   * When the user first confirmed they understand what giving a profile its own
+   * Dock icon involves. `null` until then, which is when the explanation is shown.
+   */
+  dockIconAcknowledgedAt: string | null
 }
 
 export type AppStatePatch = {
@@ -155,6 +160,10 @@ export type AppStatePatch = {
   clearPathBannerDismissed?: boolean
   selectedEntryId?: string | null
   clearSelectedEntryId?: boolean
+  /**
+   * Records the acknowledgement. It cannot be taken back.
+   */
+  dockIconAcknowledgedAt?: string
 }
 
 /**

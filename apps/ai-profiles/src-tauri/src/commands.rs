@@ -27,9 +27,14 @@ pub fn list_profiles() -> AppResult<Vec<Profile>> {
     profiles::load()
 }
 
+/// Building a wrapper takes seconds (a copy of the app is cloned and signed), so
+/// the commands that can build one run off the main thread, which would
+/// otherwise freeze the window for as long. That is what makes the store lock in
+/// `profiles` necessary.
+///
 /// `distinct_dock_icon` is opt-in: leaving it out means the profile gets the
 /// plain script launcher. Building a wrapper is something the user chooses.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_profile(
     app: AppKind,
     name: String,
@@ -48,6 +53,7 @@ pub fn create_profile(
 
 #[tauri::command]
 pub fn regenerate_launchers(id: String) -> AppResult<()> {
+    ensure_wrapper_not_running(&id)?;
     let profiles = profiles::load()?;
     let profile = profiles
         .iter()
@@ -62,8 +68,11 @@ pub fn regenerate_launchers(id: String) -> AppResult<()> {
     Ok(())
 }
 
-#[tauri::command]
+/// Every update rebuilds the launcher, whether it renames, recolors or switches
+/// its shape, so a wrapper that is running is refused it.
+#[tauri::command(async)]
 pub fn update_profile(id: String, patch: ProfilePatch) -> AppResult<Profile> {
+    ensure_wrapper_not_running(&id)?;
     profiles::update(&id, patch)
 }
 
@@ -72,13 +81,41 @@ pub fn delete_profile(id: String, move_to_trash: bool) -> AppResult<()> {
     profiles::delete(&id, move_to_trash)
 }
 
+/// Refuse to replace or remove a profile's wrapper while the profile is running
+/// from it. The running app *is* that bundle: taking it away leaves the app
+/// without files it has yet to load (the helper processes it starts for a new
+/// window, say), and a rename would leave the old one behind for good. An id that
+/// is not there is left for the operation itself to report.
+///
+/// Deleting a profile is not refused: it goes away on purpose, and its data goes
+/// out from under a running app either way, wrapper or not.
+fn ensure_wrapper_not_running(id: &str) -> AppResult<()> {
+    let all = profiles::load()?;
+    let Some(profile) = all.iter().find(|candidate| candidate.id == id) else {
+        return Ok(());
+    };
+    if crate::launch::running_wrapper(profile)?.is_some() {
+        return Err(AppError::Validation(format!(
+            "{} ({}) is running. Quit it first.",
+            profile.app.spec().display_name,
+            profile.name
+        )));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn reorder_profiles(ids: Vec<String>) -> AppResult<Vec<Profile>> {
     profiles::reorder(&ids)
 }
 
-#[tauri::command]
+/// Turning the desktop surface on builds a launcher, and off removes one, which a
+/// running wrapper is refused.
+#[tauri::command(async)]
 pub fn toggle_surface(id: String, surface: Surface, enabled: bool) -> AppResult<Profile> {
+    if surface == Surface::Gui && !enabled {
+        ensure_wrapper_not_running(&id)?;
+    }
     profiles::toggle_surface(&id, surface, enabled)
 }
 
@@ -349,6 +386,7 @@ pub fn import_existing_install(app: AppKind, input: ImportExistingInput) -> AppR
         }
     }
 
+    let _store = profiles::lock_store();
     let mut all = profiles::load()?;
     all.push(outcome.profile.clone());
     if let Err(err) = profiles::save_all(&all) {
@@ -633,5 +671,78 @@ mod cli_login_tests {
         // Defensive: a stray quote must not break out of the string literal.
         let script = terminal_applescript(r#"a"b\c"#);
         assert!(script.contains(r#"do script "a\"b\\c""#));
+    }
+}
+
+#[cfg(test)]
+mod running_wrapper_tests {
+    use super::*;
+    use crate::test_support::{fake_wrapper_process, APP_DIR_TEST_LOCK};
+
+    fn profile(id: &str, distinct_dock_icon: bool) -> Profile {
+        Profile {
+            id: id.into(),
+            app: AppKind::Claude,
+            name: "Work".into(),
+            slug: "work".into(),
+            color: "#000000".into(),
+            created_at: "2026-06-14T00:00:00Z".into(),
+            surfaces: Surfaces {
+                gui: true,
+                cli: false,
+            },
+            distinct_dock_icon,
+            last_used_at: None,
+        }
+    }
+
+    fn purge() {
+        let _ = std::fs::remove_dir_all(crate::paths::app_data_dir().unwrap());
+    }
+
+    #[test]
+    fn a_wrapper_that_is_running_is_refused_until_it_quits() {
+        let _guard = APP_DIR_TEST_LOCK.lock().unwrap();
+        purge();
+        let wrapped = profile("aaaaaaaa-0000-0000-0000-000000000007", true);
+        profiles::save_all(std::slice::from_ref(&wrapped)).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let data_dir = profile_data_dir(&wrapped.id).unwrap().join("gui-data");
+
+        let mut process = fake_wrapper_process(root.path(), &data_dir);
+        let while_running = ensure_wrapper_not_running(&wrapped.id);
+        process.kill().unwrap();
+        process.wait().unwrap();
+        let after = ensure_wrapper_not_running(&wrapped.id);
+        purge();
+
+        match while_running {
+            Err(AppError::Validation(message)) => assert!(message.contains(&wrapped.name)),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        after.unwrap();
+    }
+
+    #[test]
+    fn a_profile_that_is_not_running_from_a_wrapper_is_not_refused() {
+        let _guard = APP_DIR_TEST_LOCK.lock().unwrap();
+        purge();
+        let plain = profile("bbbbbbbb-0000-0000-0000-000000000007", false);
+        profiles::save_all(std::slice::from_ref(&plain)).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let data_dir = profile_data_dir(&plain.id).unwrap().join("gui-data");
+
+        // Something on its data dir that looks like a wrapper does not make it
+        // one: only a profile that asks for a wrapper is ever running from one.
+        let mut process = fake_wrapper_process(root.path(), &data_dir);
+        let plain_result = ensure_wrapper_not_running(&plain.id);
+        process.kill().unwrap();
+        process.wait().unwrap();
+        // An id that isn't there is for the operation itself to report.
+        let unknown_result = ensure_wrapper_not_running("no-such-profile");
+        purge();
+
+        plain_result.unwrap();
+        unknown_result.unwrap();
     }
 }

@@ -42,15 +42,47 @@ use crate::profiles::Profile;
 /// --user-data-dir=<dir>` therefore matches only the main process and rejects
 /// helpers, the crashpad handler, and instances bound to any other data dir.
 pub fn find_running_pid(ps_output: &str, data_dir: &str, gui_macos_exec: &str) -> Option<i32> {
-    let flag = format!(" --user-data-dir={data_dir}");
-    let stock = format!("/Contents/MacOS/{gui_macos_exec}{flag}");
-    let wrapped = format!("/Contents/MacOS/{gui_macos_exec}{VENDOR_BINARY_SUFFIX}{flag}");
+    first_pid_ending_with(
+        ps_output,
+        &[
+            stock_suffix(data_dir, gui_macos_exec),
+            wrapper_suffix(data_dir, gui_macos_exec),
+        ],
+    )
+}
+
+/// As [`find_running_pid`], but only for a profile running from its wrapper.
+pub fn find_running_wrapper_pid(
+    ps_output: &str,
+    data_dir: &str,
+    gui_macos_exec: &str,
+) -> Option<i32> {
+    first_pid_ending_with(ps_output, &[wrapper_suffix(data_dir, gui_macos_exec)])
+}
+
+/// The end of the command line of the stock app's main process.
+fn stock_suffix(data_dir: &str, gui_macos_exec: &str) -> String {
+    format!("/Contents/MacOS/{gui_macos_exec} --user-data-dir={data_dir}")
+}
+
+/// The end of the command line of a wrapper's main process: the vendor binary
+/// the shim started, next to the shim.
+fn wrapper_suffix(data_dir: &str, gui_macos_exec: &str) -> String {
+    format!("/Contents/MacOS/{gui_macos_exec}{VENDOR_BINARY_SUFFIX} --user-data-dir={data_dir}")
+}
+
+/// The PID of the first process in `ps_output` whose command line ends with one
+/// of `suffixes`.
+fn first_pid_ending_with(ps_output: &str, suffixes: &[String]) -> Option<i32> {
     for line in ps_output.lines() {
         let Some((pid, command)) = line.trim_start().split_once(char::is_whitespace) else {
             continue;
         };
         let command = command.trim_end();
-        if command.ends_with(&stock) || command.ends_with(&wrapped) {
+        if suffixes
+            .iter()
+            .any(|suffix| command.ends_with(suffix.as_str()))
+        {
             if let Ok(parsed) = pid.parse::<i32>() {
                 return Some(parsed);
             }
@@ -71,6 +103,25 @@ fn process_list() -> AppResult<String> {
 /// Scan running processes for a main GUI process bound to `data_dir`.
 fn running_pid(data_dir: &str, gui_macos_exec: &str) -> AppResult<Option<i32>> {
     Ok(find_running_pid(&process_list()?, data_dir, gui_macos_exec))
+}
+
+/// The PID of `profile`'s wrapper, if the profile is running from one.
+///
+/// Every executable name the app has gone by is tried: a wrapper's is the one of
+/// the vendor app it was cloned from, and that app may have been renamed since.
+pub fn running_wrapper(profile: &Profile) -> AppResult<Option<i32>> {
+    if !profile.distinct_dock_icon {
+        return Ok(None);
+    }
+    let spec = profile.app.spec();
+    let data_dir = profile_dir(&profile.id)?
+        .join("gui-data")
+        .display()
+        .to_string();
+    let processes = process_list()?;
+    Ok(spec.gui_bundle_candidates.iter().find_map(|candidate| {
+        find_running_wrapper_pid(&processes, &data_dir, candidate.macos_exec)
+    }))
 }
 
 /// Surface the already-running instance that owns `pid`: ask it to reopen a
@@ -644,6 +695,43 @@ mod tests {
     }
 
     #[test]
+    fn the_wrapper_search_finds_wrappers_and_nothing_else() {
+        assert_eq!(
+            find_running_wrapper_pid(&wrapped_ps(), PROFILE_DIR, "Claude"),
+            Some(61234)
+        );
+        // The stock app bound to the same dir is not a wrapper.
+        assert_eq!(
+            find_running_wrapper_pid(&sample_ps(), PROFILE_DIR, "Claude"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_profile_without_a_wrapper_is_never_running_from_one() {
+        let mut profile = wrapped_profile();
+        profile.distinct_dock_icon = false;
+        assert_eq!(running_wrapper(&profile).unwrap(), None);
+    }
+
+    #[test]
+    fn a_running_wrapper_is_found_and_a_stopped_one_is_not() {
+        let root = tempfile::tempdir().unwrap();
+        let profile = wrapped_profile();
+        let data_dir = profile_dir(&profile.id).unwrap().join("gui-data");
+        assert_eq!(running_wrapper(&profile).unwrap(), None);
+
+        let mut process = crate::test_support::fake_wrapper_process(root.path(), &data_dir);
+        let pid = i32::try_from(process.id()).unwrap();
+        let found = running_wrapper(&profile);
+        process.kill().unwrap();
+        process.wait().unwrap();
+
+        assert_eq!(found.unwrap(), Some(pid));
+        assert_eq!(running_wrapper(&profile).unwrap(), None);
+    }
+
+    #[test]
     fn the_launcher_is_chosen_by_the_setting_and_by_where_the_wrapper_stands() {
         use WrapperState::{Current, Missing, Stale};
 
@@ -1015,19 +1103,12 @@ mod tests {
             exec: vendor.macos_exec,
         };
         let running = || running_pid(&data_dir, vendor.macos_exec).unwrap();
-        let process_list = || {
-            let output = Command::new("ps")
-                .args(["-ax", "-o", "pid=,command="])
-                .output()
-                .unwrap();
-            String::from_utf8_lossy(&output.stdout).into_owned()
-        };
         let wrapper_binary = format!("{}/Contents/MacOS/Claude.bin", bundle.display());
 
         // Nothing there yet: it is built, then opened through the wrapper.
         assert_eq!(open_profile(&profile, "0.1.0", focus_pid).unwrap(), None);
         let first = running().expect("the wrapper is running");
-        assert!(process_list().contains(&wrapper_binary));
+        assert!(process_list().unwrap().contains(&wrapper_binary));
 
         // Opening it again focuses that instance and starts no other.
         assert_eq!(open_profile(&profile, "0.1.0", focus_pid).unwrap(), None);
@@ -1047,6 +1128,6 @@ mod tests {
             wait_until(|| running().is_some()),
             "the stock app took over"
         );
-        assert!(!process_list().contains(&wrapper_binary));
+        assert!(!process_list().unwrap().contains(&wrapper_binary));
     }
 }

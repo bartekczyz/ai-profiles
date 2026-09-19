@@ -14,7 +14,13 @@ import { queryKeys } from '@/lib/query/keys'
 
 type UseProfilesResult = {
   profiles: Array<Profile>
-  create: (input: { app: AppId; name: string; color: string; surfaces: Surfaces }) => Promise<Profile>
+  create: (input: {
+    app: AppId
+    name: string
+    color: string
+    surfaces: Surfaces
+    distinctDockIcon?: boolean
+  }) => Promise<Profile>
   update: (input: { id: string; patch: ProfilePatch }) => Promise<Profile>
   remove: (input: { id: string; moveToTrash: boolean }) => Promise<void>
   toggle: (input: { id: string; surface: Surface; enabled: boolean }) => Promise<Profile>

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -79,6 +80,22 @@ struct Store {
     profiles: Vec<Profile>,
 }
 
+/// Held for the whole of a load, change and save of `profiles.json`.
+///
+/// Commands that build launchers run off the main thread, so two of these can be
+/// in flight at once. Without the lock each would load the same list and the
+/// later save would silently drop the earlier one's change (and both write
+/// through the same temporary file). Reading needs no lock: a save is an atomic
+/// rename, so a read sees the list from before it or from after.
+static STORE_LOCK: Mutex<()> = Mutex::new(());
+
+/// Take [`STORE_LOCK`]. Keep the guard until the save is done.
+pub fn lock_store() -> MutexGuard<'static, ()> {
+    // A panic under the lock leaves nothing half-written (saves are renames), so
+    // a poisoned lock is as good as any other.
+    STORE_LOCK.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 pub fn load() -> AppResult<Vec<Profile>> {
     let path = profiles_json_path()?;
     if !path.exists() {
@@ -145,6 +162,7 @@ pub fn create(
         ));
     }
 
+    let _store = lock_store();
     let mut existing = load()?;
     if slug_taken(&existing, app, &slug, None) {
         return Err(AppError::Validation(format!(
@@ -270,6 +288,7 @@ fn patched(original: &Profile, patch: ProfilePatch, all: &[Profile]) -> AppResul
 }
 
 pub fn update(id: &str, patch: ProfilePatch) -> AppResult<Profile> {
+    let _store = lock_store();
     let mut all = load()?;
     let position = all
         .iter()
@@ -312,6 +331,7 @@ pub fn update(id: &str, patch: ProfilePatch) -> AppResult<Profile> {
 }
 
 pub fn delete(id: &str, move_to_trash: bool) -> AppResult<()> {
+    let _store = lock_store();
     let mut all = load()?;
     let position = all
         .iter()
@@ -343,6 +363,7 @@ pub fn delete(id: &str, move_to_trash: bool) -> AppResult<()> {
 }
 
 pub fn toggle_surface(id: &str, surface: Surface, enabled: bool) -> AppResult<Profile> {
+    let _store = lock_store();
     let mut all = load()?;
     let position = all
         .iter()
@@ -398,6 +419,7 @@ pub fn toggle_surface(id: &str, surface: Surface, enabled: bool) -> AppResult<Pr
 /// any future positional shortcut), so a single atomic write here
 /// updates both the visible list and the keybinding indices in one go.
 pub fn reorder(ids: &[String]) -> AppResult<Vec<Profile>> {
+    let _store = lock_store();
     let all = load()?;
     if ids.len() != all.len() {
         return Err(AppError::Validation(format!(
@@ -437,6 +459,7 @@ pub fn reorder(ids: &[String]) -> AppResult<Vec<Profile>> {
 /// given id and persist. Returns the updated profile so callers (IPC
 /// handlers) can hand it back to the React side without an extra load.
 pub fn touch_last_used(id: &str) -> AppResult<Profile> {
+    let _store = lock_store();
     let mut all = load()?;
     let position = all
         .iter()
@@ -690,6 +713,34 @@ mod tests {
         let persisted = load().unwrap();
         assert_eq!(persisted[0].last_used_at, None);
         assert_eq!(persisted[1].last_used_at, touched.last_used_at);
+        purge_for_test();
+    }
+
+    #[test]
+    fn changes_made_at_the_same_time_do_not_lose_each_other() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge_for_test();
+        let ids: Vec<String> = (0..12).map(|index| format!("p{index}")).collect();
+        let saved: Vec<Profile> = ids.iter().map(|id| fixture_profile(id, id)).collect();
+        save_all(&saved).unwrap();
+
+        // Twelve loads that would each have seen the same list.
+        let threads: Vec<_> = ids
+            .iter()
+            .cloned()
+            .map(|id| std::thread::spawn(move || touch_last_used(&id).unwrap()))
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        let unstamped: Vec<String> = load()
+            .unwrap()
+            .into_iter()
+            .filter(|profile| profile.last_used_at.is_none())
+            .map(|profile| profile.id)
+            .collect();
+        assert_eq!(unstamped, Vec::<String>::new());
         purge_for_test();
     }
 
