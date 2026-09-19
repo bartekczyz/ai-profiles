@@ -7,6 +7,7 @@ import type {
   ExistingInstallInfo,
   ExistingInstallSizes,
   ImportExistingInput,
+  LaunchResult,
   MigrationBackupInfo,
   PathHookOutcome,
   Profile,
@@ -30,7 +31,9 @@ export function createProfile(input: {
   name: string
   color: string
   surfaces: Surfaces
-  /** Opt-in: leaving it out gives the profile the plain script launcher. */
+  /**
+   * Opt-in: leaving it out gives the profile the plain script launcher.
+   */
   distinctDockIcon?: boolean
 }): Promise<Profile> {
   return invoke<Profile>('create_profile', input)
@@ -52,8 +55,8 @@ export function toggleSurface(input: { id: string; surface: Surface; enabled: bo
   return invoke<Profile>('toggle_surface', input)
 }
 
-export function openProfileInApp(id: string): Promise<Profile> {
-  return invoke<Profile>('open_profile_in_app', { id })
+export function openProfileInApp(id: string): Promise<LaunchResult> {
+  return invoke<LaunchResult>('open_profile_in_app', { id })
 }
 
 export function touchProfileLastUsed(id: string): Promise<Profile> {

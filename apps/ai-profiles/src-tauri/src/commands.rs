@@ -11,8 +11,8 @@ use crate::migration::{
 };
 use crate::path_setup::{self, PathHookOutcome, Shell};
 use crate::paths::{
-    gui_launcher_path, next_migration_backup_dir, profile_dir as profile_data_dir,
-    stock_cli_config_dir, stock_gui_support_dir,
+    next_migration_backup_dir, profile_dir as profile_data_dir, stock_cli_config_dir,
+    stock_gui_support_dir,
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
 use crate::usage::{
@@ -82,8 +82,34 @@ pub fn toggle_surface(id: String, surface: Surface, enabled: bool) -> AppResult<
     profiles::toggle_surface(&id, surface, enabled)
 }
 
-#[tauri::command]
-pub fn open_profile_in_app(id: String) -> AppResult<Profile> {
+/// What opening a profile's desktop app came to.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchResult {
+    /// The profile, with its last-used time stamped.
+    pub profile: Profile,
+    /// Set when the profile asks for a launcher of its own that was left out of
+    /// this launch, with why. The setting itself is untouched.
+    pub wrapper_bypass: Option<WrapperBypass>,
+}
+
+/// Why a profile's own launcher was skipped for one launch.
+#[derive(serde::Serialize)]
+pub struct WrapperBypass {
+    /// A sentence on what went wrong with the launcher.
+    pub reason: String,
+}
+
+/// Focus the profile's running window if there is one, otherwise launch it: via
+/// its `.app` bundle, which carries the tinted icon or, for a profile with its
+/// own Dock icon, is the app itself. A launcher that doesn't work never leaves
+/// the profile unlaunchable; see [`crate::launch::open_profile`].
+///
+/// Runs off the main thread, because it waits for the app to come up: a few
+/// seconds when macOS is assessing a wrapper it has not seen before, and a minute
+/// at the outside.
+#[tauri::command(async)]
+pub fn open_profile_in_app(app: tauri::AppHandle, id: String) -> AppResult<LaunchResult> {
     let all = profiles::load()?;
     let profile = all
         .iter()
@@ -92,27 +118,18 @@ pub fn open_profile_in_app(id: String) -> AppResult<Profile> {
     if !profile.surfaces.gui {
         return Err(AppError::Validation("profile has no GUI surface".into()));
     }
-    // Single-instance gate: focus the profile's running window if there is
-    // one, otherwise launch via its `.app` bundle (which carries the tinted
-    // icon). The bundle's data dir matches the launcher script's
-    // `--user-data-dir`, so detection lines up with what actually runs.
-    let data_dir = profile_data_dir(&id)?.join("gui-data");
-    let spec = profile.app.spec();
-    let app_path = gui_launcher_path(&profile.name, spec);
-    crate::launch::focus_or_launch(&data_dir.display().to_string(), spec, || {
-        let status = Command::new("open")
-            .arg(&app_path)
-            .status()
-            .map_err(AppError::Io)?;
-        if !status.success() {
-            return Err(AppError::Validation(format!(
-                "`open {}` exited with status {status}",
-                app_path.display()
-            )));
-        }
-        Ok(())
-    })?;
-    profiles::touch_last_used(&id)
+    // AppKit wants another app brought forward from the main thread, which this
+    // command is not on.
+    let focus = |pid: i32| {
+        let _ = app.run_on_main_thread(move || crate::launch::focus_pid(pid));
+    };
+    let bypass = crate::launch::open_profile(profile, env!("CARGO_PKG_VERSION"), focus)?;
+    Ok(LaunchResult {
+        profile: profiles::touch_last_used(&id)?,
+        wrapper_bypass: bypass.map(|bypass| WrapperBypass {
+            reason: bypass.to_string(),
+        }),
+    })
 }
 
 /// Stamp `last_used_at` on a profile without launching anything.
@@ -161,8 +178,8 @@ pub fn open_in_finder(path: String) -> AppResult<()> {
 #[tauri::command]
 pub fn open_default_gui(app: AppKind, data_dir: String) -> AppResult<()> {
     let app_spec = spec(app);
-    crate::launch::focus_or_launch(&data_dir, app_spec, || {
-        crate::launch::open_new_instance(&data_dir, app_spec)
+    crate::launch::focus_or_launch(&data_dir, app_spec, crate::launch::focus_pid, || {
+        crate::launch::open_new_instance(&data_dir, app_spec, None)
     })
 }
 

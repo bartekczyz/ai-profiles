@@ -45,29 +45,6 @@ pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
     Ok(bundle)
 }
 
-/// Rebuild `profile`'s wrapper if the vendor app has been updated since it was
-/// built, or if the wrapper has gone missing. Returns whether it rebuilt.
-///
-/// A stale wrapper fails silently: it keeps running the vendor version it was
-/// cloned from, with no error, so this has to run before a launch rather than
-/// wait for something to go wrong. Does nothing for a profile that has no
-/// wrapper.
-#[allow(dead_code)]
-pub fn refresh_wrapper_if_stale(profile: &Profile, version: &str) -> AppResult<bool> {
-    if !profile.surfaces.gui || !profile.distinct_dock_icon {
-        return Ok(false);
-    }
-    let spec = profile.app.spec();
-    let Some(vendor) = resolve_gui_app(spec) else {
-        return Ok(false);
-    };
-    if !wrapper::is_stale(&vendor.bundle_path, &gui_launcher_path(&profile.name, spec)) {
-        return Ok(false);
-    }
-    generate(profile, version)?;
-    Ok(true)
-}
-
 /// The shape every profile has had until now: a tiny bundle whose executable
 /// is a script that opens the stock app with the profile's `--user-data-dir`.
 fn build_script_launcher(
@@ -224,6 +201,7 @@ fn is_ours(bundle: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::launchers::wrapper::WrapperState;
     use crate::profiles::Surfaces;
 
     fn fixture() -> Profile {
@@ -457,10 +435,12 @@ mod tests {
 
     /// Opt-in: builds real wrappers under /Applications from the installed
     /// Claude and checks that toggling swaps the launcher's shape and that a
-    /// vendor update causes exactly one rebuild. Gated behind AI_PROFILES_E2E=1
-    /// because it writes to /Applications and signs a gigabyte or so.
+    /// rebuild brings a wrapper from an older vendor version up to date. Gated
+    /// behind AI_PROFILES_E2E=1 because it writes to /Applications and signs a
+    /// gigabyte or so.
     #[test]
-    fn toggling_the_dock_setting_swaps_the_launcher_shape_and_a_vendor_update_rebuilds_once() {
+    fn toggling_the_dock_setting_swaps_the_launcher_shape_and_a_rebuild_catches_up_with_the_vendor()
+    {
         if std::env::var("AI_PROFILES_E2E").is_err() {
             eprintln!("skipping; set AI_PROFILES_E2E=1 to run");
             return;
@@ -482,7 +462,8 @@ mod tests {
             wrapper::built_from_version(&bundle),
             wrapper::bundle_version(&vendor.bundle_path)
         );
-        assert!(!wrapper::is_stale(&vendor.bundle_path, &bundle));
+        let state = || wrapper::state(Some(&vendor.bundle_path), &bundle);
+        assert_eq!(state(), WrapperState::Current);
 
         profile.distinct_dock_icon = false;
         generate(&profile, "0.1.0").unwrap();
@@ -504,20 +485,12 @@ mod tests {
             .to_file_xml(&info_path)
             .unwrap();
 
-        assert!(
-            refresh_wrapper_if_stale(&profile, "0.1.0").unwrap(),
-            "rebuilt"
-        );
-        assert!(
-            !refresh_wrapper_if_stale(&profile, "0.1.0").unwrap(),
-            "only once"
-        );
-
-        // A profile without a wrapper is never refreshed.
-        profile.distinct_dock_icon = false;
-        assert!(!refresh_wrapper_if_stale(&profile, "0.1.0").unwrap());
+        assert_eq!(state(), WrapperState::Stale);
+        generate(&profile, "0.1.0").unwrap();
+        assert_eq!(state(), WrapperState::Current, "caught up");
 
         remove(&profile.name, spec).unwrap();
+        assert_eq!(state(), WrapperState::Missing);
         assert!(!bundle.exists());
         let applications = bundle.parent().unwrap();
         let leftovers: Vec<String> = hidden_leftovers(applications)

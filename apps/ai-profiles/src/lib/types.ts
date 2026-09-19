@@ -47,8 +47,35 @@ export type Surface = 'gui' | 'cli'
 export type ProfilePatch = {
   name?: string
   color?: string
-  /** Switching this rebuilds the launcher in the other shape. */
+  /**
+   * Switching this rebuilds the launcher in the other shape.
+   */
   distinctDockIcon?: boolean
+}
+
+/**
+ * Why a profile's own Dock-icon launcher was skipped for one launch.
+ */
+export type WrapperBypass = {
+  /**
+   * A sentence on what went wrong with the launcher.
+   */
+  reason: string
+}
+
+/**
+ * What opening a profile's desktop app came to.
+ */
+export type LaunchResult = {
+  /**
+   * The profile, with its last-used time stamped.
+   */
+  profile: Profile
+  /**
+   * Set when the profile asks for a launcher of its own that was left out of
+   * this launch, with why. The setting itself is untouched.
+   */
+  wrapperBypass: WrapperBypass | null
 }
 
 export type ProfilePaths = {

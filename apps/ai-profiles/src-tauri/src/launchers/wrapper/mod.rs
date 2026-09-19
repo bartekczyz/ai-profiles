@@ -206,16 +206,34 @@ pub fn version_drifted(current: &str, built_from: Option<&str>) -> bool {
     built_from != Some(current)
 }
 
-/// Whether the wrapper at `wrapper` has to be (re)built: it does not exist, or
-/// it was cloned from another version of the vendor app than is installed now.
-/// A vendor whose version cannot be read leaves an existing wrapper alone,
-/// because there is nothing to compare it with and a rebuild would fail anyway.
-pub fn is_stale(vendor_bundle: &Path, wrapper: &Path) -> bool {
+/// Where a wrapper stands against the vendor app it was cloned from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WrapperState {
+    /// There is nothing at the wrapper's path.
+    Missing,
+    /// It was cloned from another version of the vendor app than is installed
+    /// now.
+    Stale,
+    /// It is there and matches the installed vendor.
+    Current,
+}
+
+/// The state of the wrapper at `wrapper`, given the vendor app it is a clone of
+/// (`None` if that is not installed). A vendor whose version cannot be read
+/// leaves an existing wrapper `Current`, because there is nothing to compare it
+/// with and a rebuild would fail anyway.
+pub fn state(vendor_bundle: Option<&Path>, wrapper: &Path) -> WrapperState {
     if !wrapper.exists() {
-        return true;
+        return WrapperState::Missing;
     }
-    bundle_version(vendor_bundle)
-        .is_some_and(|current| version_drifted(&current, built_from_version(wrapper).as_deref()))
+    let drifted = vendor_bundle
+        .and_then(bundle_version)
+        .is_some_and(|current| version_drifted(&current, built_from_version(wrapper).as_deref()));
+    if drifted {
+        WrapperState::Stale
+    } else {
+        WrapperState::Current
+    }
 }
 
 /// Fail unless the signed wrapper verifies and neither of its binaries still
@@ -828,40 +846,6 @@ mod tests {
         assert!(version_drifted("2.2553.1", None), "no recorded version");
     }
 
-    #[test]
-    fn is_stale_compares_the_installed_vendor_with_what_the_wrapper_recorded() {
-        let dir = tempfile::tempdir().unwrap();
-        let record = info_plist::VENDOR_VERSION_KEY;
-        let vendor = bundle_with_info(dir.path(), "Vendor.app", &[("CFBundleVersion", "2.0")]);
-
-        let current = bundle_with_info(dir.path(), "Current.app", &[(record, "2.0")]);
-        assert!(!is_stale(&vendor, &current));
-
-        let older = bundle_with_info(dir.path(), "Older.app", &[(record, "1.9")]);
-        assert!(is_stale(&vendor, &older));
-
-        let unrecorded = bundle_with_info(dir.path(), "Unrecorded.app", &[]);
-        assert!(is_stale(&vendor, &unrecorded));
-
-        assert!(is_stale(&vendor, &dir.path().join("Missing.app")));
-    }
-
-    #[test]
-    fn is_stale_leaves_an_existing_wrapper_alone_when_the_vendor_cannot_be_read() {
-        let dir = tempfile::tempdir().unwrap();
-        let wrapper = bundle_with_info(
-            dir.path(),
-            "Wrapper.app",
-            &[(info_plist::VENDOR_VERSION_KEY, "2.0")],
-        );
-
-        assert!(!is_stale(&dir.path().join("NoVendor.app"), &wrapper));
-    }
-
-    /// Opt-in: builds wrappers from whichever vendor apps are installed, into a
-    /// temp dir (never `/Applications`), and checks what has to hold for them
-    /// to launch. Gated behind AI_PROFILES_E2E=1 because it needs those apps
-    /// and signs a gigabyte or so of them.
     /// A shell script at `path` that runs `body`.
     fn write_script(path: &Path, body: &str) {
         fs::write(path, format!("#!/bin/sh\n{body}")).unwrap();
@@ -913,6 +897,55 @@ mod tests {
         warm_up_within(&dir.path().join("no-such-shim"), Duration::from_secs(1));
     }
 
+    #[test]
+    fn state_compares_the_installed_vendor_with_what_the_wrapper_recorded() {
+        let dir = tempfile::tempdir().unwrap();
+        let record = info_plist::VENDOR_VERSION_KEY;
+        let vendor = bundle_with_info(dir.path(), "Vendor.app", &[("CFBundleVersion", "2.0")]);
+        let state_of = |wrapper: &Path| state(Some(&vendor), wrapper);
+
+        let current = bundle_with_info(dir.path(), "Current.app", &[(record, "2.0")]);
+        assert_eq!(state_of(&current), WrapperState::Current);
+
+        let older = bundle_with_info(dir.path(), "Older.app", &[(record, "1.9")]);
+        assert_eq!(state_of(&older), WrapperState::Stale);
+
+        let unrecorded = bundle_with_info(dir.path(), "Unrecorded.app", &[]);
+        assert_eq!(state_of(&unrecorded), WrapperState::Stale);
+
+        assert_eq!(
+            state_of(&dir.path().join("Missing.app")),
+            WrapperState::Missing
+        );
+    }
+
+    #[test]
+    fn state_leaves_an_existing_wrapper_alone_when_the_vendor_cannot_be_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let wrapper = bundle_with_info(
+            dir.path(),
+            "Wrapper.app",
+            &[(info_plist::VENDOR_VERSION_KEY, "2.0")],
+        );
+
+        let not_installed = None;
+        let unreadable = Some(dir.path().join("NoVendor.app"));
+        assert_eq!(state(not_installed, &wrapper), WrapperState::Current);
+        assert_eq!(
+            state(unreadable.as_deref(), &wrapper),
+            WrapperState::Current
+        );
+        // Nothing to compare with does not make up for nothing being there.
+        assert_eq!(
+            state(not_installed, &dir.path().join("Missing.app")),
+            WrapperState::Missing
+        );
+    }
+
+    /// Opt-in: builds wrappers from whichever vendor apps are installed, into a
+    /// temp dir (never `/Applications`), and checks what has to hold for them
+    /// to launch. Gated behind AI_PROFILES_E2E=1 because it needs those apps
+    /// and signs a gigabyte or so of them.
     #[test]
     fn builds_wrappers_from_the_installed_vendor_apps() {
         if std::env::var("AI_PROFILES_E2E").is_err() {
