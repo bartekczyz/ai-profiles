@@ -73,7 +73,7 @@ fn unpremultiplied(rows: &[u8], row_bytes: usize, size: u32) -> Vec<u8> {
     let width = size as usize * 4;
     let mut pixels = Vec::with_capacity(width * size as usize);
     for row in rows.chunks_exact(row_bytes).take(size as usize) {
-        for pixel in row[..width].chunks_exact(4) {
+        for pixel in row[..width].as_chunks::<4>().0 {
             let alpha = u32::from(pixel[3]);
             if alpha == 0 {
                 pixels.extend_from_slice(&[0, 0, 0, 0]);

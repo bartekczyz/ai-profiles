@@ -204,7 +204,7 @@ fn system_artwork(_bundle: &Path) -> Option<Artwork> {
 fn opaque_bounds(rgba: &[u8], size: u32) -> Option<Bounds> {
     let size = size as usize;
     let (mut left, mut top, mut right, mut bottom) = (size, size, 0, 0);
-    for (index, pixel) in rgba.chunks_exact(4).enumerate() {
+    for (index, pixel) in rgba.as_chunks::<4>().0.iter().enumerate() {
         if pixel[3] >= TILE_ALPHA_THRESHOLD {
             let (x, y) = (index % size, index / size);
             left = left.min(x);
@@ -252,7 +252,7 @@ fn downsample(rgba: &[u8], src_size: u32, dst_size: u32) -> Vec<u8> {
             let (mut red, mut green, mut blue, mut alpha) = (0u64, 0u64, 0u64, 0u64);
             for y in rows.clone() {
                 let row = &rgba[(y * src + columns.start) * 4..(y * src + columns.end) * 4];
-                for pixel in row.chunks_exact(4) {
+                for pixel in row.as_chunks::<4>().0 {
                     let pixel_alpha = u64::from(pixel[3]);
                     red += u64::from(pixel[0]) * pixel_alpha;
                     green += u64::from(pixel[1]) * pixel_alpha;
@@ -567,8 +567,10 @@ mod tests {
             let plain = downsample(&artwork.rgba, artwork.size, size);
             let badged = badged_artwork(&artwork, size, PROFILE_RGB);
             let changed = plain
-                .chunks_exact(4)
-                .zip(badged.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(badged.as_chunks::<4>().0)
                 .filter(|(before, after)| before[3] != after[3])
                 .count();
             assert_eq!(changed, 0, "{size}px: the badge changed the silhouette");
