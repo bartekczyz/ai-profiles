@@ -32,6 +32,12 @@ pub struct AppState {
     pub theme_mode: ThemeMode,
     #[serde(default)]
     pub selected_entry_id: Option<String>,
+    /// When the user first said they understood what giving a profile its own
+    /// Dock icon involves (a re-signed copy of the app, a fresh sign-in, no
+    /// Gatekeeper on the copy). Until then the app explains it before the first
+    /// profile gets one; afterwards it does not ask again.
+    #[serde(default)]
+    pub dock_icon_acknowledged_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -53,6 +59,10 @@ pub struct AppStatePatch {
     pub selected_entry_id: Option<String>,
     #[serde(default)]
     pub clear_selected_entry_id: bool,
+    /// Sets the acknowledgement. There is no way to take it back: it records
+    /// something the user has been told.
+    #[serde(default)]
+    pub dock_icon_acknowledged_at: Option<String>,
 }
 
 pub fn load() -> AppResult<AppState> {
@@ -98,6 +108,9 @@ pub fn apply(patch: AppStatePatch) -> AppResult<AppState> {
         state.selected_entry_id = None;
     } else if patch.selected_entry_id.is_some() {
         state.selected_entry_id = patch.selected_entry_id;
+    }
+    if patch.dock_icon_acknowledged_at.is_some() {
+        state.dock_icon_acknowledged_at = patch.dock_icon_acknowledged_at;
     }
     save(&state)?;
     Ok(state)
@@ -173,6 +186,7 @@ mod tests {
             path_banner_dismissed_at: None,
             theme_mode: ThemeMode::default(),
             selected_entry_id: None,
+            dock_icon_acknowledged_at: Some("2026-05-21T09:30:00Z".into()),
         };
         save(&state).unwrap();
         let loaded = load().unwrap();
@@ -190,6 +204,7 @@ mod tests {
             path_banner_dismissed_at: None,
             theme_mode: ThemeMode::default(),
             selected_entry_id: None,
+            dock_icon_acknowledged_at: Some("acknowledged".into()),
         })
         .unwrap();
 
@@ -200,6 +215,10 @@ mod tests {
         .unwrap();
         assert!(after.welcome_shown);
         assert_eq!(after.migration_dismissed_at.as_deref(), Some("old"));
+        assert_eq!(
+            after.dock_icon_acknowledged_at.as_deref(),
+            Some("acknowledged")
+        );
         purge();
     }
 
@@ -213,6 +232,7 @@ mod tests {
             path_banner_dismissed_at: Some("set".into()),
             theme_mode: ThemeMode::default(),
             selected_entry_id: None,
+            dock_icon_acknowledged_at: None,
         })
         .unwrap();
 
@@ -273,6 +293,7 @@ mod tests {
             path_banner_dismissed_at: None,
             theme_mode: ThemeMode::default(),
             selected_entry_id: Some("profile-xyz".into()),
+            dock_icon_acknowledged_at: None,
         })
         .unwrap();
         let after = apply(AppStatePatch {
@@ -281,6 +302,57 @@ mod tests {
         })
         .unwrap();
         assert_eq!(after.selected_entry_id, None);
+        purge();
+    }
+
+    #[test]
+    fn the_dock_icon_acknowledgement_starts_unset_and_sticks_once_given() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        assert_eq!(AppState::default().dock_icon_acknowledged_at, None);
+
+        let after = apply(AppStatePatch {
+            dock_icon_acknowledged_at: Some("2026-05-21T09:30:00Z".into()),
+            ..AppStatePatch::default()
+        })
+        .unwrap();
+        assert_eq!(
+            after.dock_icon_acknowledged_at.as_deref(),
+            Some("2026-05-21T09:30:00Z")
+        );
+
+        // A patch that says nothing about it, or every clear flag there is,
+        // leaves it alone: it records something the user was told.
+        let untouched = apply(AppStatePatch {
+            welcome_shown: Some(true),
+            clear_migration_dismissed: true,
+            clear_path_banner_dismissed: true,
+            clear_selected_entry_id: true,
+            ..AppStatePatch::default()
+        })
+        .unwrap();
+        assert_eq!(
+            untouched.dock_icon_acknowledged_at.as_deref(),
+            Some("2026-05-21T09:30:00Z")
+        );
+        assert_eq!(
+            load().unwrap().dock_icon_acknowledged_at.as_deref(),
+            Some("2026-05-21T09:30:00Z")
+        );
+        purge();
+    }
+
+    #[test]
+    fn state_saved_before_the_acknowledgement_existed_loads_as_not_acknowledged() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        crate::paths::ensure_app_dir().unwrap();
+        std::fs::write(
+            crate::paths::app_state_json_path().unwrap(),
+            r#"{"welcomeShown": true, "themeMode": "dark"}"#,
+        )
+        .unwrap();
+        assert_eq!(load().unwrap().dock_icon_acknowledged_at, None);
         purge();
     }
 }

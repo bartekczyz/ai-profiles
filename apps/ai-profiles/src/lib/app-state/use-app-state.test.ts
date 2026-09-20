@@ -54,4 +54,37 @@ describe('useAppState', () => {
     })
     await waitFor(() => expect(result.current.state.welcomeShown).toBe(true))
   })
+
+  it('passes the Dock icon acknowledgement through and reflects it in state', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      welcomeShown: true,
+      migrationDismissedAt: null,
+      pathBannerDismissedAt: null,
+      themeMode: 'system',
+      selectedEntryId: null,
+      dockIconAcknowledgedAt: null,
+    })
+    const { result } = renderHookWithQuery(() => useAppState())
+    await waitFor(() => expect(result.current).not.toBeNull())
+    expect(result.current.state.dockIconAcknowledgedAt).toBeNull()
+
+    const acknowledgedAt = '2026-05-21T09:30:00.000Z'
+    mockInvoke.mockResolvedValueOnce({
+      welcomeShown: true,
+      migrationDismissedAt: null,
+      pathBannerDismissedAt: null,
+      themeMode: 'system',
+      selectedEntryId: null,
+      dockIconAcknowledgedAt: acknowledgedAt,
+    })
+
+    await act(async () => {
+      await result.current.update({ dockIconAcknowledgedAt: acknowledgedAt })
+    })
+
+    expect(mockInvoke).toHaveBeenLastCalledWith('update_app_state', {
+      patch: { dockIconAcknowledgedAt: acknowledgedAt },
+    })
+    await waitFor(() => expect(result.current.state.dockIconAcknowledgedAt).toBe(acknowledgedAt))
+  })
 })

@@ -14,6 +14,7 @@ function profile(overrides: Partial<Profile> = {}): Profile {
     slug: 'personal',
     color: '#d97757',
     createdAt: '2026-05-20T12:00:00Z',
+    distinctDockIcon: false,
     lastUsedAt: null,
     surfaces: { gui: true, cli: true },
     ...overrides,

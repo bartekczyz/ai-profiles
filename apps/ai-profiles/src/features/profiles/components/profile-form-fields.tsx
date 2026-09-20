@@ -1,12 +1,13 @@
+import type { ReactNode } from 'react'
 import type { AppId, Dependencies, Surfaces } from '@/lib/types'
 
-import { Check } from 'lucide-react'
+import { Check, Info } from 'lucide-react'
 
 // cross-feature: form fields use the profile color picker primitive
-import { cn } from '@/design'
+import { Button, cn } from '@/design'
 import { Input } from '@/design/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/design/ui/select'
-import { appIds, appSpecs } from '@/lib/app-registry'
+import { type AppSpec, appIds, appSpecs } from '@/lib/app-registry'
 import { presetColors } from '@/lib/colors'
 
 import { ColorSwatchPicker } from './color-swatch-picker'
@@ -16,6 +17,11 @@ type Props = {
   name: string
   color: string
   surfaces: Surfaces
+  /**
+   * Whether the profile gets a Dock icon of its own. Shown as it will be saved,
+   * so it reads as off whenever the desktop launcher is.
+   */
+  distinctDockIcon: boolean
   dependencies: Dependencies
   installedApps?: ReadonlyArray<AppId>
   showSlugPreview?: boolean
@@ -23,6 +29,11 @@ type Props = {
   onNameChange: (name: string) => void
   onColorChange: (color: string) => void
   onSurfacesChange: (next: Surfaces) => void
+  onDistinctDockIconChange: (next: boolean) => void
+  /**
+   * Opens the explanation of the Dock icon option, for reading.
+   */
+  onExplainDockIcon: () => void
 }
 
 /**
@@ -46,18 +57,20 @@ export function slugifyPreview(name: string): string {
 }
 
 /**
- * Shared form body for the create modal.
+ * Shared form body for the create and edit modals.
  *
  * Layout: app-type Select, tracked-uppercase eyebrow label + name input + live
- * slug helper, color swatch row, two surface toggle cards. Surface cards
- * self-disable when the underlying dependency is missing; the parent renders
- * the actionable copy ("Install … first") underneath if it cares.
+ * slug helper, color swatch row, two surface toggle cards with the Dock icon
+ * option under the desktop one. Surface cards self-disable when the underlying
+ * dependency is missing; the parent renders the actionable copy ("Install …
+ * first") underneath if it cares.
  */
 export function ProfileFormFields({
   app,
   name,
   color,
   surfaces,
+  distinctDockIcon,
   dependencies,
   installedApps,
   showSlugPreview = true,
@@ -65,11 +78,15 @@ export function ProfileFormFields({
   onNameChange,
   onColorChange,
   onSurfacesChange,
+  onDistinctDockIconChange,
+  onExplainDockIcon,
 }: Props) {
   const slugPreview = name.trim().length > 0 ? slugifyPreview(name) : ''
   const resolvedApp = app !== '' && app !== undefined ? app : undefined
   const spec = resolvedApp !== undefined ? appSpecs[resolvedApp] : null
   const appDeps = resolvedApp !== undefined ? dependencies.apps[resolvedApp] : null
+  // The Dock icon belongs to the desktop launcher, so it means nothing without one.
+  const desktopLauncher = surfaces.gui && (appDeps?.guiInstalled ?? false)
 
   return (
     <div className="space-y-4">
@@ -115,13 +132,25 @@ export function ProfileFormFields({
       </Field>
       <Field label="Surfaces">
         <div className="flex flex-col gap-2.5">
-          <SurfaceToggle
-            checked={surfaces.gui && (appDeps?.guiInstalled ?? false)}
-            disabled={!(appDeps?.guiInstalled ?? false)}
-            title={spec?.gui.label ?? 'Desktop App launcher'}
-            description={spec?.gui.description ?? ''}
-            onChange={(next) => onSurfacesChange({ ...surfaces, gui: next })}
-          />
+          {/* The Dock icon is an option of the desktop launcher, so it shares its card. */}
+          <SurfaceCard>
+            <ToggleRow
+              checked={surfaces.gui && (appDeps?.guiInstalled ?? false)}
+              disabled={!(appDeps?.guiInstalled ?? false)}
+              title={spec?.gui.label ?? 'Desktop App launcher'}
+              description={spec?.gui.description ?? ''}
+              onChange={(next) => onSurfacesChange({ ...surfaces, gui: next })}
+            />
+            <ToggleRow
+              nested
+              checked={distinctDockIcon && desktopLauncher}
+              disabled={!desktopLauncher}
+              title="Distinct Dock icon"
+              description={dockIconDescription(spec)}
+              info={{ label: 'About the Dock icon', onClick: onExplainDockIcon }}
+              onChange={onDistinctDockIconChange}
+            />
+          </SurfaceCard>
           {appDeps !== null && !appDeps.guiInstalled ? (
             <p className="pl-7 font-mono text-mono text-muted-strong">
               Install{' '}
@@ -131,13 +160,15 @@ export function ProfileFormFields({
               first.
             </p>
           ) : null}
-          <SurfaceToggle
-            checked={surfaces.cli && (appDeps?.cliInstalled ?? false)}
-            disabled={!(appDeps?.cliInstalled ?? false)}
-            title={spec?.cli.label ?? 'CLI wrapper'}
-            description={spec?.cli.description ?? ''}
-            onChange={(next) => onSurfacesChange({ ...surfaces, cli: next })}
-          />
+          <SurfaceCard>
+            <ToggleRow
+              checked={surfaces.cli && (appDeps?.cliInstalled ?? false)}
+              disabled={!(appDeps?.cliInstalled ?? false)}
+              title={spec?.cli.label ?? 'CLI wrapper'}
+              description={spec?.cli.description ?? ''}
+              onChange={(next) => onSurfacesChange({ ...surfaces, cli: next })}
+            />
+          </SurfaceCard>
           {appDeps !== null && !appDeps.cliInstalled ? (
             <p className="pl-7 font-mono text-mono text-muted-strong">
               Install{' '}
@@ -151,6 +182,20 @@ export function ProfileFormFields({
       </Field>
     </div>
   )
+}
+
+/**
+ * What the Dock icon option says next to its checkbox, so the price of it (for
+ * ChatGPT, its notifications) is in front of the user before they turn it on,
+ * not only in the explanation that follows.
+ */
+function dockIconDescription(spec: AppSpec | null): string {
+  const intro = 'Gives this profile its own Dock icon and name.'
+  if (spec === null) {
+    return intro
+  }
+  const cost = spec.dockIcon.cost === null ? '' : ` ${spec.dockIcon.cost}`
+  return `${intro}${cost} The default ${spec.displayName} keeps the stock app.`
 }
 
 type FieldProps = {
@@ -173,44 +218,85 @@ function Field({ label, htmlFor, children }: FieldProps) {
   )
 }
 
-type SurfaceToggleProps = {
+/**
+ * A surface, drawn as a card of one or more rows, each a toggle of its own.
+ */
+function SurfaceCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="divide-y divide-border-soft overflow-hidden rounded-lg border border-border bg-white dark:bg-cream-2">
+      {children}
+    </div>
+  )
+}
+
+type ToggleRowProps = {
   checked: boolean
   disabled: boolean
   title: string
   description: string
+  /**
+   * Set for an option of the row above it, so that it sits under that row's
+   * title rather than under its checkbox.
+   */
+  nested?: boolean
+  /**
+   * A button on the row that opens an explanation of the option, for an option
+   * that needs one. It is a control of its own: pressing it does not toggle the
+   * option, and it works while the option is disabled.
+   */
+  info?: { label: string; onClick: () => void }
   onChange: (next: boolean) => void
 }
 
-function SurfaceToggle({ checked, disabled, title, description, onChange }: SurfaceToggleProps) {
+function ToggleRow({ checked, disabled, title, description, nested = false, info, onChange }: ToggleRowProps) {
   return (
-    // biome-ignore lint/a11y/useSemanticElements: rich card layout with description copy precludes a native <input type="checkbox">
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        'flex w-full items-start gap-3 rounded-lg border border-border bg-white p-3 text-left cursor-pointer transition-[border-color,background-color] duration-(--duration-snap) ease-(--ease-natural)',
-        'hover:not-disabled:border-border-strong',
-        'disabled:cursor-not-allowed disabled:opacity-60',
-        'dark:bg-cream-2',
-      )}
-    >
-      <span
-        aria-hidden
+    <div className="relative">
+      {/* biome-ignore lint/a11y/useSemanticElements: rich row layout with description copy precludes a native <input type="checkbox"> */}
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
         className={cn(
-          'mt-px grid h-4 w-4 shrink-0 place-items-center rounded-[5px] border-[1.5px] transition-colors duration-(--duration-snap) ease-(--ease-natural)',
-          checked ? 'border-orange bg-orange' : 'border-border bg-cream',
+          'flex w-full items-start gap-3 p-3 text-left cursor-pointer transition-colors duration-(--duration-snap) ease-(--ease-natural)',
+          'hover:not-disabled:bg-black/[0.02] dark:hover:not-disabled:bg-white/[0.03]',
+          // Inside the row, so the card's edge does not clip it.
+          'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-orange/40',
+          'disabled:cursor-not-allowed disabled:opacity-60',
+          // A nested option lines up with the title of the row above: past its
+          // checkbox (16px) and the gap (12px), from the row's own padding (12px).
+          nested && 'pl-10',
+          // Room for the info button, which sits on the row rather than in it.
+          info !== undefined && 'pr-11',
         )}
       >
-        {checked ? <Check className="h-[11px] w-[11px] text-white" strokeWidth={3} /> : null}
-      </span>
-      <span className="flex-1">
-        <span className="block text-[13px] font-medium text-ink">{title}</span>
-        <span className="mt-0.5 block text-[12px] text-muted leading-[1.4]">{description}</span>
-      </span>
-    </button>
+        <span
+          aria-hidden
+          className={cn(
+            'mt-px grid h-4 w-4 shrink-0 place-items-center rounded-[5px] border-[1.5px] transition-colors duration-(--duration-snap) ease-(--ease-natural)',
+            checked ? 'border-orange bg-orange' : 'border-border bg-cream',
+          )}
+        >
+          {checked ? <Check className="h-[11px] w-[11px] text-white" strokeWidth={3} /> : null}
+        </span>
+        <span className="flex-1">
+          <span className="block text-[13px] font-medium text-ink">{title}</span>
+          <span className="mt-0.5 block text-[12px] text-muted leading-[1.4]">{description}</span>
+        </span>
+      </button>
+      {info !== undefined ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={info.label}
+          title={info.label}
+          leadingIcon={<Info className="h-4 w-4" />}
+          className="absolute top-2 right-2 h-6 w-6 px-0"
+          onClick={info.onClick}
+        />
+      ) : null}
+    </div>
   )
 }
 

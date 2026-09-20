@@ -11,6 +11,18 @@ type DialogProps = {
   head?: ReactNode
   foot?: ReactNode
   className?: string
+  /**
+   * Set when the dialog opens over another one. Its backdrop is darker then, so
+   * the dialog underneath recedes instead of competing with it.
+   */
+  stacked?: boolean
+  /**
+   * Whether pressing the page behind the dialog closes it. Turn it off for a
+   * dialog that holds something the user has been filling in, which a stray
+   * press would otherwise throw away; Escape and the dialog's own buttons still
+   * close it.
+   */
+  closeOnOutsideClick?: boolean
   children: ReactNode
   onClose: () => void
   /**
@@ -43,7 +55,19 @@ type DialogProps = {
  * impose footer semantics so danger dialogs and confirm dialogs share
  * the same primitive.
  */
-export function Dialog({ open, title, description, head, foot, className, children, onClose, onSubmit }: DialogProps) {
+export function Dialog({
+  open,
+  title,
+  description,
+  head,
+  foot,
+  className,
+  stacked = false,
+  closeOnOutsideClick = true,
+  children,
+  onClose,
+  onSubmit,
+}: DialogProps) {
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (!onSubmit || event.key !== 'Enter' || event.isDefaultPrevented()) {
       return
@@ -63,9 +87,22 @@ export function Dialog({ open, title, description, head, foot, className, childr
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => (next ? null : onClose())}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgba(26,24,21,0.18)] backdrop-blur-sm backdrop-saturate-150 data-[state=closed]:opacity-0 dark:bg-[rgba(0,0,0,0.55)]" />
+        {/* Overlay and content share a z-index on purpose. Each dialog is portaled
+            after the ones already open, so with equal z-indexes everything of a
+            newer dialog, backdrop included, paints over everything of an older one. */}
+        <DialogPrimitive.Overlay
+          className={cn(
+            'fixed inset-0 z-50 bg-[rgba(26,24,21,0.18)] backdrop-blur-sm backdrop-saturate-150 data-[state=closed]:opacity-0 dark:bg-[rgba(0,0,0,0.55)]',
+            stacked && 'bg-[rgba(26,24,21,0.42)] dark:bg-[rgba(0,0,0,0.72)]',
+          )}
+        />
         <DialogPrimitive.Content
           onKeyDown={handleKeyDown}
+          onPointerDownOutside={(event) => {
+            if (!closeOnOutsideClick) {
+              event.preventDefault()
+            }
+          }}
           className={cn(
             'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 outline-none',
             'w-[min(440px,calc(100%-64px))] rounded-xl border border-[color:rgba(40,30,20,0.1)] bg-cream',
