@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/bartekczyz/ai-profiles/compare/v1.1.0...v1.2.0) (2026-09-20)
+
+
+### Added
+
+* **launchers:** let profiles have their own Dock icon and name ([#40](https://github.com/bartekczyz/ai-profiles/issues/40)) ([c9810e2](https://github.com/bartekczyz/ai-profiles/commit/c9810e20b0b94bb12b3a5ac9852e3b435df22d0b))
+* **whats-new:** show release notes after an upgrade ([#42](https://github.com/bartekczyz/ai-profiles/issues/42)) ([52bcad0](https://github.com/bartekczyz/ai-profiles/commit/52bcad07e826a7bdd6fd6f4232c11a0d78c2904b))
+
 ## [1.1.0](https://github.com/bartekczyz/ai-profiles/compare/v1.0.2...v1.1.0) (2026-08-09)
 
 
