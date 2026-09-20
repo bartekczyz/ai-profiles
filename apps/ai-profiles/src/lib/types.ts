@@ -16,6 +16,12 @@ export type Profile = {
   createdAt: string
   surfaces: Surfaces
   /**
+   * Whether the desktop launcher is a wrapper app with a Dock identity of its
+   * own (icon, label, pinnable tile) rather than a script that opens the stock
+   * app. Off for profiles saved before the setting existed.
+   */
+  distinctDockIcon: boolean
+  /**
    * RFC 3339 timestamp of the last `launched_gui` or `copied_cli` event,
    * or `null` if this profile has never been used.
    */
@@ -41,6 +47,35 @@ export type Surface = 'gui' | 'cli'
 export type ProfilePatch = {
   name?: string
   color?: string
+  /**
+   * Switching this rebuilds the launcher in the other shape.
+   */
+  distinctDockIcon?: boolean
+}
+
+/**
+ * Why a profile's own Dock-icon launcher was skipped for one launch.
+ */
+export type WrapperBypass = {
+  /**
+   * A sentence on what went wrong with the launcher.
+   */
+  reason: string
+}
+
+/**
+ * What opening a profile's desktop app came to.
+ */
+export type LaunchResult = {
+  /**
+   * The profile, with its last-used time stamped.
+   */
+  profile: Profile
+  /**
+   * Set when the profile asks for a launcher of its own that was left out of
+   * this launch, with why. The setting itself is untouched.
+   */
+  wrapperBypass: WrapperBypass | null
 }
 
 export type ProfilePaths = {
@@ -109,6 +144,11 @@ export type AppState = {
   pathBannerDismissedAt: string | null
   themeMode: ThemeMode
   selectedEntryId: string | null
+  /**
+   * When the user first confirmed they understand what giving a profile its own
+   * Dock icon involves. `null` until then, which is when the explanation is shown.
+   */
+  dockIconAcknowledgedAt: string | null
 }
 
 export type AppStatePatch = {
@@ -120,6 +160,10 @@ export type AppStatePatch = {
   clearPathBannerDismissed?: boolean
   selectedEntryId?: string | null
   clearSelectedEntryId?: boolean
+  /**
+   * Records the acknowledgement. It cannot be taken back.
+   */
+  dockIconAcknowledgedAt?: string
 }
 
 /**

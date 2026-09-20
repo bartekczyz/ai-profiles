@@ -3,25 +3,52 @@ import type { AppId, Dependencies, Surfaces } from '@/lib/types'
 import { useState } from 'react'
 
 import { Button, Dialog, Kbd, useToast } from '@/design'
-import { appIds } from '@/lib/app-registry'
+import { appIds, appSpecs } from '@/lib/app-registry'
 import { isValidHexColor, presetColors } from '@/lib/colors'
 import { extractErrorMessage } from '@/lib/extract-error-message'
 
+import { DockIconConsentDialog } from './dock-icon-consent-dialog'
 import { ProfileFormFields } from './profile-form-fields'
+import { useDockIconConsent } from './use-dock-icon-consent'
 
 type Props = {
   open: boolean
   dependencies: Dependencies
+  /**
+   * Whether the user has already confirmed they understand what a Dock icon of
+   * its own involves. Until they have, the option starts off for every app and
+   * turning it on explains itself first; after, it starts on for the apps where
+   * that costs nothing they would notice.
+   */
+  dockIconAcknowledged: boolean
   submitting?: boolean
   onClose: () => void
-  onCreate: (input: { app: AppId; name: string; color: string; surfaces: Surfaces }) => Promise<void>
+  onAcknowledgeDockIcon: () => Promise<void>
+  onCreate: (input: {
+    app: AppId
+    name: string
+    color: string
+    surfaces: Surfaces
+    distinctDockIcon: boolean
+  }) => Promise<void>
 }
 
-export function CreateProfileDialog({ open, dependencies, submitting, onClose, onCreate }: Props) {
+export function CreateProfileDialog({
+  open,
+  dependencies,
+  dockIconAcknowledged,
+  submitting,
+  onClose,
+  onAcknowledgeDockIcon,
+  onCreate,
+}: Props) {
   const toast = useToast()
   const [name, setName] = useState('')
   const [color, setColor] = useState<string>(presetColors[0])
   const [surfaces, setSurfaces] = useState<Surfaces>({ gui: true, cli: true })
+  // `null` until the user has chosen, so that the app's default follows them
+  // when they change the app.
+  const [dockIconChoice, setDockIconChoice] = useState<boolean | null>(null)
 
   const installedApps = appIds.filter((id) => dependencies.apps[id].guiInstalled || dependencies.apps[id].cliInstalled)
   // Pre-select when exactly one app is installed; otherwise leave empty so the
@@ -33,6 +60,14 @@ export function CreateProfileDialog({ open, dependencies, submitting, onClose, o
   const effectiveGui = surfaces.gui && (appDeps?.guiInstalled ?? false)
   const effectiveCli = surfaces.cli && (appDeps?.cliInstalled ?? false)
   const canSubmit = app !== '' && name.trim().length > 0 && isValidHexColor(color) && (effectiveGui || effectiveCli)
+
+  const dockIconByDefault = app !== '' && dockIconAcknowledged && appSpecs[app].dockIcon.defaultOn
+  const dockIcon = (dockIconChoice ?? dockIconByDefault) && effectiveGui
+  const dockIconConsent = useDockIconConsent({
+    acknowledged: dockIconAcknowledged,
+    onChoose: setDockIconChoice,
+    onAcknowledge: onAcknowledgeDockIcon,
+  })
 
   async function handleSubmit() {
     if (!canSubmit || submitting) {
@@ -46,10 +81,12 @@ export function CreateProfileDialog({ open, dependencies, submitting, onClose, o
         name: name.trim(),
         color,
         surfaces: { gui: effectiveGui, cli: effectiveCli },
+        distinctDockIcon: dockIcon,
       })
       setName('')
       setColor(presetColors[0])
       setSurfaces({ gui: true, cli: true })
+      setDockIconChoice(null)
       setApp(defaultApp)
       onClose()
     } catch (caught) {
@@ -58,41 +95,57 @@ export function CreateProfileDialog({ open, dependencies, submitting, onClose, o
   }
 
   return (
-    <Dialog
-      open={open}
-      title="New profile"
-      description="A profile bundles a Desktop launcher and a CLI wrapper. Pick a name and color; everything else stays isolated."
-      onClose={onClose}
-      onSubmit={handleSubmit}
-      foot={
-        <>
-          <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={submitting} onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            trailingKbd={<Kbd variant="onOrange">⏎</Kbd>}
-            disabled={!canSubmit || submitting}
-            onClick={handleSubmit}
-          >
-            Create profile
-          </Button>
-        </>
-      }
-    >
-      <ProfileFormFields
-        app={app}
-        name={name}
-        color={color}
-        surfaces={surfaces}
-        dependencies={dependencies}
-        installedApps={installedApps}
-        onAppChange={setApp}
-        onNameChange={setName}
-        onColorChange={setColor}
-        onSurfacesChange={setSurfaces}
-      />
-    </Dialog>
+    <>
+      <Dialog
+        open={open}
+        title="New profile"
+        description="A profile bundles a Desktop launcher and a CLI wrapper. Pick a name and color; everything else stays isolated."
+        closeOnOutsideClick={false}
+        onClose={onClose}
+        onSubmit={handleSubmit}
+        foot={
+          <>
+            <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={submitting} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              trailingKbd={<Kbd variant="onOrange">⏎</Kbd>}
+              disabled={!canSubmit || submitting}
+              onClick={handleSubmit}
+            >
+              {submitting ? 'Creating…' : 'Create profile'}
+            </Button>
+          </>
+        }
+      >
+        <ProfileFormFields
+          app={app}
+          name={name}
+          color={color}
+          surfaces={surfaces}
+          distinctDockIcon={dockIcon}
+          dependencies={dependencies}
+          installedApps={installedApps}
+          onAppChange={setApp}
+          onNameChange={setName}
+          onColorChange={setColor}
+          onSurfacesChange={setSurfaces}
+          onDistinctDockIconChange={dockIconConsent.choose}
+          onExplainDockIcon={dockIconConsent.explain}
+        />
+      </Dialog>
+      {/* A sibling rather than a child, so keys pressed in it are not taken for
+          keys pressed in the form underneath. */}
+      {app !== '' ? (
+        <DockIconConsentDialog
+          open={dockIconConsent.open}
+          app={app}
+          onClose={dockIconConsent.cancel}
+          onConfirm={dockIconConsent.asking ? dockIconConsent.confirm : undefined}
+        />
+      ) : null}
+    </>
   )
 }

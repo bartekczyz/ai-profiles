@@ -2,11 +2,13 @@ import type { Profile, ProfilePaths } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { ToastProvider } from '@/design'
 import { copyToClipboard, openInFinder, openProfileInApp, profilePaths, touchProfileLastUsed } from '@/lib/commands'
+import { queryKeys } from '@/lib/query/keys'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import { DeleteProfileDialog } from './delete-profile-dialog'
@@ -65,6 +67,7 @@ function profile(overrides: Partial<Profile> = {}): Profile {
     color: '#d97757',
     createdAt: '2026-01-01T00:00:00Z',
     surfaces: { gui: true, cli: true },
+    distinctDockIcon: false,
     lastUsedAt: null,
     ...overrides,
   }
@@ -80,7 +83,9 @@ type RenderOverrides = {
 function renderDetail(overrides: RenderOverrides = {}) {
   const { profile: value = profile(), shortcutsEnabled = true, onEdit = vi.fn(), onDelete = vi.fn() } = overrides
   return renderWithQuery(
-    <ProfileDetail shortcutsEnabled={shortcutsEnabled} profile={value} onEdit={onEdit} onDelete={onDelete} />,
+    <ToastProvider>
+      <ProfileDetail shortcutsEnabled={shortcutsEnabled} profile={value} onEdit={onEdit} onDelete={onDelete} />
+    </ToastProvider>,
   )
 }
 
@@ -95,6 +100,7 @@ beforeEach(() => {
   vi.mocked(profilePaths).mockResolvedValue(paths())
   vi.mocked(openInFinder).mockClear()
   vi.mocked(openProfileInApp).mockClear()
+  vi.mocked(openProfileInApp).mockResolvedValue({ profile: profile(), wrapperBypass: null })
   vi.mocked(copyToClipboard).mockClear()
   vi.mocked(touchProfileLastUsed).mockClear()
 })
@@ -149,7 +155,11 @@ describe('ProfileDetail — overflow menu', () => {
         </>
       )
     }
-    renderWithQuery(<Harness />)
+    renderWithQuery(
+      <ToastProvider>
+        <Harness />
+      </ToastProvider>,
+    )
     const user = await openMenu()
     expect(screen.queryByRole('dialog')).toBeNull()
     await user.click(screen.getByRole('menuitem', { name: /Delete profile/ }))
@@ -306,6 +316,30 @@ describe('ProfileDetail — surfaces', () => {
     const user = userEvent.setup()
     await user.click(await findLaunchControl())
     expect(await screen.findByRole('alert')).toHaveTextContent('launcher is missing')
+  })
+
+  it('tells the user why when a launch had to leave out the profile’s own launcher, without calling it an error', async () => {
+    const reason = 'The launcher quit right after starting.'
+    vi.mocked(openProfileInApp).mockResolvedValueOnce({ profile: profile(), wrapperBypass: { reason } })
+    renderDetail()
+    const user = userEvent.setup()
+    await user.click(await findLaunchControl())
+    expect(await screen.findByText(reason)).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('shows no notice when the launch used the profile’s own launcher', async () => {
+    const { client } = renderDetail()
+    const user = userEvent.setup()
+    await user.click(await findLaunchControl())
+    // The cached profile is patched once the launch has settled, which is also
+    // when a notice would have been raised.
+    await waitFor(() => {
+      expect(client.getQueryData(queryKeys.profiles.all)).toEqual([profile()])
+    })
+    await act(async () => {})
+    const notices = screen.getByRole('region', { name: /notifications/i })
+    expect(within(notices).queryAllByRole('listitem')).toHaveLength(0)
   })
 
   it('surfaces an error when a copy fails and withholds the confirmation', async () => {

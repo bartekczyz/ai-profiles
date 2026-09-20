@@ -56,6 +56,7 @@ function managed(id: string, app: AppId): SidebarEntry {
       slug: id,
       color: '#000000',
       createdAt: '2026-05-20T12:00:00Z',
+      distinctDockIcon: false,
       lastUsedAt: null,
       surfaces: { gui: true, cli: true },
     },

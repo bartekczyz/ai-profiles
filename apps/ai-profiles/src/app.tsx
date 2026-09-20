@@ -312,7 +312,12 @@ function AppContent() {
     }
   }
 
-  async function handleEdit(input: { name: string; color: string; surfaces: { gui: boolean; cli: boolean } }) {
+  async function handleEdit(input: {
+    name: string
+    color: string
+    surfaces: { gui: boolean; cli: boolean }
+    distinctDockIcon: boolean
+  }) {
     if (!managedSelected) {
       return
     }
@@ -320,10 +325,15 @@ function AppContent() {
     try {
       const nameChanged = input.name !== managedSelected.name
       const colorChanged = input.color.toLowerCase() !== managedSelected.color.toLowerCase()
-      if (nameChanged || colorChanged) {
+      const dockIconChanged = input.distinctDockIcon !== managedSelected.distinctDockIcon
+      if (nameChanged || colorChanged || dockIconChanged) {
         await profiles.update({
           id: managedSelected.id,
-          patch: { name: input.name, color: input.color },
+          patch: {
+            name: input.name,
+            color: input.color,
+            ...(dockIconChanged ? { distinctDockIcon: input.distinctDockIcon } : {}),
+          },
         })
       }
       if (input.surfaces.gui !== managedSelected.surfaces.gui) {
@@ -342,6 +352,10 @@ function AppContent() {
       return
     }
     await profiles.remove({ id: managedSelected.id, ...input })
+  }
+
+  async function acknowledgeDockIcon() {
+    await appState.update({ dockIconAcknowledgedAt: new Date().toISOString() })
   }
 
   function requestCreateProfile() {
@@ -461,8 +475,10 @@ function AppContent() {
       <CreateProfileDialog
         open={dialog.kind === 'create'}
         dependencies={dependencies.deps}
+        dockIconAcknowledged={appState.state.dockIconAcknowledgedAt !== null}
         submitting={submitting}
         onClose={() => setDialog({ kind: 'none' })}
+        onAcknowledgeDockIcon={acknowledgeDockIcon}
         onCreate={handleCreate}
       />
       {managedSelected ? (
@@ -470,8 +486,10 @@ function AppContent() {
           open={dialog.kind === 'edit'}
           profile={managedSelected}
           dependencies={dependencies.deps}
+          dockIconAcknowledged={appState.state.dockIconAcknowledgedAt !== null}
           submitting={submitting}
           onClose={() => setDialog({ kind: 'none' })}
+          onAcknowledgeDockIcon={acknowledgeDockIcon}
           onSave={handleEdit}
         />
       ) : null}

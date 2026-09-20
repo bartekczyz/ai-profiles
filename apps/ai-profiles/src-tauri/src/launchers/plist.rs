@@ -3,22 +3,40 @@ use plist::{Dictionary, Value};
 use crate::error::{AppError, AppResult};
 use crate::profiles::Profile;
 
+/// Every launcher bundle we generate has a `CFBundleIdentifier` starting with
+/// this, which is how one is told from an app that merely sits at the same
+/// path.
+pub const IDENTIFIER_PREFIX: &str = "app.ai-profiles.";
+
+/// `CFBundleIdentifier` of a profile's launcher bundle, whichever shape it
+/// takes: a script launcher and a wrapper for the same profile never coexist
+/// (they occupy the same path), so they can share it.
+pub fn bundle_identifier(profile: &Profile) -> String {
+    format!(
+        "{IDENTIFIER_PREFIX}{}.profile.{}",
+        profile.app.as_str(),
+        profile.id
+    )
+}
+
+/// The launcher's name in Finder and, for a wrapper, the Dock: `Claude (Work)`.
+pub fn display_name(profile: &Profile) -> String {
+    format!("{} ({})", profile.app.spec().display_name, profile.name)
+}
+
 /// Build the Info.plist contents for a profile's launcher .app bundle.
 ///
 /// `version` is typically `env!("CARGO_PKG_VERSION")`.
 pub fn info_plist(profile: &Profile, version: &str) -> AppResult<Vec<u8>> {
-    let spec = profile.app.spec();
-    let display_name = format!("{} ({})", spec.display_name, profile.name);
-    let identifier = format!(
-        "app.ai-profiles.{}.profile.{}",
-        profile.app.as_str(),
-        profile.id
-    );
+    let label = display_name(profile);
 
     let mut dict = Dictionary::new();
-    dict.insert("CFBundleName".into(), Value::String(display_name.clone()));
-    dict.insert("CFBundleDisplayName".into(), Value::String(display_name));
-    dict.insert("CFBundleIdentifier".into(), Value::String(identifier));
+    dict.insert("CFBundleName".into(), Value::String(label.clone()));
+    dict.insert("CFBundleDisplayName".into(), Value::String(label));
+    dict.insert(
+        "CFBundleIdentifier".into(),
+        Value::String(bundle_identifier(profile)),
+    );
     dict.insert(
         "CFBundleExecutable".into(),
         Value::String("launcher".into()),
@@ -63,6 +81,7 @@ mod tests {
                 gui: true,
                 cli: false,
             },
+            distinct_dock_icon: false,
             last_used_at: None,
         }
     }

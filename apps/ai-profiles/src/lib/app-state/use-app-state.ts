@@ -35,6 +35,7 @@ export function useAppState(): UseAppStateResult {
             : (patch.pathBannerDismissedAt ?? previous.pathBannerDismissedAt),
           themeMode: patch.themeMode ?? previous.themeMode,
           selectedEntryId: patch.clearSelectedEntryId ? null : (patch.selectedEntryId ?? previous.selectedEntryId),
+          dockIconAcknowledgedAt: patch.dockIconAcknowledgedAt ?? previous.dockIconAcknowledgedAt,
         }
         queryClient.setQueryData(queryKeys.appState, optimistic)
       }

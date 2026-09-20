@@ -7,6 +7,16 @@ repository = "https://github.com/bartekczyz/ai-profiles"
 license = "MIT"
 homepage = "https://czyz.it?utm_source=ai-profiles"
 edition = "2021"
+# The workspace below adds a second binary (`profile-shim`), which makes a bare
+# `cargo run` (and `tauri dev`) ambiguous without this.
+default-run = "ai-profiles"
+
+# `profile-shim` is the executable of every generated wrapper bundle. build.rs
+# compiles it for the target being built and the app embeds the bytes; being a
+# default member keeps its tests, clippy and rustfmt inside the usual commands.
+[workspace]
+members = ["shim"]
+default-members = [".", "shim"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -38,6 +48,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 sha2 = "0.10"
 tokio = { version = "1", features = ["rt", "macros", "process", "time"] }
 portable-pty = "0.9.0"
+profile-shim = { path = "shim" }
 
 [dev-dependencies]
 tempfile = "3.27.0"
@@ -51,7 +62,15 @@ tauri-plugin-window-state = "2"
 # (single-instance launch behaviour). Already present transitively via tauri.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSRunningApplication"] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSBitmapImageRep",
+    "NSGraphics",
+    "NSGraphicsContext",
+    "NSImage",
+    "NSImageRep",
+    "NSRunningApplication",
+    "NSWorkspace",
+] }
 objc2-foundation = { version = "0.3", features = [
     "NSAppleEventDescriptor",
     "objc2-core-services",
@@ -59,4 +78,14 @@ objc2-foundation = { version = "0.3", features = [
     "NSDate",
     "NSError",
 ] }
+
+# Profile for the `profile-shim` binary build.rs embeds. One copy is written
+# into every wrapper bundle, so it is built for size.
+[profile.shim]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
 

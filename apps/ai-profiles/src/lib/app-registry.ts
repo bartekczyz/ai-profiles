@@ -33,6 +33,19 @@ export type AppUsageSpec = {
   secondaryExtraShortLabel: string | null
 }
 
+export type AppDockIconSpec = {
+  /**
+   * Whether a new profile of this app starts with its own Dock icon switched on,
+   * once the user has acknowledged what that involves.
+   */
+  defaultOn: boolean
+  /**
+   * What the user gives up for it, as a sentence, or null when there is nothing
+   * they would notice.
+   */
+  cost: string | null
+}
+
 export type AppSpec = {
   id: AppId
   /**
@@ -49,6 +62,10 @@ export type AppSpec = {
   hasUsage: boolean
   gui: AppSurfaceSpec
   cli: AppSurfaceSpec
+  /**
+   * What giving a profile of this app its own Dock icon means for it.
+   */
+  dockIcon: AppDockIconSpec
   /** Usage-card copy, present only when `hasUsage` is true. */
   usage: AppUsageSpec | null
   /** CSS custom-property name driving this app's accent. */
@@ -86,6 +103,7 @@ const claude: AppSpec = {
     description: 'Exposes claude-{slug} in ~/.local/bin, pointed at this profile.',
     installUrl: 'https://docs.anthropic.com/en/docs/claude-code/overview',
   },
+  dockIcon: { defaultOn: true, cost: null },
   usage: {
     noCredentials: 'Sign in to Claude Code once with this profile to see usage.',
     unauthorized: 'Token refresh needed — run `claude` in a terminal once, then retry.',
@@ -126,6 +144,9 @@ const codex: AppSpec = {
     description: 'Exposes codex-{slug} in ~/.local/bin, pointed at this profile (CODEX_HOME).',
     installUrl: 'https://www.npmjs.com/package/@openai/codex',
   },
+  // ChatGPT is signed with a push-notification entitlement (`aps-environment`)
+  // that belongs to OpenAI's team, so the wrapper has to drop it.
+  dockIcon: { defaultOn: false, cost: "Notifications don't work for this profile." },
   usage: {
     noCredentials: 'Sign in to ChatGPT once with this profile to see usage.',
     unauthorized: 'Token refresh needed — run `codex` in a terminal once, then retry.',

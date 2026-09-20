@@ -202,6 +202,7 @@ pub fn import(params: ImportParams) -> AppResult<ImportOutcome> {
             gui: params.include_gui,
             cli: params.include_cli,
         },
+        distinct_dock_icon: false,
         last_used_at: None,
     };
 

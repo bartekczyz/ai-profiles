@@ -1,0 +1,10 @@
+[package]
+name = "profile-shim"
+version = "0.0.0"
+description = "Executable of a per-profile wrapper bundle: re-adds the launch arguments a Dock click drops, then execs the vendor binary inside the wrapper."
+license = "MIT"
+edition = "2021"
+publish = false
+
+[dependencies]
+plist = { version = "1.9.0", default-features = false }
