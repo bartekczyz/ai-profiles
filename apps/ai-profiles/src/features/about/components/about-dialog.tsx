@@ -9,6 +9,7 @@ import { useAppMetadata } from '../api/use-app-metadata'
 type Props = {
   open: boolean
   onClose: () => void
+  onOpenWhatsNew: () => void
 }
 
 /**
@@ -22,7 +23,7 @@ type Props = {
  * open in the user's default browser via `open_external_url`
  * (scheme-whitelisted on the Rust side).
  */
-export function AboutDialog({ open, onClose }: Props) {
+export function AboutDialog({ open, onClose, onOpenWhatsNew }: Props) {
   const metadata = useAppMetadata()
 
   const authors = metadata.authors.map(parseAuthor)
@@ -40,8 +41,17 @@ export function AboutDialog({ open, onClose }: Props) {
     >
       <dl className="grid grid-cols-[80px_1fr] items-center gap-x-4 gap-y-2.5 text-[13px] tracking-[-0.003em]">
         <Field label="Version">
-          <span className="font-mono text-muted-strong" data-selectable="true">
-            v{metadata.version}
+          <span className="inline-flex items-center gap-3">
+            <span className="font-mono text-muted-strong" data-selectable="true">
+              v{metadata.version}
+            </span>
+            <button
+              type="button"
+              onClick={onOpenWhatsNew}
+              className="cursor-pointer border-0 bg-transparent p-0 text-[12px] text-ink-soft outline-none transition-colors hover:text-ink hover:underline focus-visible:underline"
+            >
+              What's new
+            </button>
           </span>
         </Field>
         {metadata.license ? (

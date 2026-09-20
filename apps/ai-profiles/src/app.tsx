@@ -34,11 +34,18 @@ import { SidebarSkeleton } from '@/features/profiles/components/sidebar-skeleton
 import { SettingsView } from '@/features/settings/components/settings-view'
 import { SettingsViewSkeleton } from '@/features/settings/components/settings-view-skeleton'
 import { UpdateToastTrigger } from '@/features/updater/components/update-toast-trigger'
+import { WhatsNewHost } from '@/features/whats-new/components/whats-new-host'
 import { wrapperCommand } from '@/lib/app-registry'
 import { useAppState } from '@/lib/app-state/use-app-state'
 import { QueryErrorBoundary } from '@/lib/query/error-boundary'
 
-type DialogState = { kind: 'none' } | { kind: 'create' } | { kind: 'edit' } | { kind: 'delete' } | { kind: 'about' }
+type DialogState =
+  | { kind: 'none' }
+  | { kind: 'create' }
+  | { kind: 'edit' }
+  | { kind: 'delete' }
+  | { kind: 'about' }
+  | { kind: 'whats-new' }
 
 type RightPane = { kind: 'profile' } | { kind: 'settings' }
 
@@ -485,7 +492,16 @@ function AppContent() {
       ) : null}
 
       <Suspense fallback={null}>
-        <AboutDialog open={dialog.kind === 'about'} onClose={() => setDialog({ kind: 'none' })} />
+        <AboutDialog
+          open={dialog.kind === 'about'}
+          onClose={() => setDialog({ kind: 'none' })}
+          onOpenWhatsNew={() => setDialog({ kind: 'whats-new' })}
+        />
+        <WhatsNewHost
+          open={dialog.kind === 'whats-new'}
+          onOpen={() => setDialog({ kind: 'whats-new' })}
+          onClose={() => setDialog({ kind: 'none' })}
+        />
       </Suspense>
 
       {migrationApp !== null && activeMigration !== null ? (
