@@ -1,4 +1,4 @@
-import type { ProfileUsage, QuotaError, QuotaUsage, RateLimitResetCredits, UsageWindow } from '@/lib/types'
+import type { ProfileUsage, QuotaError, QuotaUsage, RateLimitResetCredits, Spend, UsageWindow } from '@/lib/types'
 
 import { useQuery } from '@tanstack/react-query'
 
@@ -99,12 +99,46 @@ function narrowQuota(input: unknown): QuotaUsage | null {
     return null
   }
   const resets = narrowResetCredits(input.rateLimitResetCredits)
+  const spend = narrowSpend(input.spend)
   return {
     ...(resets ? { rateLimitResetCredits: resets } : {}),
+    ...(spend ? { spend } : {}),
     primary: narrowWindow(input.primary),
     secondary: narrowWindow(input.secondary),
-    secondaryExtra: narrowWindow(input.secondaryExtra),
+    scopedWeekly: Array.isArray(input.scopedWeekly)
+      ? input.scopedWeekly.map(narrowWindow).filter((window) => window !== null)
+      : [],
   }
+}
+
+/**
+ * Amounts must be safe integers in minor units for the formatter to be
+ * trustworthy — a float or NaN here would render a nonsense price, so the
+ * whole row is dropped instead.
+ */
+function narrowSpend(input: unknown): Spend | undefined {
+  if (!isRecord(input) || typeof input.currency !== 'string' || !input.currency) {
+    return
+  }
+  if (typeof input.usedMinor !== 'number' || !Number.isSafeInteger(input.usedMinor) || input.usedMinor < 0) {
+    return
+  }
+  const limitMinor =
+    typeof input.limitMinor === 'number' && Number.isSafeInteger(input.limitMinor) && input.limitMinor > 0
+      ? input.limitMinor
+      : null
+  // Kept inside Intl's fraction-digit range; two places is the safe
+  // assumption for every currency Anthropic bills in.
+  const exponent =
+    typeof input.exponent === 'number' &&
+    Number.isSafeInteger(input.exponent) &&
+    input.exponent >= 0 &&
+    input.exponent <= 6
+      ? input.exponent
+      : 2
+  const percent =
+    typeof input.percent === 'number' && Number.isFinite(input.percent) && input.percent >= 0 ? input.percent : null
+  return { usedMinor: input.usedMinor, currency: input.currency, exponent, limitMinor, percent }
 }
 
 function narrowResetCredits(input: unknown): RateLimitResetCredits | undefined {
@@ -143,7 +177,13 @@ function narrowWindow(input: unknown): UsageWindow | null {
   const duration = input.windowDurationMins
   const windowDurationMins =
     typeof duration === 'number' && Number.isSafeInteger(duration) && duration > 0 ? duration : undefined
-  return { utilization, resetsAt, ...(windowDurationMins === undefined ? {} : { windowDurationMins }) }
+  const label = typeof input.label === 'string' && input.label.trim() ? input.label.trim() : undefined
+  return {
+    utilization,
+    resetsAt,
+    ...(windowDurationMins === undefined ? {} : { windowDurationMins }),
+    ...(label === undefined ? {} : { label }),
+  }
 }
 
 function narrowQuotaError(input: unknown): QuotaError | null {

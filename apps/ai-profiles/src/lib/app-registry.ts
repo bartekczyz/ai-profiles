@@ -28,9 +28,12 @@ export type AppUsageSpec = {
   primaryShortLabel: string
   secondaryLabel: string
   secondaryShortLabel: string
-  /** Third "Sonnet-style" meter — null for apps without one (ChatGPT). */
-  secondaryExtraLabel: string | null
-  secondaryExtraShortLabel: string | null
+  /**
+   * Whether this app reports weekly sub-quotas scoped to a single model. Their
+   * labels come from the server (the model changes over time), so the registry
+   * only says whether to render the rows at all.
+   */
+  hasScopedWeekly: boolean
 }
 
 export type AppDockIconSpec = {
@@ -113,8 +116,7 @@ const claude: AppSpec = {
     primaryShortLabel: '5h',
     secondaryLabel: 'Weekly',
     secondaryShortLabel: 'W',
-    secondaryExtraLabel: 'Weekly Sonnet',
-    secondaryExtraShortLabel: 'WS',
+    hasScopedWeekly: true,
   },
   accentVar: '--color-orange',
   guiBundleName: 'Claude.app',
@@ -156,8 +158,7 @@ const codex: AppSpec = {
     primaryShortLabel: '5h',
     secondaryLabel: 'Weekly',
     secondaryShortLabel: 'W',
-    secondaryExtraLabel: null,
-    secondaryExtraShortLabel: null,
+    hasScopedWeekly: false,
   },
   accentVar: '--color-chatgpt',
   guiBundleName: 'ChatGPT.app',

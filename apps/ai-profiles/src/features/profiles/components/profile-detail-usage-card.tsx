@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { AppId } from '@/lib/app-registry'
-import type { ProfileUsage, QuotaError, RateLimitResetCredits, UsageWindow } from '@/lib/types'
+import type { ProfileUsage, QuotaError, RateLimitResetCredits, Spend, UsageWindow } from '@/lib/types'
 
 import { Component, createContext, useContext, useEffect, useState } from 'react'
 
@@ -396,14 +396,14 @@ function Meters({ app, quota }: { app: AppId; quota: ProfileUsage['quota'] }) {
     )
   }
   const usageCopy = appSpecs[app].usage
-  const secondaryExtra = quota?.secondaryExtra ?? null
-  // The third "Sonnet-style" meter only exists for apps that define its
-  // labels (Claude). Within that, skip the row when the user hasn't
-  // touched it this window (utilization explicitly 0) so the card stays
-  // focused. Unknown utilization (null) is kept visible — we'd rather
-  // show a placeholder than silently drop a window we lack data for.
-  const showExtra =
-    usageCopy?.secondaryExtraLabel != null && secondaryExtra !== null && secondaryExtra.utilization !== 0
+  // Per-model weekly sub-quotas only exist for apps that report them
+  // (Claude). Within that, skip a row the user hasn't touched this window
+  // (utilization explicitly 0) so the card stays focused. Unknown
+  // utilization (null) is kept visible — we'd rather show a placeholder
+  // than silently drop a window we lack data for.
+  const scopedWeekly = usageCopy?.hasScopedWeekly
+    ? (quota?.scopedWeekly ?? []).filter((window) => window.utilization !== 0)
+    : []
   return (
     <div className="flex flex-col gap-2">
       <Meter
@@ -418,17 +418,80 @@ function Meters({ app, quota }: { app: AppId; quota: ProfileUsage['quota'] }) {
         shortLabel={usageCopy?.secondaryShortLabel ?? 'W'}
         meterWindow={quota?.secondary ?? null}
       />
-      {showExtra ? (
+      {scopedWeekly.map((window, index) => (
         <Meter
           showDailySegments
+          // Model names are unique within a response; the index only backs
+          // up the rare unlabelled row.
+          key={window.label ?? `scoped-${index}`}
           paceWindowMins={10080}
-          label={usageCopy?.secondaryExtraLabel ?? 'Weekly Sonnet'}
-          shortLabel={usageCopy?.secondaryExtraShortLabel ?? 'WS'}
-          meterWindow={secondaryExtra}
+          label={scopedWeeklyLabel(window.label)}
+          shortLabel={scopedWeeklyShortLabel(window.label)}
+          meterWindow={window}
         />
-      ) : null}
+      ))}
+      <SpendMeter spend={quota?.spend} />
     </div>
   )
+}
+
+// The model a scoped weekly applies to is server-supplied and changes over
+// time (Sonnet → Opus → Fable), so the row names it from the payload and
+// falls back to a neutral label rather than a stale hardcoded model.
+function scopedWeeklyLabel(label: string | null | undefined): string {
+  if (!label) {
+    return 'Weekly (scoped)'
+  }
+  return `Weekly · ${label}`
+}
+
+// Narrow viewports get a ~32px label column, so the model collapses to its
+// initial: "Weekly · Fable" → "WF".
+function scopedWeeklyShortLabel(label: string | null | undefined): string {
+  if (!label) {
+    return 'W*'
+  }
+  return `W${label.charAt(0).toUpperCase()}`
+}
+
+/**
+ * Pay-as-you-go credit spend, rendered as a meter alongside the quota
+ * windows. A cap is what makes the bar meaningful, so an uncapped account
+ * gets no row at all rather than a bar with nothing to fill against.
+ */
+function SpendMeter({ spend }: { spend: Spend | undefined }) {
+  if (!spend || spend.limitMinor === null) {
+    return null
+  }
+  const percent = spend.percent ?? (spend.usedMinor / spend.limitMinor) * 100
+  const used = formatMoney(spend.usedMinor, spend.currency, spend.exponent)
+  const limit = formatMoney(spend.limitMinor, spend.currency, spend.exponent)
+  return (
+    <Meter
+      label="Usage credits"
+      shortLabel="Cr"
+      meterWindow={{ utilization: percent, resetsAt: null }}
+      trailing={`${used} of ${limit}`}
+    />
+  )
+}
+
+// Minor units → a localised currency string. The amount is only divided
+// down at the last moment so the integer the backend sent stays exact.
+function formatMoney(amountMinor: number, currency: string, exponent: number): string {
+  const amount = amountMinor / 10 ** exponent
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: exponent,
+      maximumFractionDigits: exponent,
+    }).format(amount)
+  } catch {
+    // Intl throws on a currency code it doesn't know. A bare number with
+    // the code beside it is still more use than an empty row.
+    return `${amount.toFixed(exponent)} ${currency}`
+  }
 }
 
 // Layout: [label] [bar (1fr)] [trailing text fixed width]. The fixed
@@ -449,12 +512,18 @@ function Meter({
   meterWindow,
   showDailySegments = false,
   paceWindowMins,
+  trailing,
 }: {
   label: string
   shortLabel: string
   meterWindow: UsageWindow | null
   showDailySegments?: boolean
   paceWindowMins?: number | null
+  /**
+   * Replaces the default "42% · resets in 3h" trailing text. Used by rows
+   * measured in something other than a percentage of a time window.
+   */
+  trailing?: ReactNode
 }) {
   // utilization comes from the API on a 0..=100 percentage scale and
   // may exceed 100 when the user is over-limit. We show the literal
@@ -497,13 +566,17 @@ function Meter({
         )}
       </div>
       <span className="text-right font-mono text-mono tabular-nums text-muted-strong">
-        {percent === null ? '—' : `${percent}%`}
-        {resetLabel ? (
-          <span className="group relative inline-block">
-            {` · ${resetLabel.relative}`}
-            <TooltipBubble>{resetLabel.absolute}</TooltipBubble>
-          </span>
-        ) : null}
+        {trailing ?? (
+          <>
+            {percent === null ? '—' : `${percent}%`}
+            {resetLabel ? (
+              <span className="group relative inline-block">
+                {` · ${resetLabel.relative}`}
+                <TooltipBubble>{resetLabel.absolute}</TooltipBubble>
+              </span>
+            ) : null}
+          </>
+        )}
       </span>
     </div>
   )
