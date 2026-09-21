@@ -183,9 +183,15 @@ export type AppMetadata = {
 }
 
 export type UsageWindow = {
-  windowDurationMins?: number | null
   utilization: number | null
   resetsAt: string | null
+  windowDurationMins?: number | null
+  /**
+   * Server-supplied display name for a window the client can't label on its
+   * own — the model a scoped weekly quota applies to, e.g. `Fable`. Absent
+   * for windows whose label is fixed copy.
+   */
+  label?: string | null
 }
 
 export type RateLimitResetCredits = {
@@ -193,11 +199,44 @@ export type RateLimitResetCredits = {
   credits: Array<{ title: string | null; status: string; expiresAt: number | null }> | null
 }
 
+/**
+ * Pay-as-you-go credit spend. Amounts stay in the currency's minor units
+ * (pence, cents) exactly as the backend reports them, so no rounding
+ * happens before the formatter sees them.
+ */
+export type Spend = {
+  /**
+   * Amount consumed this period, in minor units.
+   */
+  usedMinor: number
+  /**
+   * ISO-4217 code the amounts are denominated in, e.g. `GBP`.
+   */
+  currency: string
+  /**
+   * Decimal places the minor units carry — 2 for `GBP`, 0 for `JPY`.
+   */
+  exponent: number
+  /**
+   * Spend cap in minor units. Null for an uncapped account.
+   */
+  limitMinor: number | null
+  /**
+   * Server-computed share of the cap consumed, on a 0..=100 scale.
+   */
+  percent: number | null
+}
+
 export type QuotaUsage = {
-  rateLimitResetCredits?: RateLimitResetCredits
   primary: UsageWindow | null
   secondary: UsageWindow | null
-  secondaryExtra: UsageWindow | null
+  /**
+   * Weekly sub-quotas scoped to a single model, each carrying its own
+   * `label`. Empty for apps that have none.
+   */
+  scopedWeekly: Array<UsageWindow>
+  rateLimitResetCredits?: RateLimitResetCredits
+  spend?: Spend
 }
 
 export type QuotaError =

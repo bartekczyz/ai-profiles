@@ -28,7 +28,7 @@ describe('narrowProfileUsage', () => {
       quota: {
         primary: { utilization: 0.5, resetsAt: '2099-01-01T00:00:00Z' },
         secondary: null,
-        secondaryExtra: null,
+        scopedWeekly: [],
       },
       quotaError: null,
       fetchedAt: '2099-01-01T00:00:00Z',
@@ -44,7 +44,7 @@ describe('narrowProfileUsage', () => {
 
   it('coerces a NaN utilization to null', () => {
     const result = narrowProfileUsage({
-      quota: { primary: { utilization: Number.NaN, resetsAt: null }, secondary: null, secondaryExtra: null },
+      quota: { primary: { utilization: Number.NaN, resetsAt: null }, secondary: null, scopedWeekly: [] },
       quotaError: null,
       fetchedAt: 'x',
     })
@@ -71,7 +71,7 @@ describe('narrowProfileUsage', () => {
 
   it('preserves utilization values above 100 (over-limit users)', () => {
     const result = narrowProfileUsage({
-      quota: { primary: { utilization: 105, resetsAt: null }, secondary: null, secondaryExtra: null },
+      quota: { primary: { utilization: 105, resetsAt: null }, secondary: null, scopedWeekly: [] },
       quotaError: null,
       fetchedAt: 'x',
     })
@@ -80,18 +80,119 @@ describe('narrowProfileUsage', () => {
 
   it('drops negative utilization to null', () => {
     const result = narrowProfileUsage({
-      quota: { primary: { utilization: -1, resetsAt: null }, secondary: null, secondaryExtra: null },
+      quota: { primary: { utilization: -1, resetsAt: null }, secondary: null, scopedWeekly: [] },
       quotaError: null,
       fetchedAt: 'x',
     })
     expect(result.quota?.primary?.utilization).toBeNull()
+  })
+
+  it('keeps the server-supplied window label', () => {
+    const result = narrowProfileUsage({
+      quota: {
+        primary: null,
+        secondary: null,
+        scopedWeekly: [{ utilization: 19, resetsAt: null, label: 'Fable' }],
+      },
+      quotaError: null,
+      fetchedAt: 'x',
+    })
+    expect(result.quota?.scopedWeekly[0]).toHaveProperty('label', 'Fable')
+  })
+
+  it('drops a blank or non-string window label', () => {
+    const result = narrowProfileUsage({
+      quota: {
+        primary: null,
+        secondary: null,
+        scopedWeekly: [
+          { utilization: 1, resetsAt: null, label: '   ' },
+          { utilization: 2, resetsAt: null, label: 7 },
+        ],
+      },
+      quotaError: null,
+      fetchedAt: 'x',
+    })
+    expect(result.quota?.scopedWeekly[0]).not.toHaveProperty('label')
+    expect(result.quota?.scopedWeekly[1]).not.toHaveProperty('label')
+  })
+
+  it('drops unusable entries from scopedWeekly instead of the whole list', () => {
+    const result = narrowProfileUsage({
+      quota: {
+        primary: null,
+        secondary: null,
+        scopedWeekly: [{ utilization: 19, resetsAt: null, label: 'Fable' }, 'garbage', null],
+      },
+      quotaError: null,
+      fetchedAt: 'x',
+    })
+    expect(result.quota?.scopedWeekly).toHaveLength(1)
+  })
+
+  it('falls back to an empty scopedWeekly when the field is missing or not a list', () => {
+    const result = narrowProfileUsage({
+      quota: { primary: null, secondary: null, scopedWeekly: 'nope' },
+      quotaError: null,
+      fetchedAt: 'x',
+    })
+    expect(result.quota?.scopedWeekly).toEqual([])
+  })
+
+  it('keeps a well-formed spend block', () => {
+    const result = narrowProfileUsage({
+      quota: {
+        primary: null,
+        secondary: null,
+        scopedWeekly: [],
+        spend: { usedMinor: 7788, limitMinor: 30000, currency: 'GBP', exponent: 2, percent: 26 },
+      },
+      quotaError: null,
+      fetchedAt: 'x',
+    })
+    expect(result.quota?.spend).toEqual({
+      usedMinor: 7788,
+      limitMinor: 30000,
+      currency: 'GBP',
+      exponent: 2,
+      percent: 26,
+    })
+  })
+
+  it.each([
+    ['a fractional amount', { usedMinor: 77.5, limitMinor: 30000, currency: 'GBP', exponent: 2, percent: 26 }],
+    ['a missing currency', { usedMinor: 7788, limitMinor: 30000, exponent: 2, percent: 26 }],
+    ['a NaN amount', { usedMinor: Number.NaN, limitMinor: 30000, currency: 'GBP', exponent: 2, percent: 26 }],
+  ])('drops spend with %s rather than rendering a nonsense price', (_label, spend) => {
+    const result = narrowProfileUsage({
+      quota: { primary: null, secondary: null, scopedWeekly: [], spend },
+      quotaError: null,
+      fetchedAt: 'x',
+    })
+    expect(result.quota?.spend).toBeUndefined()
+  })
+
+  it('clamps an out-of-range exponent to two decimal places', () => {
+    // Intl throws outside 0..20 fraction digits; a bad exponent must not
+    // take the whole card down.
+    const result = narrowProfileUsage({
+      quota: {
+        primary: null,
+        secondary: null,
+        scopedWeekly: [],
+        spend: { usedMinor: 7788, limitMinor: null, currency: 'GBP', exponent: 99, percent: null },
+      },
+      quotaError: null,
+      fetchedAt: 'x',
+    })
+    expect(result.quota?.spend?.exponent).toBe(2)
   })
 })
 
 describe('ensureUsable', () => {
   it('returns the snapshot unchanged when it has a quota and no error', () => {
     const usage: ProfileUsage = {
-      quota: { primary: { utilization: 50, resetsAt: null }, secondary: null, secondaryExtra: null },
+      quota: { primary: { utilization: 50, resetsAt: null }, secondary: null, scopedWeekly: [] },
       quotaError: null,
       fetchedAt: 'x',
     }

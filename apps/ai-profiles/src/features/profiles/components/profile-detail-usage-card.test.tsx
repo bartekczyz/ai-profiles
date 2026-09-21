@@ -26,12 +26,24 @@ function makeUsage(overrides: Partial<ProfileUsage> = {}): ProfileUsage {
       // Utilization is a 0..=100 percentage — matches Anthropic's response.
       primary: { utilization: 63, resetsAt: null },
       secondary: { utilization: 21, resetsAt: null },
-      secondaryExtra: { utilization: 8, resetsAt: null },
+      scopedWeekly: [{ utilization: 8, resetsAt: null }],
     },
     quotaError: null,
     fetchedAt: '2099-01-01T00:00:00Z',
     ...overrides,
   }
+}
+
+/**
+ * Stubs the usage query with a settled snapshot carrying `quota`.
+ */
+function mockUsage(quota: NonNullable<ProfileUsage['quota']>) {
+  vi.mocked(useProfileUsage).mockReturnValue({
+    data: makeUsage({ quota }),
+    isLoading: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  } as unknown as ReturnType<typeof useProfileUsage>)
 }
 
 function renderWithQuery(children: ReactNode) {
@@ -48,7 +60,7 @@ describe('ProfileDetailUsageCard', () => {
         quota: {
           primary: { utilization: 85, resetsAt: null, windowDurationMins: 10080 },
           secondary: null,
-          secondaryExtra: null,
+          scopedWeekly: [],
         },
       }),
       isFetching: false,
@@ -108,7 +120,7 @@ describe('ProfileDetailUsageCard', () => {
         quota: {
           primary: { utilization: 14, resetsAt: null, windowDurationMins: duration },
           secondary: null,
-          secondaryExtra: null,
+          scopedWeekly: [],
         },
       }),
       isFetching: false,
@@ -140,7 +152,7 @@ describe('ProfileDetailUsageCard', () => {
         quota: {
           primary: { utilization: null, resetsAt: null },
           secondary: { utilization: 21, resetsAt: null },
-          secondaryExtra: { utilization: 8, resetsAt: null },
+          scopedWeekly: [{ utilization: 8, resetsAt: null }],
         },
       }),
       isLoading: false,
@@ -354,7 +366,7 @@ describe('ProfileDetailUsageCard', () => {
         quota: {
           primary: { utilization: 40, resetsAt: '2099-06-15T14:30:00Z' },
           secondary: { utilization: 10, resetsAt: '2099-06-22T09:00:00Z' },
-          secondaryExtra: { utilization: 5, resetsAt: null },
+          scopedWeekly: [{ utilization: 5, resetsAt: null }],
         },
       }),
       isLoading: false,
@@ -385,7 +397,7 @@ describe('ProfileDetailUsageCard', () => {
         quota: {
           primary: { utilization: 40, resetsAt: null },
           secondary: { utilization: 10, resetsAt: null },
-          secondaryExtra: { utilization: 0, resetsAt: null },
+          scopedWeekly: [{ utilization: 0, resetsAt: null }],
         },
       }),
       isLoading: false,
@@ -403,7 +415,7 @@ describe('ProfileDetailUsageCard', () => {
         quota: {
           primary: { utilization: 40, resetsAt: null },
           secondary: { utilization: 10, resetsAt: null },
-          secondaryExtra: { utilization: null, resetsAt: null },
+          scopedWeekly: [{ utilization: null, resetsAt: null }],
         },
       }),
       isLoading: false,
@@ -423,7 +435,7 @@ describe('ProfileDetailUsageCard', () => {
         quota: {
           primary: { utilization: 40, resetsAt: null },
           secondary: { utilization: 10, resetsAt: null },
-          secondaryExtra: { utilization: 5, resetsAt: null },
+          scopedWeekly: [{ utilization: 5, resetsAt: null }],
         },
       }),
       isLoading: false,
@@ -437,16 +449,16 @@ describe('ProfileDetailUsageCard', () => {
     expect(datetimeTooltips).toHaveLength(0)
   })
 
-  it('renders only two meters for a Codex profile even when secondaryExtra is present', () => {
-    // Codex has no third "Sonnet-style" window — its spec leaves the
-    // secondaryExtra labels null, so the card must never render a third
-    // meter regardless of the payload.
+  it('renders only two meters for a Codex profile even when a scoped weekly is present', () => {
+    // Codex reports no per-model weekly sub-quota — its spec sets
+    // hasScopedWeekly false, so the card must never render a third meter
+    // regardless of the payload.
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
       data: makeUsage({
         quota: {
           primary: { utilization: 1, resetsAt: null },
           secondary: { utilization: 10, resetsAt: null },
-          secondaryExtra: { utilization: 8, resetsAt: null },
+          scopedWeekly: [{ utilization: 8, resetsAt: null }],
         },
       }),
       isLoading: false,
@@ -457,13 +469,13 @@ describe('ProfileDetailUsageCard', () => {
     expect(screen.getAllByRole('progressbar')).toHaveLength(2)
   })
 
-  it('renders three meters for a Claude profile with a secondaryExtra window', () => {
+  it('renders three meters for a Claude profile with a scoped weekly window', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
       data: makeUsage({
         quota: {
           primary: { utilization: 63, resetsAt: null },
           secondary: { utilization: 21, resetsAt: null },
-          secondaryExtra: { utilization: 8, resetsAt: null },
+          scopedWeekly: [{ utilization: 8, resetsAt: null }],
         },
       }),
       isLoading: false,
@@ -472,6 +484,116 @@ describe('ProfileDetailUsageCard', () => {
     })
     renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
     expect(screen.getAllByRole('progressbar')).toHaveLength(3)
+  })
+
+  it('names a scoped weekly meter from the server-supplied model', () => {
+    // The model changes over time (Sonnet → Opus → Fable), so the row must
+    // read its name off the payload rather than any hardcoded copy.
+    mockUsage({
+      primary: { utilization: 4, resetsAt: null },
+      secondary: { utilization: 24, resetsAt: null },
+      scopedWeekly: [{ utilization: 19, resetsAt: null, label: 'Fable' }],
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled />)
+    expect(screen.getByRole('progressbar', { name: 'Weekly · Fable' })).toHaveAttribute('aria-valuenow', '19')
+  })
+
+  it('gives every scoped weekly its own meter', () => {
+    mockUsage({
+      primary: null,
+      secondary: null,
+      scopedWeekly: [
+        { utilization: 19, resetsAt: null, label: 'Fable' },
+        { utilization: 3, resetsAt: null, label: 'Opus' },
+      ],
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled />)
+    expect(screen.getByRole('progressbar', { name: 'Weekly · Fable' })).toHaveAttribute('aria-valuenow', '19')
+    expect(screen.getByRole('progressbar', { name: 'Weekly · Opus' })).toHaveAttribute('aria-valuenow', '3')
+  })
+
+  it('falls back to a neutral label when the scoped weekly names no model', () => {
+    mockUsage({
+      primary: null,
+      secondary: null,
+      scopedWeekly: [{ utilization: 19, resetsAt: null }],
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled />)
+    expect(screen.getByRole('progressbar', { name: 'Weekly (scoped)' })).toHaveAttribute('aria-valuenow', '19')
+  })
+
+  it('drops a scoped weekly the user has not touched this window', () => {
+    mockUsage({
+      primary: { utilization: 4, resetsAt: null },
+      secondary: { utilization: 24, resetsAt: null },
+      scopedWeekly: [{ utilization: 0, resetsAt: null, label: 'Fable' }],
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled />)
+    expect(screen.queryByRole('progressbar', { name: 'Weekly · Fable' })).not.toBeInTheDocument()
+  })
+
+  it('keeps a scoped weekly whose utilization is unknown', () => {
+    // Null is missing data, not zero use — dropping it would hide a window
+    // silently.
+    mockUsage({
+      primary: null,
+      secondary: null,
+      scopedWeekly: [{ utilization: null, resetsAt: null, label: 'Fable' }],
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled />)
+    expect(screen.getByRole('progressbar', { name: 'Weekly · Fable' })).not.toHaveAttribute('aria-valuenow')
+  })
+
+  it('renders usage credits as money converted out of minor units', () => {
+    mockUsage({
+      primary: null,
+      secondary: null,
+      scopedWeekly: [],
+      spend: { usedMinor: 7788, limitMinor: 30000, currency: 'GBP', exponent: 2, percent: 26 },
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled />)
+    expect(screen.getByRole('progressbar', { name: 'Usage credits' })).toHaveAttribute('aria-valuenow', '26')
+    expect(screen.getByText(/77\.88 of .*300\.00/)).toBeInTheDocument()
+  })
+
+  it('derives the credits percentage when the server omits it', () => {
+    mockUsage({
+      primary: null,
+      secondary: null,
+      scopedWeekly: [],
+      spend: { usedMinor: 2500, limitMinor: 10000, currency: 'USD', exponent: 2, percent: null },
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled />)
+    expect(screen.getByRole('progressbar', { name: 'Usage credits' })).toHaveAttribute('aria-valuenow', '25')
+  })
+
+  it('honours a zero-decimal currency', () => {
+    mockUsage({
+      primary: null,
+      secondary: null,
+      scopedWeekly: [],
+      spend: { usedMinor: 900, limitMinor: 5000, currency: 'JPY', exponent: 0, percent: 18 },
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled />)
+    expect(screen.getByText(/900 of .*5,000/)).toBeInTheDocument()
+  })
+
+  it('omits the credits row for an uncapped account', () => {
+    // Without a cap there is nothing for the bar to fill against.
+    mockUsage({
+      primary: { utilization: 4, resetsAt: null },
+      secondary: null,
+      scopedWeekly: [],
+      spend: { usedMinor: 500, limitMinor: null, currency: 'USD', exponent: 2, percent: null },
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled />)
+    expect(screen.queryByRole('progressbar', { name: 'Usage credits' })).not.toBeInTheDocument()
+  })
+
+  it('omits the credits row when the profile reports no spend', () => {
+    mockUsage({ primary: { utilization: 4, resetsAt: null }, secondary: null, scopedWeekly: [] })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled />)
+    expect(screen.queryByRole('progressbar', { name: 'Usage credits' })).not.toBeInTheDocument()
   })
 
   it('names the profile CLI command when sign-in is needed', () => {
@@ -543,7 +665,7 @@ describe('quota pace windows', () => {
         quota: {
           primary: { utilization: 15, resetsAt: reset, windowDurationMins: duration },
           secondary: null,
-          secondaryExtra: null,
+          scopedWeekly: [],
         },
       }),
       isFetching: false,
@@ -590,7 +712,7 @@ describe('quota pace windows', () => {
   it('preserves both Claude weekly markers and their separators', () => {
     const weekly = { utilization: 15, resetsAt: '2026-09-04T12:00:00Z' }
     vi.mocked(useProfileUsage).mockReturnValue({
-      data: makeUsage({ quota: { primary: null, secondary: weekly, secondaryExtra: weekly } }),
+      data: makeUsage({ quota: { primary: null, secondary: weekly, scopedWeekly: [weekly] } }),
       isFetching: false,
       refetch: vi.fn(),
     } as unknown as ReturnType<typeof useProfileUsage>)
