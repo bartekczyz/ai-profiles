@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react'
 import type { AppId } from '@/lib/app-registry'
-import type { ProfileUsage, QuotaError, UsageWindow } from '@/lib/types'
+import type { ProfileUsage, QuotaError, RateLimitResetCredits, UsageWindow } from '@/lib/types'
 
-import { Component, useEffect, useState } from 'react'
+import { Component, createContext, useContext, useEffect, useState } from 'react'
 
 import { format } from 'date-fns'
-import { RefreshCw } from 'lucide-react'
+import { ArrowLeftRight, RefreshCw } from 'lucide-react'
 
 import { Skeleton, TooltipBubble } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
@@ -57,40 +57,84 @@ export function ProfileDetailUsageCard({ app, profileId, cliEnabled, cliCommand 
   )
 }
 
+type UsageDisplay = 'used' | 'remaining'
+const usageDisplayKey = 'ai-profiles-codex-usage-display'
+const UsageDisplayContext = createContext<UsageDisplay>('used')
+
+function readUsageDisplay(): UsageDisplay {
+  try {
+    return window.localStorage.getItem(usageDisplayKey) === 'remaining' ? 'remaining' : 'used'
+  } catch {
+    return 'used'
+  }
+}
+
 function UsageCardInner({ app, profileId, cliCommand }: { app: AppId; profileId: string; cliCommand: string }) {
   const { data, error, isLoading, isFetching, dataUpdatedAt, refetch } = useProfileUsage(profileId)
   const errorCode = usageErrorCode(error)
+  const [display, setDisplay] = useState<UsageDisplay>(readUsageDisplay)
+  function changeDisplay(next: UsageDisplay) {
+    setDisplay(next)
+    try {
+      window.localStorage.setItem(usageDisplayKey, next)
+    } catch {
+      // Storage may be unavailable; switching still works for this session.
+    }
+  }
 
   return (
-    <section className={usagePanelClasses}>
-      <header className="mb-1.5 flex min-h-[22px] items-center justify-between gap-3.5">
-        <span className="font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong">Usage</span>
-        <div className="flex items-center gap-[7px]">
-          <RefreshCountdown isFetching={isFetching} dataUpdatedAt={dataUpdatedAt} />
-          <button
-            type="button"
-            aria-label="Refresh usage"
-            disabled={isFetching}
-            onClick={() => refetch()}
-            className="grid h-[22px] w-[22px] cursor-pointer place-items-center rounded-full text-muted-strong transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:not-disabled:bg-ink/[0.06] hover:not-disabled:text-ink disabled:cursor-default disabled:opacity-50"
-          >
-            <RefreshCw size={14} className={isFetching ? 'animate-spin' : undefined} />
-          </button>
-        </div>
-      </header>
+    <UsageDisplayContext.Provider value={app === 'codex' ? display : 'used'}>
+      <section className={usagePanelClasses}>
+        <header className="mb-1.5 flex min-h-[22px] items-center justify-between gap-3.5">
+          <div className="flex min-w-0 items-center gap-1 font-mono text-muted-strong">
+            <span className="text-eyebrow font-medium uppercase tracking-[0.1em]">Usage</span>
+            {app === 'codex' ? (
+              <>
+                <span aria-hidden className="text-mono">
+                  ·
+                </span>
+                <button
+                  type="button"
+                  aria-label={display === 'used' ? 'Show remaining quota' : 'Show used quota'}
+                  onClick={() => changeDisplay(display === 'used' ? 'remaining' : 'used')}
+                  className="group relative inline-flex min-h-[22px] cursor-pointer items-center gap-1 rounded px-1 text-mono transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                >
+                  {display === 'used' ? 'Used' : 'Remaining'}
+                  <ArrowLeftRight aria-hidden size={10} className="opacity-60" />
+                  <TooltipBubble>
+                    {display === 'used' ? 'Switch to remaining quota' : 'Switch to used quota'}
+                  </TooltipBubble>
+                </button>
+              </>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-[7px]">
+            <RefreshCountdown isFetching={isFetching} dataUpdatedAt={dataUpdatedAt} />
+            <button
+              type="button"
+              aria-label="Refresh usage"
+              disabled={isFetching}
+              onClick={() => refetch()}
+              className="grid h-[22px] w-[22px] cursor-pointer place-items-center rounded-full text-muted-strong transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:not-disabled:bg-ink/[0.06] hover:not-disabled:text-ink disabled:cursor-default disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={isFetching ? 'animate-spin' : undefined} />
+            </button>
+          </div>
+        </header>
 
-      {isLoading ? (
-        <MetersSkeleton />
-      ) : (
-        <Body
-          app={app}
-          cliCommand={cliCommand}
-          errorCode={errorCode}
-          profileId={profileId}
-          quota={data?.quota ?? null}
-        />
-      )}
-    </section>
+        {isLoading ? (
+          <MetersSkeleton />
+        ) : (
+          <Body
+            app={app}
+            cliCommand={cliCommand}
+            errorCode={errorCode}
+            profileId={profileId}
+            quota={data?.quota ?? null}
+          />
+        )}
+      </section>
+    </UsageDisplayContext.Provider>
   )
 }
 
@@ -274,7 +318,82 @@ function quotaErrorMessage(app: AppId, quotaError: QuotaError, cliCommand: strin
   return "Couldn't load usage stats. Try again."
 }
 
+function CreditExpiry({ expiresAt }: { expiresAt: number | null }) {
+  if (expiresAt == null) return <>Expiry unavailable</>
+  const date = new Date(expiresAt * 1000)
+  const deltaMs = date.getTime() - Date.now()
+  return (
+    <span className="group relative inline-block">
+      {deltaMs <= 0 ? 'expired' : formatResetRelative(deltaMs, 'expires')}
+      <TooltipBubble>{format(date, 'EEE d MMM yyyy, HH:mm')}</TooltipBubble>
+    </span>
+  )
+}
+
+function AvailableResets({ resets }: { resets: RateLimitResetCredits | undefined }) {
+  if (!resets) return null
+  const count = resets.availableCount
+  const credits = (resets.credits ?? []).filter((credit) => credit.status === 'available').slice(0, count)
+  const missing = count - credits.length
+  return (
+    <div className="mt-1 border-t border-border-soft pt-2 font-mono text-mono text-muted-strong">
+      <p>{count === 0 ? 'No resets available' : `${count} reset${count === 1 ? '' : 's'} available`}</p>
+      {credits.map((credit, index) => (
+        // Credit IDs are deliberately omitted from the display-only payload.
+        // biome-ignore lint/suspicious/noArrayIndexKey: immutable snapshot rows have no client state
+        <p key={index} className="mt-1">
+          {credit.title || 'Quota reset'} · <CreditExpiry expiresAt={credit.expiresAt} />
+        </p>
+      ))}
+      {missing > 0 ? (
+        <p className="mt-1">
+          Expiry details unavailable for {missing} reset{missing === 1 ? '' : 's'}.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function Meters({ app, quota }: { app: AppId; quota: ProfileUsage['quota'] }) {
+  // Codex primary/secondary are positions, not fixed time periods. A weekly-only
+  // plan can put its weekly quota in primary. Never invent an absent window.
+  if (app === 'codex') {
+    return (
+      <div className="flex flex-col gap-2">
+        {(['primary', 'secondary'] as const).map((slot) => {
+          const window = quota?.[slot]
+          if (!window) return null
+          const minutes = window.windowDurationMins
+          const label =
+            minutes === 10080
+              ? 'Weekly'
+              : minutes == null
+                ? 'Usage window'
+                : minutes % 60 === 0
+                  ? `${minutes / 60}-hour window`
+                  : `${minutes}-minute window`
+          const shortLabel =
+            minutes === 10080
+              ? 'W'
+              : minutes == null
+                ? 'Usage'
+                : minutes % 60 === 0
+                  ? `${minutes / 60}h`
+                  : `${minutes}m`
+          return (
+            <Meter
+              key={slot}
+              label={label}
+              shortLabel={shortLabel}
+              meterWindow={window}
+              showDailySegments={minutes === 10080}
+            />
+          )
+        })}
+        <AvailableResets resets={quota?.rateLimitResetCredits} />
+      </div>
+    )
+  }
   const usageCopy = appSpecs[app].usage
   const secondaryExtra = quota?.secondaryExtra ?? null
   // The third "Sonnet-style" meter only exists for apps that define its
@@ -336,9 +455,11 @@ function Meter({
   // may exceed 100 when the user is over-limit. We show the literal
   // value in the label but cap the visual bar fill at 100%.
   const utilization = meterWindow?.utilization ?? null
-  const percent = utilization === null ? null : Math.round(utilization)
+  const display = useContext(UsageDisplayContext)
+  const usedPercent = utilization === null ? null : Math.round(utilization)
+  const percent = usedPercent === null ? null : display === 'remaining' ? Math.max(0, 100 - usedPercent) : usedPercent
   const fillPercent = percent === null ? 0 : Math.min(100, Math.max(0, percent))
-  const tone = percent === null ? 'muted' : percent < 50 ? 'ok' : percent < 80 ? 'warn' : 'crit'
+  const tone = usedPercent === null ? 'muted' : usedPercent < 50 ? 'ok' : usedPercent < 80 ? 'warn' : 'crit'
   const barClass =
     tone === 'ok' ? 'bg-green' : tone === 'warn' ? 'bg-amber' : tone === 'crit' ? 'bg-red' : 'bg-muted-strong'
   const resetLabel = formatReset(meterWindow?.resetsAt ?? null)
@@ -354,6 +475,7 @@ function Meter({
         <div
           role="progressbar"
           aria-valuenow={percent ?? undefined}
+          aria-valuetext={percent === null ? undefined : `${percent}% ${display}`}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-label={label}
@@ -362,7 +484,12 @@ function Meter({
           <div className={`h-full rounded-full ${barClass}`} style={{ width: `${fillPercent}%` }} />
           {showDailySegments ? <DaySeparators /> : null}
         </div>
-        {pacePercent === null ? null : <PaceMarker percent={pacePercent} />}
+        {pacePercent === null ? null : (
+          <PaceMarker
+            percent={display === 'remaining' ? 100 - pacePercent : pacePercent}
+            remaining={display === 'remaining'}
+          />
+        )}
       </div>
       <span className="text-right font-mono text-mono tabular-nums text-muted-strong">
         {percent === null ? '—' : `${percent}%`}
@@ -392,7 +519,7 @@ function DaySeparators() {
   )
 }
 
-function PaceMarker({ percent }: { percent: number }) {
+function PaceMarker({ percent, remaining = false }: { percent: number; remaining?: boolean }) {
   const clamped = Math.min(100, Math.max(0, percent))
   return (
     <div
@@ -400,7 +527,9 @@ function PaceMarker({ percent }: { percent: number }) {
       style={{ left: `calc(${clamped}% - 6px)` }}
     >
       <div aria-hidden className="pointer-events-none h-full w-0.5 rounded-sm bg-ink" />
-      <TooltipBubble>Even daily pace · {Math.round(clamped)}%</TooltipBubble>
+      <TooltipBubble>
+        Even daily pace · {Math.round(clamped)}%{remaining ? ' remaining' : ''}
+      </TooltipBubble>
     </div>
   )
 }
@@ -449,20 +578,20 @@ function formatReset(resetsAt: string | null): ResetLabel | null {
   }
 }
 
-function formatResetRelative(deltaMs: number): string {
+function formatResetRelative(deltaMs: number, verb = 'resets'): string {
   if (deltaMs <= 0) {
-    return 'resets soon'
+    return `${verb} soon`
   }
   const hours = Math.floor(deltaMs / (60 * 60 * 1000))
   const minutes = Math.floor((deltaMs % (60 * 60 * 1000)) / (60 * 1000))
   if (hours >= 24) {
     const days = Math.floor(hours / 24)
-    return `resets in ${days}d`
+    return `${verb} in ${days}d`
   }
   if (hours >= 1) {
-    return `resets in ${hours}h ${minutes}m`
+    return `${verb} in ${hours}h ${minutes}m`
   }
-  return `resets in ${minutes}m`
+  return `${verb} in ${minutes}m`
 }
 
 function MetersSkeleton() {

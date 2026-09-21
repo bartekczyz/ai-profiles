@@ -3,7 +3,7 @@ import type { ProfileUsage } from '@/lib/types'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { appSpecs } from '@/lib/app-registry'
 import { openCliLogin } from '@/lib/commands'
@@ -40,6 +40,81 @@ function renderWithQuery(children: ReactNode) {
 }
 
 describe('ProfileDetailUsageCard', () => {
+  beforeEach(() => window.localStorage.removeItem('ai-profiles-codex-usage-display'))
+
+  it('switches to remaining and restores the latest choice after remount', () => {
+    vi.mocked(useProfileUsage).mockReturnValue({
+      data: makeUsage({
+        quota: {
+          primary: { utilization: 85, resetsAt: null, windowDurationMins: 10080 },
+          secondary: null,
+          secondaryExtra: null,
+        },
+      }),
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useProfileUsage>)
+    const first = renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled />)
+    fireEvent.click(screen.getByRole('button', { name: 'Show remaining quota' }))
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '15')
+    expect(screen.getByRole('progressbar').firstElementChild).toHaveClass('bg-red')
+    expect(screen.getByRole('progressbar').firstElementChild).toHaveStyle({ width: '15%' })
+    first.unmount()
+    const second = renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled />)
+    expect(screen.getByRole('button', { name: 'Show used quota' })).toHaveTextContent('Remaining')
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '15')
+    fireEvent.click(screen.getByRole('button', { name: 'Show used quota' }))
+    second.unmount()
+    renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled />)
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '85')
+  })
+
+  it.each([
+    [
+      2,
+      [{ title: 'Full reset', status: 'available', expiresAt: 1893456000 }],
+      'Expiry details unavailable for 1 reset.',
+    ],
+    [2, null, 'Expiry details unavailable for 2 resets.'],
+    [0, [], 'No resets available'],
+  ])('shows the authoritative Codex reset count %s', (availableCount, credits, detail) => {
+    const usage = makeUsage()
+    vi.mocked(useProfileUsage).mockReturnValue({
+      data: { ...usage, quota: { ...usage.quota, rateLimitResetCredits: { availableCount, credits } } },
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useProfileUsage>)
+    renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled />)
+    expect(screen.getByText(detail)).toBeInTheDocument()
+    if (availableCount) expect(screen.getByText('2 resets available')).toBeInTheDocument()
+    if (credits?.length) {
+      expect(screen.getByText(/^expires in \d+d$/)).toBeInTheDocument()
+      expect(screen.getByRole('tooltip', { name: /2030/ })).toBeInTheDocument()
+    }
+  })
+
+  it.each([
+    [10080, 'Weekly'],
+    [300, '5-hour window'],
+    [60, '1-hour window'],
+    [null, 'Usage window'],
+  ])('labels a single Codex window by duration %s and hides absent windows', (duration, label) => {
+    vi.mocked(useProfileUsage).mockReturnValue({
+      data: makeUsage({
+        quota: {
+          primary: { utilization: 14, resetsAt: null, windowDurationMins: duration },
+          secondary: null,
+          secondaryExtra: null,
+        },
+      }),
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useProfileUsage>)
+    renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled />)
+    expect(screen.getAllByRole('progressbar')).toHaveLength(1)
+    expect(screen.getByRole('progressbar', { name: label })).toHaveAttribute('aria-valuenow', '14')
+  })
+
   it('renders three progressbars with the right aria-valuenow', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
       data: makeUsage(),

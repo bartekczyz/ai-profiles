@@ -2,6 +2,7 @@
 //! JSON-RPC to read account rate limits, reusing Codex's own auth + token
 //! refresh (per-CODEX_HOME). See plan §"Codex usage — verified live".
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
@@ -11,15 +12,21 @@ use chrono::TimeZone;
 use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use crate::usage::{credentials, QuotaError, QuotaProvider, QuotaUsage, Window};
+use crate::usage::{
+    credentials, QuotaError, QuotaProvider, QuotaUsage, RateLimitResetCredits, Window,
+};
 
 const APP_SERVER_TIMEOUT: Duration = Duration::from_secs(12);
 const RATE_LIMITS_ID: i64 = 2;
 
 #[derive(Deserialize)]
 struct RateLimitsResult {
+    #[serde(default, rename = "rateLimitResetCredits")]
+    rate_limit_reset_credits: Option<RateLimitResetCredits>,
     #[serde(rename = "rateLimits")]
     rate_limits: RateLimitSnapshot,
+    #[serde(default, rename = "rateLimitsByLimitId")]
+    rate_limits_by_limit_id: Option<HashMap<String, RateLimitSnapshot>>,
 }
 
 #[derive(Deserialize)]
@@ -36,6 +43,8 @@ struct RateLimitSnapshot {
 struct RateLimitWindow {
     #[serde(rename = "usedPercent")]
     used_percent: f32,
+    #[serde(default, rename = "windowDurationMins")]
+    window_duration_mins: Option<i64>,
     #[serde(default, rename = "resetsAt")]
     resets_at: Option<i64>,
 }
@@ -50,13 +59,21 @@ struct RateLimitWindow {
 /// data is present to show.
 fn parse_rate_limits(body: &[u8]) -> Result<QuotaUsage, QuotaError> {
     let parsed: RateLimitsResult = serde_json::from_slice(body).map_err(|_| QuotaError::Unknown)?;
+    let snapshot = parsed
+        .rate_limits_by_limit_id
+        .and_then(|mut buckets| buckets.remove("codex"))
+        .unwrap_or(parsed.rate_limits);
     let usage = QuotaUsage {
-        primary: parsed.rate_limits.primary.map(into_window),
-        secondary: parsed.rate_limits.secondary.map(into_window),
+        primary: snapshot.primary.map(into_window),
+        secondary: snapshot.secondary.map(into_window),
         secondary_extra: None,
+        rate_limit_reset_credits: parsed.rate_limit_reset_credits,
     };
-    if usage.primary.is_none() && usage.secondary.is_none() {
-        if parsed.rate_limits.rate_limit_reached_type.is_some() {
+    if usage.primary.is_none()
+        && usage.secondary.is_none()
+        && usage.rate_limit_reset_credits.is_none()
+    {
+        if snapshot.rate_limit_reached_type.is_some() {
             return Err(QuotaError::RateLimited);
         }
         return Err(QuotaError::Unknown);
@@ -77,6 +94,7 @@ fn into_window(raw: RateLimitWindow) -> Window {
             .map(|dt| dt.to_rfc3339())
     });
     Window {
+        window_duration_mins: raw.window_duration_mins.filter(|minutes| *minutes > 0),
         utilization,
         resets_at,
     }
@@ -209,6 +227,16 @@ mod tests {
     const RATE_LIMITS_RESULT: &str = r#"{"rateLimits":{"limitId":"codex","limitName":null,"primary":{"usedPercent":1,"windowDurationMins":300,"resetsAt":1780231295},"secondary":{"usedPercent":10,"windowDurationMins":10080,"resetsAt":1780581224},"credits":{"hasCredits":false,"unlimited":false,"balance":null},"planType":"team","rateLimitReachedType":null}}"#;
 
     #[test]
+    fn prefers_codex_bucket_and_preserves_weekly_primary_duration() {
+        let body = br#"{"rateLimits":{"primary":{"usedPercent":99}},"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":14,"windowDurationMins":10080},"secondary":null}}}"#;
+        let usage = parse_rate_limits(body).unwrap();
+        let json = serde_json::to_value(usage).unwrap();
+        assert_eq!(json["primary"]["utilization"].as_f64(), Some(14.0));
+        assert_eq!(json["primary"]["windowDurationMins"], 10080);
+        assert!(json["secondary"].is_null());
+    }
+
+    #[test]
     fn parses_primary_and_secondary_windows() {
         let usage = parse_rate_limits(RATE_LIMITS_RESULT.as_bytes()).unwrap();
         let primary = usage.primary.unwrap();
@@ -242,6 +270,17 @@ mod tests {
             parse_rate_limits(body.as_bytes()),
             Err(QuotaError::RateLimited)
         ));
+    }
+
+    #[test]
+    fn preserves_reset_count_and_nullable_expiry_without_windows() {
+        let body = br#"{"rateLimits":{},"rateLimitResetCredits":{"availableCount":2,"credits":[{"title":"Full reset","status":"available","expiresAt":1791079750},{"title":null,"status":"available","expiresAt":null}]}}"#;
+        let usage = parse_rate_limits(body).unwrap();
+        let resets = usage.rate_limit_reset_credits.unwrap();
+        assert_eq!(resets.available_count, 2);
+        let credits = resets.credits.unwrap();
+        assert_eq!(credits[0].expires_at, Some(1791079750));
+        assert_eq!(credits[1].expires_at, None);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import type { ProfileUsage, QuotaError, QuotaUsage, UsageWindow } from '@/lib/types'
+import type { ProfileUsage, QuotaError, QuotaUsage, RateLimitResetCredits, UsageWindow } from '@/lib/types'
 
 import { useQuery } from '@tanstack/react-query'
 
@@ -98,11 +98,36 @@ function narrowQuota(input: unknown): QuotaUsage | null {
   if (!isRecord(input)) {
     return null
   }
+  const resets = narrowResetCredits(input.rateLimitResetCredits)
   return {
+    ...(resets ? { rateLimitResetCredits: resets } : {}),
     primary: narrowWindow(input.primary),
     secondary: narrowWindow(input.secondary),
     secondaryExtra: narrowWindow(input.secondaryExtra),
   }
+}
+
+function narrowResetCredits(input: unknown): RateLimitResetCredits | undefined {
+  if (
+    !isRecord(input) ||
+    typeof input.availableCount !== 'number' ||
+    !Number.isSafeInteger(input.availableCount) ||
+    input.availableCount < 0
+  )
+    return
+  const credits = Array.isArray(input.credits)
+    ? input.credits.filter(isRecord).map((credit) => ({
+        title: typeof credit.title === 'string' ? credit.title : null,
+        status: typeof credit.status === 'string' ? credit.status : 'unknown',
+        expiresAt:
+          typeof credit.expiresAt === 'number' &&
+          Number.isSafeInteger(credit.expiresAt) &&
+          !Number.isNaN(new Date(credit.expiresAt * 1000).getTime())
+            ? credit.expiresAt
+            : null,
+      }))
+    : null
+  return { availableCount: input.availableCount, credits }
 }
 
 function narrowWindow(input: unknown): UsageWindow | null {
@@ -115,7 +140,10 @@ function narrowWindow(input: unknown): UsageWindow | null {
   const raw = input.utilization
   const utilization = typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : null
   const resetsAt = typeof input.resetsAt === 'string' ? input.resetsAt : null
-  return { utilization, resetsAt }
+  const duration = input.windowDurationMins
+  const windowDurationMins =
+    typeof duration === 'number' && Number.isSafeInteger(duration) && duration > 0 ? duration : undefined
+  return { utilization, resetsAt, ...(windowDurationMins === undefined ? {} : { windowDurationMins }) }
 }
 
 function narrowQuotaError(input: unknown): QuotaError | null {

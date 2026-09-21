@@ -4,7 +4,7 @@ pub(crate) mod dead_credentials;
 pub(crate) mod quota;
 pub(crate) mod refresh;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,11 +21,32 @@ pub struct QuotaUsage {
     pub secondary: Option<Window>,
     /// Third "Sonnet-style" window — Claude only; ChatGPT leaves it None.
     pub secondary_extra: Option<Window>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limit_reset_credits: Option<RateLimitResetCredits>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitResetCredits {
+    pub available_count: u64,
+    pub credits: Option<Vec<ResetCredit>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetCredit {
+    pub title: Option<String>,
+    pub status: String,
+    /// Unix timestamp in seconds; null means the expiry is unknown.
+    pub expires_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Window {
+    /// Supplied by Codex; absent for providers with fixed window labels.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_duration_mins: Option<i64>,
     pub utilization: Option<f32>,
     pub resets_at: Option<String>,
 }
@@ -223,11 +244,13 @@ mod tests {
     fn one_window() -> QuotaUsage {
         QuotaUsage {
             primary: Some(Window {
+                window_duration_mins: None,
                 utilization: Some(50.0),
                 resets_at: None,
             }),
             secondary: None,
             secondary_extra: None,
+            rate_limit_reset_credits: None,
         }
     }
 
