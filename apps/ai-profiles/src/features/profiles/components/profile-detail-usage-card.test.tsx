@@ -3,7 +3,7 @@ import type { ProfileUsage } from '@/lib/types'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { appSpecs } from '@/lib/app-registry'
 import { openCliLogin } from '@/lib/commands'
@@ -40,6 +40,85 @@ function renderWithQuery(children: ReactNode) {
 }
 
 describe('ProfileDetailUsageCard', () => {
+  beforeEach(() => window.localStorage.removeItem('ai-profiles-codex-usage-display'))
+
+  it('switches to remaining and restores the latest choice after remount', () => {
+    vi.mocked(useProfileUsage).mockReturnValue({
+      data: makeUsage({
+        quota: {
+          primary: { utilization: 85, resetsAt: null, windowDurationMins: 10080 },
+          secondary: null,
+          secondaryExtra: null,
+        },
+      }),
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useProfileUsage>)
+    const first = renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled />)
+    fireEvent.click(screen.getByRole('button', { name: 'Show remaining quota' }))
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '15')
+    expect(screen.getByRole('progressbar').firstElementChild).toHaveClass('bg-red')
+    expect(screen.getByRole('progressbar').firstElementChild).toHaveStyle({ width: '15%' })
+    first.unmount()
+    const second = renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled />)
+    expect(screen.getByRole('button', { name: 'Show used quota' })).toHaveTextContent('Remaining')
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '15')
+    fireEvent.click(screen.getByRole('button', { name: 'Show used quota' }))
+    second.unmount()
+    renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled />)
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '85')
+  })
+
+  it.each([
+    [
+      2,
+      [{ title: 'Full reset', status: 'available', expiresAt: 1893456000 }],
+      'Expiry details unavailable for 1 reset.',
+    ],
+    [2, null, 'Expiry details unavailable for 2 resets.'],
+    [0, [], 'No resets available'],
+  ])('shows the authoritative Codex reset count %s', (availableCount, credits, detail) => {
+    const usage = makeUsage()
+    vi.mocked(useProfileUsage).mockReturnValue({
+      data: { ...usage, quota: { ...usage.quota, rateLimitResetCredits: { availableCount, credits } } },
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useProfileUsage>)
+    renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled />)
+    if (availableCount === 0) {
+      expect(screen.queryByText(detail)).not.toBeInTheDocument()
+    } else {
+      expect(screen.getByText(detail)).toBeInTheDocument()
+    }
+    if (availableCount) expect(screen.getByText('2 resets available')).toBeInTheDocument()
+    if (credits?.length) {
+      expect(screen.getByText(/^expires in \d+d$/)).toBeInTheDocument()
+      expect(screen.getByRole('tooltip', { name: /2030/ })).toBeInTheDocument()
+    }
+  })
+
+  it.each([
+    [10080, 'Weekly'],
+    [300, '5-hour window'],
+    [60, '1-hour window'],
+    [null, 'Usage window'],
+  ])('labels a single Codex window by duration %s and hides absent windows', (duration, label) => {
+    vi.mocked(useProfileUsage).mockReturnValue({
+      data: makeUsage({
+        quota: {
+          primary: { utilization: 14, resetsAt: null, windowDurationMins: duration },
+          secondary: null,
+          secondaryExtra: null,
+        },
+      }),
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useProfileUsage>)
+    renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled />)
+    expect(screen.getAllByRole('progressbar')).toHaveLength(1)
+    expect(screen.getByRole('progressbar', { name: label })).toHaveAttribute('aria-valuenow', '14')
+  })
+
   it('renders three progressbars with the right aria-valuenow', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
       data: makeUsage(),
@@ -447,5 +526,78 @@ describe('ProfileDetailUsageCard', () => {
     renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled={true} />)
     const expected = appSpecs.codex.usage?.noCredentials ?? ''
     expect(screen.getByText(expected)).toBeInTheDocument()
+  })
+})
+
+describe('quota pace windows', () => {
+  const now = Date.parse('2026-09-01T00:00:00Z')
+  beforeEach(() => {
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    window.localStorage.removeItem('ai-profiles-codex-usage-display')
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  function renderCodex(duration: number | null | undefined, reset: string | null) {
+    vi.mocked(useProfileUsage).mockReturnValue({
+      data: makeUsage({
+        quota: {
+          primary: { utilization: 15, resetsAt: reset, windowDurationMins: duration },
+          secondary: null,
+          secondaryExtra: null,
+        },
+      }),
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useProfileUsage>)
+    renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="pace" cliEnabled />)
+  }
+
+  it.each([
+    [43200, '2026-09-27T00:00:00Z', 13.333333, 1],
+    [10080, '2026-09-04T12:00:00Z', 50, 7],
+    [300, '2026-09-01T02:30:00Z', 50, 1],
+    [43200, '2026-08-31T00:00:00Z', 100, 1],
+    [43200, '2026-10-02T00:00:00Z', 0, 1],
+  ])('uses duration %s for pace, independently of weekly separators', (duration, reset, expected, barChildren) => {
+    renderCodex(duration, reset)
+    const tooltip = screen.getByRole('tooltip', { name: `Even daily pace · ${Math.round(expected)}%` })
+    const left = tooltip.parentElement?.style.left ?? ''
+    expect(Number(left.match(/calc\(([-\d.]+)%/)?.[1])).toBeCloseTo(expected, 4)
+    expect(screen.getByRole('progressbar').children).toHaveLength(barChildren)
+  })
+
+  it('inverts a 30-day marker in remaining mode', () => {
+    renderCodex(43200, '2026-09-27T00:00:00Z')
+    fireEvent.click(screen.getByRole('button', { name: 'Show remaining quota' }))
+    const tooltip = screen.getByRole('tooltip', { name: 'Even daily pace · 87% remaining' })
+    expect(Number(tooltip.parentElement?.style.left.match(/calc\(([-\d.]+)%/)?.[1])).toBeCloseTo(86.666667, 4)
+  })
+
+  it.each([
+    [undefined, '2026-09-27T00:00:00Z'],
+    [null, '2026-09-27T00:00:00Z'],
+    [0, '2026-09-27T00:00:00Z'],
+    [-1, '2026-09-27T00:00:00Z'],
+    [Number.NaN, '2026-09-27T00:00:00Z'],
+    [Number.POSITIVE_INFINITY, '2026-09-27T00:00:00Z'],
+    [43200, null],
+    [43200, 'invalid'],
+  ])('hides pace for invalid duration/reset %s %s', (duration, reset) => {
+    renderCodex(duration, reset)
+    expect(screen.queryByRole('tooltip', { name: /Even daily pace/ })).not.toBeInTheDocument()
+  })
+
+  it('preserves both Claude weekly markers and their separators', () => {
+    const weekly = { utilization: 15, resetsAt: '2026-09-04T12:00:00Z' }
+    vi.mocked(useProfileUsage).mockReturnValue({
+      data: makeUsage({ quota: { primary: null, secondary: weekly, secondaryExtra: weekly } }),
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useProfileUsage>)
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="pace" cliEnabled />)
+    expect(screen.getAllByRole('tooltip', { name: 'Even daily pace · 50%' })).toHaveLength(2)
+    const bars = screen.getAllByRole('progressbar')
+    expect(bars[1].children).toHaveLength(7)
+    expect(bars[2].children).toHaveLength(7)
   })
 })

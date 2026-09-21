@@ -8,6 +8,21 @@ import { queryKeys } from '@/lib/query/keys'
 import { ensureUsable, narrowProfileUsage, UsageUnavailableError } from './use-profile-usage'
 
 describe('narrowProfileUsage', () => {
+  it('preserves reset counts and nullable expiry details', () => {
+    const resets = { availableCount: 2, credits: [{ title: 'Full reset', status: 'available', expiresAt: null }] }
+    const result = narrowProfileUsage({ quota: { rateLimitResetCredits: resets } })
+    expect(result.quota).toHaveProperty('rateLimitResetCredits', resets)
+  })
+
+  it.each([10080, 300, 60])('preserves quota duration %s across IPC narrowing', (duration) => {
+    const result = narrowProfileUsage({
+      quota: {
+        primary: { utilization: 14, resetsAt: null, windowDurationMins: duration },
+      },
+    })
+    expect(result.quota?.primary).toHaveProperty('windowDurationMins', duration)
+  })
+
   it('returns the input when it already matches the expected shape', () => {
     const input: ProfileUsage = {
       quota: {

@@ -183,11 +183,18 @@ export type AppMetadata = {
 }
 
 export type UsageWindow = {
+  windowDurationMins?: number | null
   utilization: number | null
   resetsAt: string | null
 }
 
+export type RateLimitResetCredits = {
+  availableCount: number
+  credits: Array<{ title: string | null; status: string; expiresAt: number | null }> | null
+}
+
 export type QuotaUsage = {
+  rateLimitResetCredits?: RateLimitResetCredits
   primary: UsageWindow | null
   secondary: UsageWindow | null
   secondaryExtra: UsageWindow | null

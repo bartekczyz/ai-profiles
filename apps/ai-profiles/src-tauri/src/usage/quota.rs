@@ -309,6 +309,7 @@ fn parse_body(body: &[u8]) -> Result<QuotaUsage, QuotaError> {
         primary: parsed.five_hour.map(into_window),
         secondary: parsed.seven_day.map(into_window),
         secondary_extra: parsed.seven_day_sonnet.map(into_window),
+        rate_limit_reset_credits: None,
     };
     if usage.primary.is_none() && usage.secondary.is_none() && usage.secondary_extra.is_none() {
         return Err(QuotaError::Unknown);
@@ -327,6 +328,7 @@ fn into_window(raw: ApiWindow) -> Window {
         _ => None,
     };
     Window {
+        window_duration_mins: None,
         utilization,
         resets_at: raw.resets_at,
     }
