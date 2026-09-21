@@ -331,13 +331,13 @@ function CreditExpiry({ expiresAt }: { expiresAt: number | null }) {
 }
 
 function AvailableResets({ resets }: { resets: RateLimitResetCredits | undefined }) {
-  if (!resets) return null
+  if (!resets || resets.availableCount === 0) return null
   const count = resets.availableCount
   const credits = (resets.credits ?? []).filter((credit) => credit.status === 'available').slice(0, count)
   const missing = count - credits.length
   return (
     <div className="mt-1 border-t border-border-soft pt-2 font-mono text-mono text-muted-strong">
-      <p>{count === 0 ? 'No resets available' : `${count} reset${count === 1 ? '' : 's'} available`}</p>
+      <p>{`${count} reset${count === 1 ? '' : 's'} available`}</p>
       {credits.map((credit, index) => (
         // Credit IDs are deliberately omitted from the display-only payload.
         // biome-ignore lint/suspicious/noArrayIndexKey: immutable snapshot rows have no client state

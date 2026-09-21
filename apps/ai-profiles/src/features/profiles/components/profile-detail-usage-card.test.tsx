@@ -85,7 +85,11 @@ describe('ProfileDetailUsageCard', () => {
       refetch: vi.fn(),
     } as unknown as ReturnType<typeof useProfileUsage>)
     renderWithQuery(<ProfileDetailUsageCard app="codex" profileId="p1" cliEnabled />)
-    expect(screen.getByText(detail)).toBeInTheDocument()
+    if (availableCount === 0) {
+      expect(screen.queryByText(detail)).not.toBeInTheDocument()
+    } else {
+      expect(screen.getByText(detail)).toBeInTheDocument()
+    }
     if (availableCount) expect(screen.getByText('2 resets available')).toBeInTheDocument()
     if (credits?.length) {
       expect(screen.getByText(/^expires in \d+d$/)).toBeInTheDocument()
