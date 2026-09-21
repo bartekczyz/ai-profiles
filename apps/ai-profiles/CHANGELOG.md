@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.0](https://github.com/bartekczyz/ai-profiles/compare/v1.2.0...v1.3.0) (2026-09-21)
+
+
+### Added
+
+* **usage:** show per-model weekly quota and usage credits ([#45](https://github.com/bartekczyz/ai-profiles/issues/45)) ([ad89046](https://github.com/bartekczyz/ai-profiles/commit/ad89046f8e962c81ea44b05e8beabfe3d54a5577))
+
+
+### Fixed
+
+* render plan-aware Codex quota windows and reset-credit expiries, thanks [@borisdamato](https://github.com/borisdamato) for the contribution! ([#43](https://github.com/bartekczyz/ai-profiles/issues/43)) ([4752697](https://github.com/bartekczyz/ai-profiles/commit/4752697d7d9fa4cfe4a424acf41c0a13e3191f99))
+
 ## [1.2.0](https://github.com/bartekczyz/ai-profiles/compare/v1.1.0...v1.2.0) (2026-09-20)
 
 
