@@ -387,6 +387,7 @@ function Meters({ app, quota }: { app: AppId; quota: ProfileUsage['quota'] }) {
               shortLabel={shortLabel}
               meterWindow={window}
               showDailySegments={minutes === 10080}
+              paceWindowMins={minutes}
             />
           )
         })}
@@ -412,6 +413,7 @@ function Meters({ app, quota }: { app: AppId; quota: ProfileUsage['quota'] }) {
       />
       <Meter
         showDailySegments
+        paceWindowMins={10080}
         label={usageCopy?.secondaryLabel ?? 'Weekly'}
         shortLabel={usageCopy?.secondaryShortLabel ?? 'W'}
         meterWindow={quota?.secondary ?? null}
@@ -419,6 +421,7 @@ function Meters({ app, quota }: { app: AppId; quota: ProfileUsage['quota'] }) {
       {showExtra ? (
         <Meter
           showDailySegments
+          paceWindowMins={10080}
           label={usageCopy?.secondaryExtraLabel ?? 'Weekly Sonnet'}
           shortLabel={usageCopy?.secondaryExtraShortLabel ?? 'WS'}
           meterWindow={secondaryExtra}
@@ -445,11 +448,13 @@ function Meter({
   shortLabel,
   meterWindow,
   showDailySegments = false,
+  paceWindowMins,
 }: {
   label: string
   shortLabel: string
   meterWindow: UsageWindow | null
   showDailySegments?: boolean
+  paceWindowMins?: number | null
 }) {
   // utilization comes from the API on a 0..=100 percentage scale and
   // may exceed 100 when the user is over-limit. We show the literal
@@ -463,7 +468,7 @@ function Meter({
   const barClass =
     tone === 'ok' ? 'bg-green' : tone === 'warn' ? 'bg-amber' : tone === 'crit' ? 'bg-red' : 'bg-muted-strong'
   const resetLabel = formatReset(meterWindow?.resetsAt ?? null)
-  const pacePercent = showDailySegments ? computeWeeklyPacePercent(meterWindow?.resetsAt ?? null) : null
+  const pacePercent = computePacePercent(meterWindow?.resetsAt ?? null, paceWindowMins)
 
   return (
     <div className={meterGridClass}>
@@ -534,19 +539,18 @@ function PaceMarker({ percent, remaining = false }: { percent: number; remaining
   )
 }
 
-// Weekly limits reset at a fixed time on a 7-day cycle, so the "expected"
-// burn position is just how far we've travelled from the previous reset
-// (resetsAt - 7d) toward the next one. Returns null when the input is
-// missing or out of range.
-function computeWeeklyPacePercent(resetsAt: string | null): number | null {
-  if (!resetsAt) {
+// Pace uses elapsed time within the actual quota window, independently of
+// the weekly day separators. Missing or invalid timing cannot imply a pace.
+function computePacePercent(resetsAt: string | null, durationMins: number | null | undefined): number | null {
+  if (!resetsAt || durationMins == null || !Number.isFinite(durationMins) || durationMins <= 0) {
     return null
   }
   const resetTime = new Date(resetsAt).getTime()
   if (Number.isNaN(resetTime)) {
     return null
   }
-  const windowMs = 7 * 24 * 60 * 60 * 1000
+  const windowMs = durationMins * 60 * 1000
+  if (!Number.isFinite(windowMs)) return null
   const timeRemaining = resetTime - Date.now()
   if (timeRemaining <= 0) {
     return 100
