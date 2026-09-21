@@ -10,7 +10,7 @@ use tokio::sync::Mutex as TokioMutex;
 
 use crate::usage::credentials::read_access_token;
 use crate::usage::dead_credentials::DeadCredentialRegistry;
-use crate::usage::{QuotaError, QuotaUsage, Window};
+use crate::usage::{QuotaError, QuotaUsage, Spend, Window};
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const BETA_HEADER: &str = "oauth-2025-04-20";
@@ -210,9 +210,12 @@ fn parse_response(response: HttpResponse) -> Result<QuotaUsage, QuotaError> {
 /// What a cache entry remembers: a fresh successful quota, or that the
 /// endpoint is rate-limiting this token right now. Each carries its own
 /// expiry via the enclosing [`CacheEntry`].
+/// The success payload is boxed so the enum isn't sized by it — `QuotaUsage`
+/// carries a string, a vector and several windows, while `RateLimited` is a
+/// bare tag.
 #[derive(Clone)]
 enum CachedOutcome {
-    Success(QuotaUsage),
+    Success(Box<QuotaUsage>),
     RateLimited,
 }
 
@@ -243,7 +246,7 @@ impl ClaudeQuotaCache {
         let mut entries = self.entries.lock().unwrap();
         match entries.get(key) {
             Some(entry) if Instant::now() < entry.expires_at => Some(match &entry.outcome {
-                CachedOutcome::Success(usage) => Ok(usage.clone()),
+                CachedOutcome::Success(usage) => Ok((**usage).clone()),
                 CachedOutcome::RateLimited => Err(QuotaError::RateLimited),
             }),
             Some(_) => {
@@ -255,7 +258,11 @@ impl ClaudeQuotaCache {
     }
 
     fn store_success(&self, key: String, usage: QuotaUsage) {
-        self.insert(key, CachedOutcome::Success(usage), QUOTA_CACHE_TTL);
+        self.insert(
+            key,
+            CachedOutcome::Success(Box::new(usage)),
+            QUOTA_CACHE_TTL,
+        );
     }
 
     /// Negatively caches a rate limit for its `Retry-After` window, falling
@@ -302,35 +309,161 @@ fn parse_body(body: &[u8]) -> Result<QuotaUsage, QuotaError> {
         Ok(value) => value,
         Err(_) => return Err(QuotaError::Unknown),
     };
-    // Anthropic's wire fields map onto the generic windows: the 5-hour window
-    // is `primary`, the weekly window is `secondary`, and the weekly-Sonnet
-    // sub-quota is `secondary_extra` (Claude-only; ChatGPT leaves it None).
+    // `limits` is Anthropic's current contract and the only place the
+    // per-model weekly sub-quota (and its display name) now appears — the
+    // flat `seven_day_sonnet` / `seven_day_opus` fields are still emitted
+    // but are permanently null. Fall back to them only when the array
+    // yields nothing, so a rolled-back or cached older response still renders.
+    let mut windows = windows_from_limits(parsed.limits);
+    if windows.is_empty() {
+        windows = windows_from_legacy_fields(
+            parsed.five_hour,
+            parsed.seven_day,
+            parsed.seven_day_opus,
+            parsed.seven_day_sonnet,
+        );
+    }
     let usage = QuotaUsage {
-        primary: parsed.five_hour.map(into_window),
-        secondary: parsed.seven_day.map(into_window),
-        secondary_extra: parsed.seven_day_sonnet.map(into_window),
+        primary: windows.primary,
+        secondary: windows.secondary,
+        scoped_weekly: windows.scoped_weekly,
+        spend: parsed.spend.and_then(into_spend),
         rate_limit_reset_credits: None,
     };
-    if usage.primary.is_none() && usage.secondary.is_none() && usage.secondary_extra.is_none() {
+    if usage.primary.is_none()
+        && usage.secondary.is_none()
+        && usage.scoped_weekly.is_empty()
+        && usage.spend.is_none()
+    {
         return Err(QuotaError::Unknown);
     }
     Ok(usage)
 }
 
-/// Anthropic returns `utilization` as a percentage on a 0..=100 scale
+/// The Claude-shaped window set, before it's folded into a [`QuotaUsage`].
+/// Exists so the `limits` path and the legacy-fields path can produce the
+/// same thing and the caller can pick whichever came back non-empty.
+#[derive(Default)]
+struct ClaudeWindows {
+    primary: Option<Window>,
+    secondary: Option<Window>,
+    scoped_weekly: Vec<Window>,
+}
+
+impl ClaudeWindows {
+    fn is_empty(&self) -> bool {
+        self.primary.is_none() && self.secondary.is_none() && self.scoped_weekly.is_empty()
+    }
+}
+
+/// Folds the `limits` array into the window set. Entry kinds map as
+/// `session` → primary (the 5-hour window), `weekly_all` → secondary, and
+/// each `weekly_scoped` → one labelled per-model weekly row.
+fn windows_from_limits(limits: Option<Vec<ApiLimit>>) -> ClaudeWindows {
+    let mut windows = ClaudeWindows::default();
+    for limit in limits.unwrap_or_default() {
+        match limit.kind.as_deref() {
+            Some("session") => windows.primary = Some(into_limit_window(limit, None)),
+            Some("weekly_all") => windows.secondary = Some(into_limit_window(limit, None)),
+            Some("weekly_scoped") => {
+                let label = limit
+                    .scope
+                    .as_ref()
+                    .and_then(|scope| scope.model.as_ref())
+                    .and_then(|model| model.display_name.clone());
+                windows.scoped_weekly.push(into_limit_window(limit, label));
+            }
+            // Anthropic ships new kinds before clients know what they mean
+            // (the payload already carries several codenamed windows). An
+            // unrecognised kind is dropped rather than guessed into a slot.
+            _ => {}
+        }
+    }
+    windows
+}
+
+/// Reads the pre-`limits` top-level fields. Scoped weeklies had a field per
+/// model there, so their labels come from the field name rather than the
+/// server.
+fn windows_from_legacy_fields(
+    five_hour: Option<ApiWindow>,
+    seven_day: Option<ApiWindow>,
+    seven_day_opus: Option<ApiWindow>,
+    seven_day_sonnet: Option<ApiWindow>,
+) -> ClaudeWindows {
+    let mut scoped_weekly = Vec::new();
+    if let Some(raw) = seven_day_opus {
+        scoped_weekly.push(into_window(raw, Some("Opus".to_string())));
+    }
+    if let Some(raw) = seven_day_sonnet {
+        scoped_weekly.push(into_window(raw, Some("Sonnet".to_string())));
+    }
+    ClaudeWindows {
+        primary: five_hour.map(|raw| into_window(raw, None)),
+        secondary: seven_day.map(|raw| into_window(raw, None)),
+        scoped_weekly,
+    }
+}
+
+/// Anthropic returns utilization as a percentage on a 0..=100 scale
 /// (e.g. `42.0` means 42%). We accept any finite non-negative value
 /// without an upper clamp — values above 100 are unusual but legitimate
 /// (over-limit) and we'd rather show "105%" than drop the data. The
 /// UI is responsible for capping the visual bar fill at 100%.
-fn into_window(raw: ApiWindow) -> Window {
-    let utilization = match raw.utilization {
+fn sanitize_percent(raw: Option<f32>) -> Option<f32> {
+    match raw {
         Some(value) if value.is_finite() && value >= 0.0 => Some(value),
         _ => None,
-    };
+    }
+}
+
+fn into_window(raw: ApiWindow, label: Option<String>) -> Window {
     Window {
         window_duration_mins: None,
-        utilization,
+        label,
+        utilization: sanitize_percent(raw.utilization),
         resets_at: raw.resets_at,
+    }
+}
+
+fn into_limit_window(raw: ApiLimit, label: Option<String>) -> Window {
+    Window {
+        window_duration_mins: None,
+        label,
+        utilization: sanitize_percent(raw.percent),
+        resets_at: raw.resets_at,
+    }
+}
+
+/// Maps the `spend` block onto [`Spend`], or `None` when there is nothing
+/// worth a row: credits switched off for the account, or no usable amount.
+fn into_spend(raw: ApiSpend) -> Option<Spend> {
+    if !raw.enabled {
+        return None;
+    }
+    let used = raw.used?;
+    // A cap denominated in another currency can't be compared against the
+    // used amount, so it's dropped rather than rendered as "£78 of $300".
+    let limit_minor = raw
+        .limit
+        .filter(|limit| limit.currency == used.currency)
+        .map(|limit| limit.amount_minor);
+    Some(Spend {
+        used_minor: used.amount_minor,
+        currency: used.currency,
+        exponent: sanitize_exponent(used.exponent),
+        limit_minor,
+        percent: sanitize_percent(raw.percent),
+    })
+}
+
+/// Minor-unit decimal places. Every currency Anthropic bills in sits in
+/// 0..=6 (0 for JPY, 2 for USD/GBP); anything outside that is drift, and
+/// two places is the safe assumption rather than a reason to hide the row.
+fn sanitize_exponent(raw: Option<i32>) -> u32 {
+    match raw {
+        Some(value) if (0..=6).contains(&value) => value as u32,
+        _ => 2,
     }
 }
 
@@ -366,9 +499,15 @@ impl crate::usage::QuotaProvider for ClaudeQuotaProvider {
 #[derive(Debug, Deserialize, Default)]
 struct ApiResponse {
     #[serde(default)]
+    limits: Option<Vec<ApiLimit>>,
+    #[serde(default)]
+    spend: Option<ApiSpend>,
+    #[serde(default)]
     five_hour: Option<ApiWindow>,
     #[serde(default)]
     seven_day: Option<ApiWindow>,
+    #[serde(default)]
+    seven_day_opus: Option<ApiWindow>,
     #[serde(default)]
     seven_day_sonnet: Option<ApiWindow>,
 }
@@ -379,6 +518,52 @@ struct ApiWindow {
     utilization: Option<f32>,
     #[serde(default)]
     resets_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ApiLimit {
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    percent: Option<f32>,
+    #[serde(default)]
+    resets_at: Option<String>,
+    #[serde(default)]
+    scope: Option<ApiScope>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ApiScope {
+    #[serde(default)]
+    model: Option<ApiScopeModel>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ApiScopeModel {
+    #[serde(default)]
+    display_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ApiSpend {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    used: Option<ApiMoney>,
+    #[serde(default)]
+    limit: Option<ApiMoney>,
+    #[serde(default)]
+    percent: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ApiMoney {
+    #[serde(default)]
+    amount_minor: i64,
+    #[serde(default)]
+    currency: String,
+    #[serde(default)]
+    exponent: Option<i32>,
 }
 
 #[cfg(test)]
@@ -446,6 +631,33 @@ mod tests {
         dir
     }
 
+    /// The live payload as of the `limits` rollout, trimmed to the fields we
+    /// read. Captured from the real endpoint: the per-model weekly sub-quota
+    /// now arrives as a `weekly_scoped` entry naming the model, and the flat
+    /// `seven_day_sonnet` / `seven_day_opus` fields are permanently null.
+    const LIVE_BODY: &[u8] = br#"{
+        "five_hour": {"utilization": 4.0, "resets_at": "2026-09-21T17:20:00+00:00"},
+        "seven_day": {"utilization": 24.0, "resets_at": "2026-09-25T02:00:00+00:00"},
+        "seven_day_opus": null,
+        "seven_day_sonnet": null,
+        "nimbus_quill": {"utilization": 0.0, "resets_at": null},
+        "limits": [
+            {"kind": "session", "group": "session", "percent": 4, "severity": "normal",
+             "resets_at": "2026-09-21T17:20:00+00:00", "scope": null, "is_active": false},
+            {"kind": "weekly_all", "group": "weekly", "percent": 24, "severity": "normal",
+             "resets_at": "2026-09-25T02:00:00+00:00", "scope": null, "is_active": true},
+            {"kind": "weekly_scoped", "group": "weekly", "percent": 19, "severity": "normal",
+             "resets_at": "2026-09-25T02:00:00+00:00",
+             "scope": {"model": {"id": null, "display_name": "Fable"}, "surface": null},
+             "is_active": false}
+        ],
+        "spend": {
+            "used": {"amount_minor": 7788, "currency": "GBP", "exponent": 2},
+            "limit": {"amount_minor": 30000, "currency": "GBP", "exponent": 2},
+            "percent": 26, "severity": "normal", "enabled": true
+        }
+    }"#;
+
     #[tokio::test]
     async fn happy_path_parses_all_windows() {
         let dir = dir_with_token();
@@ -463,6 +675,181 @@ mod tests {
         let usage = fetch_quota(dir.path(), &client).await.unwrap();
         assert!((usage.primary.unwrap().utilization.unwrap() - 63.0).abs() < 1e-4);
         assert_eq!(usage.secondary.unwrap().resets_at, None);
+    }
+
+    // -- the `limits` array --
+
+    #[test]
+    fn limits_array_fills_the_five_hour_and_weekly_windows() {
+        let usage = parse_body(LIVE_BODY).unwrap();
+        let five_hour = usage.primary.unwrap();
+        let weekly = usage.secondary.unwrap();
+        assert_eq!(five_hour.utilization, Some(4.0));
+        assert_eq!(weekly.utilization, Some(24.0));
+        assert_eq!(
+            weekly.resets_at.as_deref(),
+            Some("2026-09-25T02:00:00+00:00")
+        );
+        // Neither unscoped window names a model — the UI labels those itself.
+        assert!(five_hour.label.is_none());
+        assert!(weekly.label.is_none());
+    }
+
+    #[test]
+    fn scoped_weekly_carries_the_server_supplied_model_name() {
+        let usage = parse_body(LIVE_BODY).unwrap();
+        assert_eq!(usage.scoped_weekly.len(), 1);
+        let scoped = &usage.scoped_weekly[0];
+        assert_eq!(scoped.label.as_deref(), Some("Fable"));
+        assert_eq!(scoped.utilization, Some(19.0));
+        assert_eq!(
+            scoped.resets_at.as_deref(),
+            Some("2026-09-25T02:00:00+00:00")
+        );
+    }
+
+    #[test]
+    fn every_scoped_weekly_gets_its_own_row() {
+        // Anthropic has shipped two per-model weeklies at once before
+        // (opus + sonnet), so the list must not collapse to one.
+        let body = br#"{"limits":[
+            {"kind":"weekly_scoped","percent":19,"scope":{"model":{"display_name":"Fable"}}},
+            {"kind":"weekly_scoped","percent":3,"scope":{"model":{"display_name":"Opus"}}}
+        ]}"#;
+        let usage = parse_body(body).unwrap();
+        let labels: Vec<_> = usage
+            .scoped_weekly
+            .iter()
+            .map(|window| window.label.as_deref())
+            .collect();
+        assert_eq!(labels, vec![Some("Fable"), Some("Opus")]);
+    }
+
+    #[test]
+    fn scoped_weekly_without_a_model_name_has_no_label() {
+        let body = br#"{"limits":[{"kind":"weekly_scoped","percent":19,"scope":null}]}"#;
+        let usage = parse_body(body).unwrap();
+        assert_eq!(usage.scoped_weekly.len(), 1);
+        assert!(usage.scoped_weekly[0].label.is_none());
+    }
+
+    #[test]
+    fn unknown_limit_kinds_are_dropped_not_guessed_into_a_slot() {
+        let body = br#"{"limits":[
+            {"kind":"session","percent":5},
+            {"kind":"monthly_tangelo","percent":80},
+            {"kind":null,"percent":90}
+        ]}"#;
+        let usage = parse_body(body).unwrap();
+        assert_eq!(usage.primary.unwrap().utilization, Some(5.0));
+        assert!(usage.secondary.is_none());
+        assert!(usage.scoped_weekly.is_empty());
+    }
+
+    #[test]
+    fn legacy_fields_are_used_when_limits_is_absent() {
+        // A rolled-back or cached pre-`limits` response must still render.
+        let body = br#"{
+            "five_hour": {"utilization": 63.0, "resets_at": null},
+            "seven_day": {"utilization": 21.0, "resets_at": null},
+            "seven_day_opus": {"utilization": 12.0, "resets_at": null},
+            "seven_day_sonnet": {"utilization": 8.0, "resets_at": null}
+        }"#;
+        let usage = parse_body(body).unwrap();
+        assert_eq!(usage.primary.unwrap().utilization, Some(63.0));
+        assert_eq!(usage.secondary.unwrap().utilization, Some(21.0));
+        let scoped: Vec<_> = usage
+            .scoped_weekly
+            .iter()
+            .map(|window| (window.label.as_deref(), window.utilization))
+            .collect();
+        assert_eq!(
+            scoped,
+            vec![(Some("Opus"), Some(12.0)), (Some("Sonnet"), Some(8.0))],
+        );
+    }
+
+    #[test]
+    fn an_empty_limits_array_falls_back_to_the_legacy_fields() {
+        let body = br#"{"limits":[],"five_hour":{"utilization":63.0,"resets_at":null}}"#;
+        let usage = parse_body(body).unwrap();
+        assert_eq!(usage.primary.unwrap().utilization, Some(63.0));
+    }
+
+    #[test]
+    fn limits_win_over_the_legacy_fields_when_both_are_present() {
+        // The live payload sends both; `limits` is the current contract.
+        let usage = parse_body(LIVE_BODY).unwrap();
+        assert_eq!(
+            usage.scoped_weekly.len(),
+            1,
+            "legacy nulls must not add rows"
+        );
+        assert_eq!(usage.primary.unwrap().utilization, Some(4.0));
+    }
+
+    // -- usage credits (`spend`) --
+
+    #[test]
+    fn enabled_spend_is_parsed_in_minor_units() {
+        let spend = parse_body(LIVE_BODY).unwrap().spend.unwrap();
+        assert_eq!(spend.used_minor, 7788);
+        assert_eq!(spend.limit_minor, Some(30000));
+        assert_eq!(spend.currency, "GBP");
+        assert_eq!(spend.exponent, 2);
+        assert_eq!(spend.percent, Some(26.0));
+    }
+
+    #[test]
+    fn disabled_spend_yields_no_row() {
+        let body = br#"{
+            "five_hour": {"utilization": 5.0},
+            "spend": {"used": {"amount_minor": 0, "currency": "USD", "exponent": 2},
+                      "limit": null, "percent": 0, "enabled": false}
+        }"#;
+        let usage = parse_body(body).unwrap();
+        assert!(usage.spend.is_none());
+    }
+
+    #[test]
+    fn uncapped_spend_keeps_the_used_amount() {
+        let body = br#"{"spend":{"used":{"amount_minor":500,"currency":"USD","exponent":2},
+                                  "limit":null,"percent":null,"enabled":true}}"#;
+        let spend = parse_body(body).unwrap().spend.unwrap();
+        assert_eq!(spend.used_minor, 500);
+        assert!(spend.limit_minor.is_none());
+    }
+
+    #[test]
+    fn a_cap_in_another_currency_is_dropped_rather_than_mixed() {
+        let body = br#"{"spend":{"used":{"amount_minor":7788,"currency":"GBP","exponent":2},
+                                  "limit":{"amount_minor":30000,"currency":"USD","exponent":2},
+                                  "percent":26,"enabled":true}}"#;
+        let spend = parse_body(body).unwrap().spend.unwrap();
+        assert_eq!(spend.currency, "GBP");
+        assert!(spend.limit_minor.is_none(), "must not show £78 of $300");
+    }
+
+    #[test]
+    fn an_out_of_range_exponent_falls_back_to_two_places() {
+        let body = br#"{"spend":{"used":{"amount_minor":7788,"currency":"GBP","exponent":-3},
+                                  "limit":null,"percent":null,"enabled":true}}"#;
+        assert_eq!(parse_body(body).unwrap().spend.unwrap().exponent, 2);
+    }
+
+    #[test]
+    fn a_zero_decimal_currency_keeps_its_exponent() {
+        let body = br#"{"spend":{"used":{"amount_minor":900,"currency":"JPY","exponent":0},
+                                  "limit":null,"percent":null,"enabled":true}}"#;
+        assert_eq!(parse_body(body).unwrap().spend.unwrap().exponent, 0);
+    }
+
+    #[test]
+    fn a_response_carrying_only_spend_is_not_an_error() {
+        // No windows at all but real credit data is still worth a card.
+        let body = br#"{"spend":{"used":{"amount_minor":100,"currency":"USD","exponent":2},
+                                  "limit":null,"percent":null,"enabled":true}}"#;
+        assert!(parse_body(body).unwrap().spend.is_some());
     }
 
     #[tokio::test]
@@ -611,7 +998,7 @@ mod tests {
         let usage = fetch_quota(dir.path(), &client).await.unwrap();
         assert!(usage.primary.is_some());
         assert!(usage.secondary.is_none());
-        assert!(usage.secondary_extra.is_none());
+        assert!(usage.scoped_weekly.is_empty());
     }
 
     #[tokio::test]
@@ -632,7 +1019,7 @@ mod tests {
         let usage = fetch_quota(dir.path(), &client).await.unwrap();
         assert!(usage.primary.unwrap().utilization.is_none());
         assert!(usage.secondary.unwrap().utilization.is_none());
-        assert!(usage.secondary_extra.unwrap().utilization.is_none());
+        assert!(usage.scoped_weekly[0].utilization.is_none());
     }
 
     #[tokio::test]

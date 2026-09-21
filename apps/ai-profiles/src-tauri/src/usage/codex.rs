@@ -66,7 +66,8 @@ fn parse_rate_limits(body: &[u8]) -> Result<QuotaUsage, QuotaError> {
     let usage = QuotaUsage {
         primary: snapshot.primary.map(into_window),
         secondary: snapshot.secondary.map(into_window),
-        secondary_extra: None,
+        scoped_weekly: Vec::new(),
+        spend: None,
         rate_limit_reset_credits: parsed.rate_limit_reset_credits,
     };
     if usage.primary.is_none()
@@ -95,6 +96,7 @@ fn into_window(raw: RateLimitWindow) -> Window {
     });
     Window {
         window_duration_mins: raw.window_duration_mins.filter(|minutes| *minutes > 0),
+        label: None,
         utilization,
         resets_at,
     }
@@ -247,8 +249,9 @@ mod tests {
             Some("2026-05-31T12:41:35+00:00")
         );
         assert_eq!(usage.secondary.unwrap().utilization, Some(10.0));
-        // Codex has no third meter.
-        assert!(usage.secondary_extra.is_none());
+        // Codex has no per-model weekly sub-quota and no credit spend.
+        assert!(usage.scoped_weekly.is_empty());
+        assert!(usage.spend.is_none());
     }
 
     #[test]

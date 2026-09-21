@@ -19,10 +19,35 @@ pub struct ProfileUsage {
 pub struct QuotaUsage {
     pub primary: Option<Window>,
     pub secondary: Option<Window>,
-    /// Third "Sonnet-style" window — Claude only; ChatGPT leaves it None.
-    pub secondary_extra: Option<Window>,
+    /// Weekly sub-quotas scoped to a single model (Claude's "Weekly · Fable"
+    /// row). The upstream payload is a list and has historically carried more
+    /// than one at a time, so this stays a list; ChatGPT leaves it empty.
+    /// Each entry carries its own server-supplied [`Window::label`].
+    pub scoped_weekly: Vec<Window>,
+    /// Pay-as-you-go credit spend, present only when the account has it
+    /// enabled. Claude only; ChatGPT leaves it None.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spend: Option<Spend>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limit_reset_credits: Option<RateLimitResetCredits>,
+}
+
+/// Money spent against a plan's usage-credit allowance. Amounts are in the
+/// currency's minor units (pence, cents) exactly as the upstream payload
+/// reports them — no float arithmetic happens on this side of the wire.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Spend {
+    /// Amount consumed this period, in minor units.
+    pub used_minor: i64,
+    /// ISO-4217 code the amounts are denominated in, e.g. `GBP`.
+    pub currency: String,
+    /// Decimal places the minor units carry — 2 for `GBP`, 0 for `JPY`.
+    pub exponent: u32,
+    /// Spend cap in minor units. `None` for an uncapped account.
+    pub limit_minor: Option<i64>,
+    /// Server-computed share of the cap consumed, on a 0..=100 scale.
+    pub percent: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +72,11 @@ pub struct Window {
     /// Supplied by Codex; absent for providers with fixed window labels.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_duration_mins: Option<i64>,
+    /// Server-supplied display name for a window whose subject the client
+    /// can't know ahead of time — the model a scoped weekly quota applies
+    /// to, e.g. `Fable`. Absent for windows the UI labels itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     pub utilization: Option<f32>,
     pub resets_at: Option<String>,
 }
@@ -245,11 +275,13 @@ mod tests {
         QuotaUsage {
             primary: Some(Window {
                 window_duration_mins: None,
+                label: None,
                 utilization: Some(50.0),
                 resets_at: None,
             }),
             secondary: None,
-            secondary_extra: None,
+            scoped_weekly: Vec::new(),
+            spend: None,
             rate_limit_reset_credits: None,
         }
     }
