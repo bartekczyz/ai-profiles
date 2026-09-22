@@ -458,6 +458,21 @@ trait Effects {
     fn open_stock(&mut self) -> AppResult<()>;
 }
 
+/// Pure: what is still wrong with a wrapper that has just been rebuilt, or
+/// `None` if the rebuild produced what it was supposed to.
+///
+/// A rebuild that reports success without leaving a current wrapper must not be
+/// opened anyway. The wrapper itself asks for the rebuild when it finds it has
+/// fallen behind the vendor app, so opening one that is still behind would have
+/// it ask again, and again.
+fn rebuild_did_not_take(state: WrapperState) -> Option<&'static str> {
+    match state {
+        WrapperState::Current => None,
+        WrapperState::Missing => Some("it is not there afterwards"),
+        WrapperState::Stale => Some("it still does not match the installed app"),
+    }
+}
+
 /// Start a profile's app: through its wrapper if it has one, through the stock
 /// app if that does not work out. Returns why the wrapper was bypassed, if it
 /// was. Fails only if the stock app cannot be started either.
@@ -466,7 +481,12 @@ fn launch_with<E: Effects>(distinct_dock_icon: bool, effects: &mut E) -> AppResu
         Route::ScriptLauncher => return effects.open_script_launcher().map(|()| None),
         Route::Wrapper => effects.open_wrapper(),
         Route::RebuildWrapper => match effects.rebuild_wrapper() {
-            Ok(()) => effects.open_wrapper(),
+            Ok(()) => match rebuild_did_not_take(effects.wrapper_state()) {
+                None => effects.open_wrapper(),
+                Some(problem) => Err(Bypass::RebuildFailed(format!(
+                    "the wrapper was rebuilt but {problem}"
+                ))),
+            },
             Err(err) => Err(Bypass::RebuildFailed(err.to_string())),
         },
     };
@@ -900,6 +920,9 @@ mod tests {
     /// Records what a launch asks for and answers from a script.
     struct Fake {
         state: WrapperState,
+        /// Where a successful rebuild leaves the wrapper. `Current`, as a real
+        /// one does, unless a test is about a rebuild that did not take.
+        after_rebuild: WrapperState,
         rebuild_error: Option<AppError>,
         wrapper: Result<(), Bypass>,
         stock_error: Option<AppError>,
@@ -910,6 +933,7 @@ mod tests {
         fn new(state: WrapperState) -> Self {
             Fake {
                 state,
+                after_rebuild: WrapperState::Current,
                 rebuild_error: None,
                 wrapper: Ok(()),
                 stock_error: None,
@@ -930,7 +954,11 @@ mod tests {
 
         fn rebuild_wrapper(&mut self) -> AppResult<()> {
             self.calls.push("rebuild");
-            self.rebuild_error.take().map_or(Ok(()), Err)
+            if let Some(err) = self.rebuild_error.take() {
+                return Err(err);
+            }
+            self.state = self.after_rebuild;
+            Ok(())
         }
 
         fn open_wrapper(&mut self) -> Result<(), Bypass> {
@@ -981,6 +1009,29 @@ mod tests {
             panic!("expected a failed rebuild, got {bypass:?}");
         };
         assert!(detail.contains("disk is full"), "{detail}");
+    }
+
+    #[test]
+    fn only_a_current_wrapper_counts_as_a_rebuild_that_took() {
+        assert_eq!(rebuild_did_not_take(WrapperState::Current), None);
+        assert!(rebuild_did_not_take(WrapperState::Missing).is_some());
+        assert!(rebuild_did_not_take(WrapperState::Stale).is_some());
+    }
+
+    #[test]
+    fn a_rebuild_that_reports_success_but_leaves_the_wrapper_behind_is_not_opened() {
+        for left in [WrapperState::Stale, WrapperState::Missing] {
+            let mut fake = Fake::new(WrapperState::Stale);
+            fake.after_rebuild = left;
+
+            let bypass = launch_with(true, &mut fake).unwrap();
+
+            assert_eq!(fake.calls, ["rebuild", "stock"], "{left:?}");
+            let Some(Bypass::RebuildFailed(detail)) = bypass else {
+                panic!("expected a failed rebuild, got {bypass:?}");
+            };
+            assert!(detail.contains("rebuilt but"), "{detail}");
+        }
     }
 
     #[test]
