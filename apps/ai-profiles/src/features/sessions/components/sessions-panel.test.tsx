@@ -68,6 +68,7 @@ const sidebarEntries: Array<SidebarEntry> = [
       app: 'claude',
       name: 'Claude',
       customName: null,
+      color: null,
       surfaces: { gui: true, cli: true },
     },
   },
@@ -131,6 +132,7 @@ beforeEach(() => {
     dockIconAcknowledgedAt: null,
     defaultProfileNames: {},
     dismissedRepairSessions: {},
+    defaultProfileColors: {},
   })
   vi.mocked(listSessions).mockReset()
   vi.mocked(archiveSession).mockReset().mockResolvedValue(undefined)

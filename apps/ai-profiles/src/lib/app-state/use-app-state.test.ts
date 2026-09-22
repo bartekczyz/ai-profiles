@@ -18,6 +18,7 @@ function makeAppState(overrides: Partial<AppState> = {}): AppState {
     dockIconAcknowledgedAt: null,
     defaultProfileNames: {},
     dismissedRepairSessions: {},
+    defaultProfileColors: {},
     ...overrides,
   }
 }
