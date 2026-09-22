@@ -1,5 +1,6 @@
 import type { AppId } from '@/lib/app-registry'
 import type { Profile } from '@/lib/types'
+import type { GuiLaunch } from './use-gui-launch'
 
 import { Suspense, useState } from 'react'
 
@@ -15,6 +16,7 @@ import { ProfileDetailOverflowMenu, ProfileDetailOverflowMenuFallback } from './
 import { ProfileDetailShell } from './profile-detail-shell'
 import { ProfileDetailSurfacesPanel } from './profile-detail-surfaces-panel'
 import { ProfileDetailUsageCard } from './profile-detail-usage-card'
+import { useGuiLaunch } from './use-gui-launch'
 
 type Props = {
   profile: Profile
@@ -30,6 +32,9 @@ type Props = {
 export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: Props) {
   const [actionError, setActionError] = useState<string | null>(null)
   const command = wrapperCommand(profile.app, profile.slug)
+  // Above the boundary below, which swaps one surfaces panel for another as
+  // soon as the paths land.
+  const launch = useGuiLaunch()
 
   return (
     <ProfileDetailShell>
@@ -68,9 +73,21 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
       <div className="mb-6">
         <Suspense
           key={profile.id}
-          fallback={<ManagedSurfaces profile={profile} shortcutsEnabled={shortcutsEnabled} onError={setActionError} />}
+          fallback={
+            <ManagedSurfaces
+              profile={profile}
+              shortcutsEnabled={shortcutsEnabled}
+              launch={launch}
+              onError={setActionError}
+            />
+          }
         >
-          <ResolvedManagedSurfaces profile={profile} shortcutsEnabled={shortcutsEnabled} onError={setActionError} />
+          <ResolvedManagedSurfaces
+            profile={profile}
+            shortcutsEnabled={shortcutsEnabled}
+            launch={launch}
+            onError={setActionError}
+          />
         </Suspense>
       </div>
 
@@ -87,6 +104,11 @@ type ManagedSurfacesProps = {
   profile: Profile
   shortcutsEnabled: boolean
   /**
+   * The pane's desktop launch, held above the `Suspense` boundary so it
+   * survives this panel being swapped for the resolved one.
+   */
+  launch: GuiLaunch
+  /**
    * Absent while the data behind the row descriptions is still resolving.
    */
   guiDescription?: string
@@ -94,7 +116,14 @@ type ManagedSurfacesProps = {
   onError: (message: string | null) => void
 }
 
-function ManagedSurfaces({ profile, shortcutsEnabled, guiDescription, cliDescription, onError }: ManagedSurfacesProps) {
+function ManagedSurfaces({
+  profile,
+  shortcutsEnabled,
+  launch,
+  guiDescription,
+  cliDescription,
+  onError,
+}: ManagedSurfacesProps) {
   const lastUsed = useProfileLastUsed()
   const command = wrapperCommand(profile.app, profile.slug)
   return (
@@ -103,9 +132,10 @@ function ManagedSurfaces({ profile, shortcutsEnabled, guiDescription, cliDescrip
       guiEnabled={profile.surfaces.gui}
       cliEnabled={profile.surfaces.cli}
       shortcutsEnabled={shortcutsEnabled}
+      opening={launch.opening}
       guiDescription={guiDescription}
       cliDescription={cliDescription}
-      onLaunchGui={() => lastUsed.launchDesktop(profile.id)}
+      onLaunchGui={() => launch.run(() => lastUsed.launchDesktop(profile.id))}
       onCopyCli={() => lastUsed.copyCli({ profileId: profile.id, command })}
       onError={onError}
     />
@@ -119,6 +149,7 @@ function ManagedSurfaces({ profile, shortcutsEnabled, guiDescription, cliDescrip
 function ResolvedManagedSurfaces({
   profile,
   shortcutsEnabled,
+  launch,
   onError,
 }: Omit<ManagedSurfacesProps, 'guiDescription' | 'cliDescription'>) {
   const paths = useProfilePaths(profile.id)
@@ -127,6 +158,7 @@ function ResolvedManagedSurfaces({
     <ManagedSurfaces
       profile={profile}
       shortcutsEnabled={shortcutsEnabled}
+      launch={launch}
       guiDescription={desktopDescription(profile.distinctDockIcon, paths.guiLauncherPath)}
       cliDescription={cliDescription(profile.app, paths.cliWrapperPath, dependencies.deps.localBinOnPath)}
       onError={onError}

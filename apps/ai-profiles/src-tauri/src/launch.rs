@@ -350,6 +350,50 @@ const LAUNCH_LOOKS: usize = 600;
 /// running before it counts as started.
 const STEADY_LOOKS: usize = 15;
 
+/// How many looks (about twenty seconds) a launch with no wrapper of its own is
+/// given to show up. Long enough for a cold start of an Electron app, short
+/// enough that a launch which never happens stops being reported as under way.
+const SETTLE_LOOKS: usize = 200;
+
+/// Whether a GUI instance bound to `data_dir` is running — or cannot be told
+/// apart from one, because the process list would not read. As in [`sighting`],
+/// no telling counts as running: waiting forever would be worse.
+fn seems_up(data_dir: &str, gui_macos_exec: &str) -> bool {
+    !matches!(running_pid(data_dir, gui_macos_exec), Ok(None))
+}
+
+/// Keep looking, `pause` apart, until `up` says the app is there or `looks`
+/// looks have gone by.
+///
+/// Unlike [`watch_start`] this has no verdict to give: `open` has already
+/// accepted the launch, and an app that is slow to appear is no reason to start
+/// a second one. All it decides is how long the caller goes on treating the
+/// launch as under way — which is what keeps "Opening" on the button until
+/// there is something to open.
+fn wait_until_up(pause: Duration, looks: usize, mut up: impl FnMut() -> bool) {
+    for _ in 0..looks {
+        thread::sleep(pause);
+        if up() {
+            return;
+        }
+    }
+}
+
+/// Wait for a launch of `spec`'s stock app on `data_dir` to show up.
+///
+/// The counterpart of [`open_new_instance`], which returns as soon as `open`
+/// has handed the request to LaunchServices — several seconds before any window
+/// exists. Best effort: nothing here fails, and the app is on its way either
+/// way.
+pub fn wait_for_new_instance(data_dir: &str, spec: &AppSpec) {
+    let Some(resolved) = resolve_gui_app(spec) else {
+        return;
+    };
+    wait_until_up(LOOK_INTERVAL, SETTLE_LOOKS, || {
+        seems_up(data_dir, resolved.macos_exec)
+    });
+}
+
 /// What one look at the running processes turned up for a wrapper that was just
 /// opened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -523,7 +567,17 @@ impl Effects for ProfileLaunch<'_> {
     }
 
     fn open_script_launcher(&mut self) -> AppResult<()> {
-        open_bundle(&self.launcher)
+        open_bundle(&self.launcher)?;
+        // The launcher only shells out again, so `open` returning says nothing
+        // about the app being up. Without this the caller is told the launch is
+        // over before there is a window, and a profile with a script launcher
+        // would flicker where one with a wrapper reports honestly.
+        let Some(vendor) = &self.vendor else {
+            return Ok(());
+        };
+        let (data_dir, exec) = (self.data_dir, vendor.macos_exec);
+        wait_until_up(LOOK_INTERVAL, SETTLE_LOOKS, || seems_up(data_dir, exec));
+        Ok(())
     }
 
     fn rebuild_wrapper(&mut self) -> AppResult<()> {
@@ -1009,6 +1063,39 @@ mod tests {
             panic!("expected a failed rebuild, got {bypass:?}");
         };
         assert!(detail.contains("disk is full"), "{detail}");
+    }
+
+    #[test]
+    fn waiting_stops_as_soon_as_the_app_is_there() {
+        let mut looks = 0;
+        wait_until_up(Duration::ZERO, 100, || {
+            looks += 1;
+            looks == 3
+        });
+
+        assert_eq!(looks, 3);
+    }
+
+    #[test]
+    fn waiting_gives_up_rather_than_holding_the_caller_for_ever() {
+        let mut looks = 0;
+        wait_until_up(Duration::ZERO, 5, || {
+            looks += 1;
+            false
+        });
+
+        assert_eq!(looks, 5);
+    }
+
+    #[test]
+    fn nothing_is_waited_for_when_no_looks_are_allowed() {
+        let mut looked = false;
+        wait_until_up(Duration::ZERO, 0, || {
+            looked = true;
+            true
+        });
+
+        assert!(!looked);
     }
 
     #[test]
