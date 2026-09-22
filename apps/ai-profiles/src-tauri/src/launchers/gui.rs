@@ -8,9 +8,10 @@ use crate::launchers::wrapper::{self, WrapperRequest};
 use crate::launchers::{icons, plist, script};
 use crate::paths::{
     cli_config_dir, gui_launcher_path, gui_launcher_path_with_prefix, profile_dir, resolve_gui_app,
-    ResolvedGuiApp,
+    stock_cli_config_dir, ResolvedGuiApp,
 };
 use crate::profiles::Profile;
+use crate::shared_config::link_shared_surfaces;
 
 /// Build the launcher .app bundle for `profile` at
 /// `/Applications/<App> (<Name>).app/`, in the shape the profile asks for: a
@@ -28,6 +29,17 @@ pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
         build_wrapper(profile, version, &resolved_gui_app, &bundle)?;
     } else {
         build_script_launcher(profile, version, &resolved_gui_app, &bundle)?;
+    }
+
+    // The desktop app's agent now reads the profile's config home, so give it
+    // the same inherited skills, agents and instructions the CLI wrapper gets.
+    // Best-effort, like the wrapper's own linking.
+    if spec.gui_exports_config_env {
+        link_shared_surfaces(
+            &stock_cli_config_dir(spec)?,
+            &cli_config_dir(&profile.id)?,
+            spec,
+        );
     }
 
     // Best-effort: clean up a bundle generated under a prefix this app used
@@ -120,7 +132,7 @@ fn build_wrapper(
         host_binary: &host_binary,
         built_by: version,
         config_env: spec
-            .gui_auth_via_config_env
+            .gui_exports_config_env
             .then_some((spec.cli_config_env, config_home.as_path())),
     });
 

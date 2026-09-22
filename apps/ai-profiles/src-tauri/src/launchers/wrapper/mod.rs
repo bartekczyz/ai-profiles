@@ -1131,7 +1131,7 @@ mod tests {
                 host_binary: &std::env::current_exe().unwrap(),
                 built_by: BUILT_BY,
                 config_env: spec
-                    .gui_auth_via_config_env
+                    .gui_exports_config_env
                     .then_some((spec.cli_config_env, home.as_path())),
             })
             .unwrap_or_else(|err| panic!("{}: {err}", spec.display_name));

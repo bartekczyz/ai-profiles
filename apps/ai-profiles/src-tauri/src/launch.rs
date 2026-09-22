@@ -599,7 +599,7 @@ impl Effects for ProfileLaunch<'_> {
         let config_home = cli_config_dir(&self.profile.id)?;
         let config_env = self
             .spec
-            .gui_auth_via_config_env
+            .gui_exports_config_env
             .then_some((self.spec.cli_config_env, config_home.as_path()));
         open_new_instance(self.data_dir, self.spec, config_env)
     }

@@ -18,7 +18,7 @@ use crate::app_kind::AppSpec;
 /// launched GUI app, so the export reaches it.
 pub fn launcher_script(profile_id: &str, spec: &AppSpec, gui_app_target: &str) -> String {
     let profiles_base = "$HOME/Library/Application Support/ai-profiles/profiles";
-    let config_home_export = if spec.gui_auth_via_config_env {
+    let config_home_export = if spec.gui_exports_config_env {
         format!(
             "CONFIG_DIR=\"{profiles_base}/{profile_id}/cli-config\"\nexport {env}=\"$CONFIG_DIR\"\n",
             env = spec.cli_config_env,
@@ -85,11 +85,13 @@ mod tests {
     }
 
     #[test]
-    fn claude_script_does_not_export_a_config_home() {
-        // Claude keeps GUI auth in --user-data-dir; exporting nothing keeps its
-        // launcher byte-identical to the pre-Codex behaviour.
+    fn claude_script_exports_config_dir_at_profile_cli_config() {
+        // The desktop app's Code tab resolves its config home from
+        // CLAUDE_CONFIG_DIR; without it every profile shared ~/.claude.
         let script = launcher_script("abc", &CLAUDE, "/Applications/Claude.app");
-        assert!(!script.contains("export"));
-        assert!(!script.contains("CONFIG_DIR"));
+        assert!(script.contains(
+            "CONFIG_DIR=\"$HOME/Library/Application Support/ai-profiles/profiles/abc/cli-config\""
+        ));
+        assert!(script.contains(r#"export CLAUDE_CONFIG_DIR="$CONFIG_DIR""#));
     }
 }

@@ -74,16 +74,20 @@ pub struct AppSpec {
     pub cli_stock_config_dir_name: &'static str,
     /// Whether this app exposes account usage/quota stats.
     pub has_usage: bool,
-    /// Whether the GUI app reads its account/auth from the [`cli_config_env`]
-    /// config home rather than from its Chromium `--user-data-dir`. Codex keeps
-    /// auth in `CODEX_HOME` (default `~/.codex`), so isolating its GUI per
-    /// profile requires the launcher to export that env var at the profile's
-    /// `cli-config` dir; `--user-data-dir` alone only isolates the browser
-    /// layer. Claude stores its GUI auth inside the `--user-data-dir`, so it
-    /// exports nothing.
+    /// Whether the desktop launcher exports [`cli_config_env`] at the profile's
+    /// `cli-config` dir, so the desktop app and the profile's CLI wrapper share
+    /// one config home.
+    ///
+    /// Codex needs it for auth: ChatGPT.app reads its login from `CODEX_HOME`,
+    /// and `--user-data-dir` alone only isolates the browser layer. Claude keeps
+    /// its GUI auth in the `--user-data-dir`, but the Claude Code agent it runs
+    /// (the Code tab) resolves its config home from `CLAUDE_CONFIG_DIR`. Without
+    /// the export every Claude desktop profile shared the stock `~/.claude`:
+    /// one session history, and one set of hooks, permissions, plugins and MCP
+    /// servers across accounts.
     ///
     /// [`cli_config_env`]: AppSpec::cli_config_env
-    pub gui_auth_via_config_env: bool,
+    pub gui_exports_config_env: bool,
     /// Config-dir entries a profile *inherits* from the stock install
     /// (`~/.claude`, `~/.codex`) instead of isolating, by way of a symlink
     /// created in the profile's `cli-config` dir.
@@ -92,9 +96,8 @@ pub struct AppSpec {
     /// separate account, auth, quota and history. These entries are inert
     /// content describing *how* the user works — skills, subagents, slash
     /// commands, rules, global instructions — so duplicating them per profile
-    /// is upkeep with no security benefit, and the GUI already shares them
-    /// (its launcher never exports [`cli_config_env`], so the desktop app's
-    /// agent reads the stock dir).
+    /// is upkeep with no security benefit. Desktop launchers link them too,
+    /// since they point the desktop app's agent at the same `cli-config` dir.
     ///
     /// Deliberately excluded: `settings.json` (carries `hooks`, which run
     /// arbitrary shell, and `permissions` allowlists), `hooks/`, `plugins/`
@@ -121,7 +124,7 @@ pub const CLAUDE: AppSpec = AppSpec {
     cli_config_env: "CLAUDE_CONFIG_DIR",
     cli_stock_config_dir_name: ".claude",
     has_usage: true,
-    gui_auth_via_config_env: false,
+    gui_exports_config_env: true,
     shared_surfaces: &[
         "CLAUDE.md",
         "agents",
@@ -161,7 +164,7 @@ pub const CODEX: AppSpec = AppSpec {
     cli_config_env: "CODEX_HOME",
     cli_stock_config_dir_name: ".codex",
     has_usage: true,
-    gui_auth_via_config_env: true,
+    gui_exports_config_env: true,
     shared_surfaces: &["AGENTS.md", "rules", "skills"],
 };
 
@@ -244,11 +247,11 @@ mod tests {
         assert_eq!(codex.cli_config_env, "CODEX_HOME");
         assert_eq!(codex.cli_stock_config_dir_name, ".codex");
         assert!(codex.has_usage);
-        // Codex auth lives in CODEX_HOME, so its GUI launcher must export it;
-        // Claude keeps GUI auth in the user-data-dir and exports nothing.
-        assert!(codex.gui_auth_via_config_env);
+        // Both desktop launchers export their config home: Codex because its
+        // auth lives there, Claude so the Code tab stays inside the profile.
+        assert!(codex.gui_exports_config_env);
         const {
-            assert!(!CLAUDE.gui_auth_via_config_env);
+            assert!(CLAUDE.gui_exports_config_env);
         }
     }
 
