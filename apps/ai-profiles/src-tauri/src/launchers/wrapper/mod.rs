@@ -54,6 +54,12 @@ pub struct WrapperRequest<'a> {
     pub icon: &'a [u8],
     /// The profile's `--user-data-dir`.
     pub user_data_dir: &'a Path,
+    /// The profile's id, recorded so the shim can ask for this wrapper by name
+    /// when it needs rebuilding.
+    pub profile_id: &'a str,
+    /// The ai-profiles executable the shim hands a launch back to, recorded
+    /// for the same reason.
+    pub host_binary: &'a Path,
     /// `(name, value)` env var set before the vendor binary starts, for apps
     /// that read their account from one rather than from `--user-data-dir`
     /// (Codex: `CODEX_HOME`).
@@ -100,6 +106,9 @@ pub fn build(request: &WrapperRequest<'_>) -> AppResult<()> {
             display_name: request.display_name,
             icon_file: ICON_FILE,
             user_data_dir: utf8(request.user_data_dir)?,
+            profile_id: request.profile_id,
+            vendor_bundle: utf8(request.vendor_bundle)?,
+            host_binary: utf8(request.host_binary)?,
             config_env: request
                 .config_env
                 .map(|(name, value)| Ok::<_, AppError>((name, utf8(value)?)))
@@ -218,10 +227,46 @@ pub enum WrapperState {
     Current,
 }
 
+/// Pure: whether `info` records everything the shim needs to hand a launch back
+/// to ai-profiles, which is how a wrapper gets itself rebuilt when it is started
+/// from the Dock rather than from the app.
+fn handoff_recorded(info: &Dictionary) -> bool {
+    [
+        profile_shim::PROFILE_ID_KEY,
+        profile_shim::VENDOR_BUNDLE_KEY,
+        profile_shim::HOST_BINARY_KEY,
+    ]
+    .iter()
+    .all(|key| {
+        info.get(key)
+            .and_then(Value::as_string)
+            .is_some_and(|value| !value.is_empty())
+    })
+}
+
+/// Whether the wrapper at `wrapper` can hand a launch back: it records all
+/// three parameters and the binary they name is still there.
+///
+/// False for every wrapper built before the handoff existed, and for one whose
+/// ai-profiles has since moved or been removed. Both need building again, which
+/// is why this is part of being stale.
+fn handoff_ready(wrapper: &Path) -> bool {
+    let Ok(info) = read_info_plist(wrapper) else {
+        return false;
+    };
+    handoff_recorded(&info)
+        && info
+            .get(profile_shim::HOST_BINARY_KEY)
+            .and_then(Value::as_string)
+            .is_some_and(|path| Path::new(path).exists())
+}
+
 /// The state of the wrapper at `wrapper`, given the vendor app it is a clone of
 /// (`None` if that is not installed). A vendor whose version cannot be read
 /// leaves an existing wrapper `Current`, because there is nothing to compare it
-/// with and a rebuild would fail anyway.
+/// with and a rebuild would fail anyway — but a wrapper that cannot ask for a
+/// rebuild is stale whatever the vendor says, since that is the one thing no
+/// later launch could put right on its own.
 pub fn state(vendor_bundle: Option<&Path>, wrapper: &Path) -> WrapperState {
     if !wrapper.exists() {
         return WrapperState::Missing;
@@ -229,7 +274,7 @@ pub fn state(vendor_bundle: Option<&Path>, wrapper: &Path) -> WrapperState {
     let drifted = vendor_bundle
         .and_then(bundle_version)
         .is_some_and(|current| version_drifted(&current, built_from_version(wrapper).as_deref()));
-    if drifted {
+    if drifted || !handoff_ready(wrapper) {
         WrapperState::Stale
     } else {
         WrapperState::Current
@@ -547,6 +592,8 @@ mod tests {
             display_name: "Fake (Work)",
             icon: b"badged icon",
             user_data_dir: Path::new("/data/gui data"),
+            profile_id: "1",
+            host_binary: Path::new("/Applications/ai-profiles.app/Contents/MacOS/ai-profiles"),
             config_env: home.map(|home| ("AI_PROFILES_TEST_HOME", home)),
         }
     }
@@ -897,20 +944,45 @@ mod tests {
         warm_up_within(&dir.path().join("no-such-shim"), Duration::from_secs(1));
     }
 
+    /// The handoff keys a wrapper needs to count as current, pointing at a host
+    /// binary that exists: `dir` must be the temp dir `host` was written into.
+    fn handoff_entries(host: &str) -> Vec<(&str, &str)> {
+        vec![
+            (profile_shim::PROFILE_ID_KEY, "profile-1"),
+            (profile_shim::VENDOR_BUNDLE_KEY, "/Applications/Vendor.app"),
+            (profile_shim::HOST_BINARY_KEY, host),
+        ]
+    }
+
+    /// An ai-profiles binary for a wrapper to point at. Only its existence
+    /// matters here.
+    fn write_host_binary(dir: &Path) -> String {
+        let host = dir.join("ai-profiles");
+        fs::write(&host, b"host").unwrap();
+        host.display().to_string()
+    }
+
+    /// `<dir>/<name>` as a wrapper of `version` that can ask for a rebuild.
+    fn wrapper_bundle(dir: &Path, name: &str, version: &str, host: &str) -> PathBuf {
+        let mut entries = vec![(info_plist::VENDOR_VERSION_KEY, version)];
+        entries.extend(handoff_entries(host));
+        bundle_with_info(dir, name, &entries)
+    }
+
     #[test]
     fn state_compares_the_installed_vendor_with_what_the_wrapper_recorded() {
         let dir = tempfile::tempdir().unwrap();
-        let record = info_plist::VENDOR_VERSION_KEY;
+        let host = write_host_binary(dir.path());
         let vendor = bundle_with_info(dir.path(), "Vendor.app", &[("CFBundleVersion", "2.0")]);
         let state_of = |wrapper: &Path| state(Some(&vendor), wrapper);
 
-        let current = bundle_with_info(dir.path(), "Current.app", &[(record, "2.0")]);
+        let current = wrapper_bundle(dir.path(), "Current.app", "2.0", &host);
         assert_eq!(state_of(&current), WrapperState::Current);
 
-        let older = bundle_with_info(dir.path(), "Older.app", &[(record, "1.9")]);
+        let older = wrapper_bundle(dir.path(), "Older.app", "1.9", &host);
         assert_eq!(state_of(&older), WrapperState::Stale);
 
-        let unrecorded = bundle_with_info(dir.path(), "Unrecorded.app", &[]);
+        let unrecorded = bundle_with_info(dir.path(), "Unrecorded.app", &handoff_entries(&host));
         assert_eq!(state_of(&unrecorded), WrapperState::Stale);
 
         assert_eq!(
@@ -922,11 +994,8 @@ mod tests {
     #[test]
     fn state_leaves_an_existing_wrapper_alone_when_the_vendor_cannot_be_read() {
         let dir = tempfile::tempdir().unwrap();
-        let wrapper = bundle_with_info(
-            dir.path(),
-            "Wrapper.app",
-            &[(info_plist::VENDOR_VERSION_KEY, "2.0")],
-        );
+        let host = write_host_binary(dir.path());
+        let wrapper = wrapper_bundle(dir.path(), "Wrapper.app", "2.0", &host);
 
         let not_installed = None;
         let unreadable = Some(dir.path().join("NoVendor.app"));
@@ -940,6 +1009,52 @@ mod tests {
             state(not_installed, &dir.path().join("Missing.app")),
             WrapperState::Missing
         );
+    }
+
+    #[test]
+    fn a_wrapper_that_cannot_ask_for_a_rebuild_is_stale_whatever_the_vendor_says() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = write_host_binary(dir.path());
+        let vendor = bundle_with_info(dir.path(), "Vendor.app", &[("CFBundleVersion", "2.0")]);
+
+        // Built before the handoff existed: the version matches, but there is
+        // no way for it to notice the next time it does not.
+        let before = bundle_with_info(
+            dir.path(),
+            "Before.app",
+            &[(info_plist::VENDOR_VERSION_KEY, "2.0")],
+        );
+        assert_eq!(state(Some(&vendor), &before), WrapperState::Stale);
+        assert_eq!(state(None, &before), WrapperState::Stale);
+
+        // One key short is no better than none.
+        for dropped in [
+            profile_shim::PROFILE_ID_KEY,
+            profile_shim::VENDOR_BUNDLE_KEY,
+            profile_shim::HOST_BINARY_KEY,
+        ] {
+            let mut entries = vec![(info_plist::VENDOR_VERSION_KEY, "2.0")];
+            entries.extend(
+                handoff_entries(&host)
+                    .into_iter()
+                    .filter(|(key, _)| *key != dropped),
+            );
+            let partial = bundle_with_info(dir.path(), &format!("No{dropped}.app"), &entries);
+            assert_eq!(
+                state(Some(&vendor), &partial),
+                WrapperState::Stale,
+                "{dropped}"
+            );
+        }
+
+        // The host binary it names has moved or been removed.
+        let gone = wrapper_bundle(
+            dir.path(),
+            "Gone.app",
+            "2.0",
+            &dir.path().join("not-there").display().to_string(),
+        );
+        assert_eq!(state(Some(&vendor), &gone), WrapperState::Stale);
     }
 
     /// Opt-in: builds wrappers from whichever vendor apps are installed, into a
@@ -971,6 +1086,8 @@ mod tests {
                 display_name: "E2E Profile",
                 icon: &icon,
                 user_data_dir: &data,
+                profile_id: "e2e-profile-1",
+                host_binary: &std::env::current_exe().unwrap(),
                 config_env: spec
                     .gui_auth_via_config_env
                     .then_some((spec.cli_config_env, home.as_path())),

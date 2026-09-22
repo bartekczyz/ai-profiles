@@ -36,6 +36,27 @@ pub const CONFIG_ENV_NAME_KEY: &str = "AIProfilesConfigEnvName";
 /// `Info.plist` key holding the value for [`CONFIG_ENV_NAME_KEY`].
 pub const CONFIG_ENV_VALUE_KEY: &str = "AIProfilesConfigEnvValue";
 
+/// `Info.plist` key holding the version of the vendor app the wrapper was
+/// cloned from, so the shim can tell whether the vendor has moved on without
+/// it. Written by the build; see the app's `wrapper::info_plist`.
+pub const VENDOR_VERSION_KEY: &str = "AIProfilesVendorVersion";
+
+/// `Info.plist` key holding the id of the profile the wrapper belongs to: the
+/// argument the host binary is given to open it.
+///
+/// One of the three handoff keys ([`VENDOR_BUNDLE_KEY`], [`HOST_BINARY_KEY`]),
+/// which are written together. A wrapper built before they existed has none of
+/// them and simply starts the version it has.
+pub const PROFILE_ID_KEY: &str = "AIProfilesProfileId";
+
+/// `Info.plist` key holding the path of the vendor `.app` the wrapper was
+/// cloned from, to read the installed version out of at launch.
+pub const VENDOR_BUNDLE_KEY: &str = "AIProfilesVendorBundle";
+
+/// `Info.plist` key holding the path of the ai-profiles executable to hand a
+/// launch back to when the wrapper has fallen behind the vendor app.
+pub const HOST_BINARY_KEY: &str = "AIProfilesHostBinary";
+
 /// Suffix appended to the shim's file name to get the vendor binary it execs.
 pub const VENDOR_BINARY_SUFFIX: &str = ".bin";
 

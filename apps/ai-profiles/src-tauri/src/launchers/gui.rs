@@ -98,6 +98,11 @@ fn build_wrapper(profile: &Profile, app: &ResolvedGuiApp, bundle: &Path) -> AppR
     let user_data_dir = profile_dir(&profile.id)?.join("gui-data");
     let config_home = cli_config_dir(&profile.id)?;
 
+    // Where the shim sends a launch it cannot serve itself. Recorded rather
+    // than assumed, so a wrapper keeps working from wherever this app is
+    // installed — and is rebuilt if that stops being true.
+    let host_binary = std::env::current_exe().map_err(AppError::Io)?;
+
     let parked = park_existing(bundle)?;
     let built = wrapper::build(&WrapperRequest {
         vendor_bundle: &app.bundle_path,
@@ -106,6 +111,8 @@ fn build_wrapper(profile: &Profile, app: &ResolvedGuiApp, bundle: &Path) -> AppR
         display_name: &plist::display_name(profile),
         icon: &icon,
         user_data_dir: &user_data_dir,
+        profile_id: &profile.id,
+        host_binary: &host_binary,
         config_env: spec
             .gui_auth_via_config_env
             .then_some((spec.cli_config_env, config_home.as_path())),
