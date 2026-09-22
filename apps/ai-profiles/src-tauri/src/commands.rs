@@ -16,8 +16,8 @@ use crate::paths::{
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
 use crate::sessions::{
-    self, ArchiveCheck, ArchiveReport, SessionSummary, TransferPlan, TransferReport,
-    TransferRequest,
+    self, ArchiveCheck, ArchiveReport, ArchivedSession, RestoreCheck, RestoreReport,
+    SessionSummary, TransferPlan, TransferReport, TransferRequest,
 };
 use crate::usage::{
     self,
@@ -274,6 +274,34 @@ pub fn archive_session(
     quit_app: bool,
 ) -> AppResult<ArchiveReport> {
     sessions::archive(&profile_id, &session_id, quit_app)
+}
+
+/// The sessions profile `id` has archived, newest first.
+#[tauri::command(async)]
+pub fn list_archived_sessions(id: String) -> AppResult<Vec<ArchivedSession>> {
+    Ok(sessions::list_archived(&sessions::home(&id)?))
+}
+
+/// What restoring an archived session would need first.
+#[tauri::command(async)]
+pub fn check_session_restore(
+    profile_id: String,
+    session_id: String,
+    archive: String,
+) -> AppResult<RestoreCheck> {
+    sessions::check_restore(&profile_id, &session_id, &archive)
+}
+
+/// Put an archived session back. With `quit_app`, quits the profile's desktop
+/// app first when its record goes back into that app's list.
+#[tauri::command(async)]
+pub fn restore_session(
+    profile_id: String,
+    session_id: String,
+    archive: String,
+    quit_app: bool,
+) -> AppResult<RestoreReport> {
+    sessions::restore(&profile_id, &session_id, &archive, quit_app)
 }
 
 /// Open a web URL (or `mailto:` link) in the user's default handler via

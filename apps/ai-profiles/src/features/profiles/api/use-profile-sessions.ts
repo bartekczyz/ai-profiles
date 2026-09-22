@@ -2,7 +2,16 @@ import type { TransferRequest } from '@/lib/types'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { archiveSession, checkSessionArchive, listSessions, planSessionTransfer, transferSession } from '@/lib/commands'
+import {
+  archiveSession,
+  checkSessionArchive,
+  checkSessionRestore,
+  listArchivedSessions,
+  listSessions,
+  planSessionTransfer,
+  restoreSession,
+  transferSession,
+} from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 
 /**
@@ -66,6 +75,42 @@ export function useArchiveSession() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (input: { profileId: string; sessionId: string; quitApp: boolean }) => archiveSession(input),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all }),
+  })
+}
+
+/**
+ * The sessions profile `id` has archived, newest first.
+ */
+export function useArchivedSessions(id: string) {
+  return useQuery({
+    queryKey: queryKeys.sessions.archived(id),
+    queryFn: () => listArchivedSessions(id),
+    refetchOnWindowFocus: 'always',
+  })
+}
+
+/**
+ * What restoring an archived session needs first. Re-read on focus, like the
+ * archive check.
+ */
+export function useRestoreCheck(profileId: string, sessionId: string, archive: string) {
+  return useQuery({
+    queryKey: queryKeys.sessions.restoreCheck(profileId, sessionId, archive),
+    queryFn: () => checkSessionRestore({ profileId, sessionId, archive }),
+    refetchOnWindowFocus: 'always',
+    gcTime: 0,
+  })
+}
+
+/**
+ * Puts an archived session back, then refreshes the session lists.
+ */
+export function useRestoreSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { profileId: string; sessionId: string; archive: string; quitApp: boolean }) =>
+      restoreSession(input),
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all }),
   })
 }

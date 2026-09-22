@@ -7,9 +7,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   archiveSession,
   checkSessionArchive,
+  checkSessionRestore,
+  listArchivedSessions,
   listProfiles,
   listSessions,
   planSessionTransfer,
+  restoreSession,
   transferSession,
 } from '@/lib/commands'
 import { renderWithQuery } from '@/test/render-with-query'
@@ -24,6 +27,9 @@ vi.mock('@/lib/commands', async () => {
     listSessions: vi.fn(),
     archiveSession: vi.fn(),
     checkSessionArchive: vi.fn(),
+    listArchivedSessions: vi.fn(),
+    checkSessionRestore: vi.fn(),
+    restoreSession: vi.fn(),
     planSessionTransfer: vi.fn(),
     transferSession: vi.fn(),
   }
@@ -91,6 +97,10 @@ beforeEach(() => {
   vi.mocked(transferSession).mockReset()
   vi.mocked(archiveSession).mockReset()
   vi.mocked(checkSessionArchive).mockReset()
+  vi.mocked(listArchivedSessions).mockReset()
+  vi.mocked(listArchivedSessions).mockResolvedValue([])
+  vi.mocked(checkSessionRestore).mockReset()
+  vi.mocked(restoreSession).mockReset()
 })
 
 async function openMoveDialog() {
@@ -267,5 +277,64 @@ describe('ProfileDetailSessions — archive', () => {
     await waitFor(() =>
       expect(archiveSession).toHaveBeenCalledWith({ profileId: 'work', sessionId: 's1', quitApp: true }),
     )
+  })
+})
+
+describe('ProfileDetailSessions — restore', () => {
+  const archivedOne = {
+    id: 'old',
+    archive: '20260101-120000-archived',
+    archivedAt: '2026-01-01T12:00:00+01:00',
+    title: 'Old work',
+    cwd: '/Users/ada/code/old',
+    inDesktop: true,
+  }
+
+  it('hides the archived list until asked, then restores after quitting the app', async () => {
+    vi.mocked(listSessions).mockResolvedValue([session()])
+    vi.mocked(listArchivedSessions).mockResolvedValue([archivedOne])
+    vi.mocked(checkSessionRestore).mockResolvedValue({
+      blocker: null,
+      appToQuit: { profileId: 'work', label: 'Work' },
+    })
+    vi.mocked(restoreSession).mockResolvedValue({ transcript: '/t' })
+    renderWithQuery(<ProfileDetailSessions profileId="work" />)
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Archived 1' }))
+    const list = screen.getByRole('list', { name: 'Archived sessions' })
+    expect(within(list).getByText('Old work')).toBeInTheDocument()
+    expect(within(list).getByText(/archived .* ago/)).toBeInTheDocument()
+
+    await user.click(within(list).getByRole('button', { name: 'Restore' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Restore session?' })
+    expect(await within(dialog).findByText(/Claude \(Work\) will quit first/)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: /^Quit and restore/ }))
+
+    await waitFor(() =>
+      expect(restoreSession).toHaveBeenCalledWith({
+        profileId: 'work',
+        sessionId: 'old',
+        archive: '20260101-120000-archived',
+        quitApp: true,
+      }),
+    )
+  })
+
+  it('holds a restore while a live copy is back in place', async () => {
+    vi.mocked(listSessions).mockResolvedValue([])
+    vi.mocked(listArchivedSessions).mockResolvedValue([archivedOne])
+    vi.mocked(checkSessionRestore).mockResolvedValue({
+      blocker: 'Work already has this session. Archive or move that copy first.',
+      appToQuit: null,
+    })
+    renderWithQuery(<ProfileDetailSessions profileId="work" />)
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Archived 1' }))
+    await user.click(screen.getByRole('button', { name: 'Restore' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Restore session?' })
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('already has this session')
+    expect(within(dialog).getByRole('button', { name: /^Restore/ })).toBeDisabled()
   })
 })

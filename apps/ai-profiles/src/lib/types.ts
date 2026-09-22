@@ -348,3 +348,27 @@ export type ArchiveCheck = {
   /** The profile's desktop app, if it has to quit first. */
   appToQuit: AppToQuit | null
 }
+
+/** A session a profile has archived, as the Archived list shows it. */
+export type ArchivedSession = {
+  id: string
+  /** The archive folder, `<time>-archived`: which archive of the session. */
+  archive: string
+  /** RFC 3339. */
+  archivedAt: string | null
+  title: string | null
+  cwd: string | null
+  /** Restoring lists it in the desktop app again. */
+  inDesktop: boolean
+}
+
+export type RestoreCheck = {
+  /** A reason only the user can clear (a live copy is already back). */
+  blocker: string | null
+  /** The profile's desktop app, if it has to quit first. */
+  appToQuit: AppToQuit | null
+}
+
+export type RestoreReport = {
+  transcript: string
+}

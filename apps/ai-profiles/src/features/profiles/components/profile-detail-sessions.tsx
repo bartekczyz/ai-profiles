@@ -1,14 +1,15 @@
-import type { SessionSummary } from '@/lib/types'
+import type { ArchivedSession, SessionSummary } from '@/lib/types'
 
 import { useState } from 'react'
 
 import { formatDistanceToNow } from 'date-fns'
-import { Archive, ArrowRightLeft, Monitor, Terminal } from 'lucide-react'
+import { Archive, ArchiveRestore, ArrowRightLeft, Monitor, Terminal } from 'lucide-react'
 
 import { Button, Skeleton, StatusDot } from '@/design'
 
-import { useProfileSessions } from '../api/use-profile-sessions'
+import { useArchivedSessions, useProfileSessions } from '../api/use-profile-sessions'
 import { ArchiveSessionDialog } from './archive-session-dialog'
+import { RestoreSessionDialog } from './restore-session-dialog'
 import { sessionErrorMessage } from './session-error-message'
 import { shortenHomePath } from './shorten-home-path'
 import { TransferSessionDialog } from './transfer-session-dialog'
@@ -28,7 +29,8 @@ type Props = {
 
 /**
  * The Claude sessions this profile keeps, with a way to move one to another
- * profile or archive it. Lists the CLI transcripts, which is where every session lives: a
+ * profile or archive it, and the ones it has archived, with a way to restore
+ * them. Lists the CLI transcripts, which is where every session lives: a
  * desktop Code tab session is one too, and wears a Desktop pill instead of a
  * CLI one.
  */
@@ -37,6 +39,9 @@ export function ProfileDetailSessions({ profileId }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [moving, setMoving] = useState<SessionSummary | null>(null)
   const [archiving, setArchiving] = useState<SessionSummary | null>(null)
+  const archived = useArchivedSessions(profileId).data ?? []
+  const [showArchived, setShowArchived] = useState(false)
+  const [restoring, setRestoring] = useState<ArchivedSession | null>(null)
 
   const sessions = data ?? []
   const visible = expanded ? sessions : sessions.slice(0, collapsedCount)
@@ -71,14 +76,42 @@ export function ProfileDetailSessions({ profileId }: Props) {
           </ul>
         )}
       </div>
-      {sessions.length > collapsedCount ? (
-        <button
-          type="button"
-          className="mt-1.5 cursor-pointer px-0.5 text-meta text-muted-strong hover:text-ink"
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? 'Show fewer' : `Show all ${sessions.length}`}
-        </button>
+      <div className="mt-1.5 flex items-baseline justify-between px-0.5">
+        {sessions.length > collapsedCount ? (
+          <button
+            type="button"
+            className="cursor-pointer text-meta text-muted-strong hover:text-ink"
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? 'Show fewer' : `Show all ${sessions.length}`}
+          </button>
+        ) : (
+          <span />
+        )}
+        {archived.length > 0 ? (
+          <button
+            type="button"
+            aria-expanded={showArchived}
+            className="cursor-pointer text-meta text-muted-strong hover:text-ink"
+            onClick={() => setShowArchived((value) => !value)}
+          >
+            {showArchived ? 'Hide archived' : `Archived ${archived.length}`}
+          </button>
+        ) : null}
+      </div>
+
+      {showArchived && archived.length > 0 ? (
+        <div className={`${panelClasses} mt-2`}>
+          <ul aria-label="Archived sessions">
+            {archived.map((session) => (
+              <ArchivedRow
+                key={`${session.id}/${session.archive}`}
+                session={session}
+                onRestore={() => setRestoring(session)}
+              />
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       {moving ? (
@@ -86,6 +119,9 @@ export function ProfileDetailSessions({ profileId }: Props) {
       ) : null}
       {archiving ? (
         <ArchiveSessionDialog open profileId={profileId} session={archiving} onClose={() => setArchiving(null)} />
+      ) : null}
+      {restoring ? (
+        <RestoreSessionDialog open profileId={profileId} session={restoring} onClose={() => setRestoring(null)} />
       ) : null}
     </section>
   )
@@ -172,6 +208,36 @@ function SessionRow({ session, onMove, onArchive }: SessionRowProps) {
           </Button>
         </div>
       )}
+    </li>
+  )
+}
+
+function ArchivedRow({ session, onRestore }: { session: ArchivedSession; onRestore: () => void }) {
+  const title = session.title ?? session.id
+  return (
+    <li className={rowClasses}>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-body text-ink-soft" title={title}>
+            {title}
+          </span>
+          <SurfacePill surface={session.inDesktop ? 'desktop' : 'cli'} />
+        </div>
+        <div className="flex min-w-0 font-mono text-mono text-muted-strong">
+          <span className="truncate" title={session.cwd ?? undefined}>
+            {session.cwd ? shortenHomePath(session.cwd) : 'unknown folder'}
+          </span>
+          {session.archivedAt ? (
+            <span className="shrink-0 whitespace-nowrap">
+              <span className="mx-1.5 text-border">·</span>
+              archived {formatDistanceToNow(new Date(session.archivedAt), { addSuffix: true })}
+            </span>
+          ) : null}
+        </div>
+      </div>
+      <Button variant="ghost" size="sm" leadingIcon={<ArchiveRestore />} onClick={onRestore}>
+        Restore
+      </Button>
     </li>
   )
 }

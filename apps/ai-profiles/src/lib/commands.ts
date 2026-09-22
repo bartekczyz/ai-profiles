@@ -4,6 +4,7 @@ import type {
   AppState,
   AppStatePatch,
   ArchiveCheck,
+  ArchivedSession,
   ArchiveReport,
   Dependencies,
   ExistingInstallInfo,
@@ -16,6 +17,8 @@ import type {
   ProfilePatch,
   ProfilePaths,
   ProfileUsage,
+  RestoreCheck,
+  RestoreReport,
   SessionSummary,
   Shell,
   Surface,
@@ -164,4 +167,26 @@ export function archiveSession(input: {
   quitApp: boolean
 }): Promise<ArchiveReport> {
   return invoke<ArchiveReport>('archive_session', input)
+}
+
+export function listArchivedSessions(id: string): Promise<Array<ArchivedSession>> {
+  return invoke<Array<ArchivedSession>>('list_archived_sessions', { id })
+}
+
+export function checkSessionRestore(input: {
+  profileId: string
+  sessionId: string
+  archive: string
+}): Promise<RestoreCheck> {
+  return invoke<RestoreCheck>('check_session_restore', input)
+}
+
+export function restoreSession(input: {
+  profileId: string
+  sessionId: string
+  archive: string
+  /** Quit the profile's desktop app first when it has to. */
+  quitApp: boolean
+}): Promise<RestoreReport> {
+  return invoke<RestoreReport>('restore_session', input)
 }
