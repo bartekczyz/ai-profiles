@@ -1,10 +1,18 @@
-import type { DefaultEntry, ProfilePaths } from '@/lib/types'
+import type { AppState, DefaultEntry, ProfilePaths } from '@/lib/types'
 
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { copyToClipboard, openDefaultGui, openInFinder, profilePaths } from '@/lib/commands'
+import { ToastProvider } from '@/design'
+import {
+  copyToClipboard,
+  loadAppState,
+  openDefaultGui,
+  openInFinder,
+  profilePaths,
+  updateAppState,
+} from '@/lib/commands'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import { DefaultProfileDetail } from './profile-detail-default'
@@ -33,8 +41,20 @@ vi.mock('@/lib/commands', async () => {
     openInFinder: vi.fn(async () => {}),
     openDefaultGui: vi.fn(async () => {}),
     copyToClipboard: vi.fn(async () => {}),
+    loadAppState: vi.fn(),
+    updateAppState: vi.fn(),
   }
 })
+
+const appState: AppState = {
+  welcomeShown: true,
+  migrationDismissedAt: null,
+  pathBannerDismissedAt: null,
+  themeMode: 'system',
+  selectedEntryId: null,
+  dockIconAcknowledgedAt: null,
+  defaultProfileNames: {},
+}
 
 const guiDataDir = '/Users/ada/Library/Application Support/Claude'
 const cliConfigDir = '/Users/ada/.claude'
@@ -56,6 +76,7 @@ function entry(overrides: Partial<DefaultEntry> = {}): DefaultEntry {
     id: 'default:claude',
     app: 'claude',
     name: 'Default',
+    customName: null,
     surfaces: { gui: true, cli: true },
     ...overrides,
   }
@@ -68,7 +89,11 @@ type RenderOverrides = {
 
 function renderDefault(overrides: RenderOverrides = {}) {
   const { entry: value = entry(), onMigrate = vi.fn() } = overrides
-  return renderWithQuery(<DefaultProfileDetail entry={value} onMigrate={onMigrate} />)
+  return renderWithQuery(
+    <ToastProvider>
+      <DefaultProfileDetail entry={value} onMigrate={onMigrate} />
+    </ToastProvider>,
+  )
 }
 
 async function openMenu(overrides: RenderOverrides = {}) {
@@ -85,6 +110,9 @@ beforeEach(() => {
   vi.mocked(openInFinder).mockClear()
   vi.mocked(openDefaultGui).mockClear()
   vi.mocked(copyToClipboard).mockClear()
+  vi.mocked(loadAppState).mockResolvedValue(appState)
+  vi.mocked(updateAppState).mockReset()
+  vi.mocked(updateAppState).mockResolvedValue(appState)
 })
 
 describe('DefaultProfileDetail — absent capabilities', () => {
@@ -221,5 +249,44 @@ describe('DefaultProfileDetail — reveal destinations', () => {
     })
     await user.keyboard('{Alt>}2{/Alt}')
     expect(openInFinder).not.toHaveBeenCalled()
+  })
+})
+
+describe('DefaultProfileDetail — rename', () => {
+  it('shows the stock label until renamed', async () => {
+    renderDefault()
+    expect(await screen.findByRole('heading', { name: 'Claude' })).toBeInTheDocument()
+    expect(screen.getByText('stock install')).toBeInTheDocument()
+  })
+
+  it('shows a custom name, keeping the app named in the sub-line', async () => {
+    renderDefault({ entry: entry({ name: 'Personal', customName: 'Personal' }) })
+    expect(await screen.findByRole('heading', { name: 'Personal' })).toBeInTheDocument()
+    expect(screen.getByText('Claude · stock install')).toBeInTheDocument()
+  })
+
+  it('saves a trimmed name for this app from the Rename dialog', async () => {
+    const user = await openMenu()
+    await user.click(screen.getByRole('menuitem', { name: 'Rename…' }))
+    await user.type(await screen.findByRole('textbox', { name: 'Name' }), '  Personal  ')
+    await user.click(screen.getByRole('button', { name: /Save/ }))
+    await waitFor(() => {
+      // mutationFn also receives TanStack's context argument; only the patch matters.
+      expect(vi.mocked(updateAppState).mock.calls[0]?.[0]).toEqual({
+        defaultProfileName: { app: 'claude', name: 'Personal' },
+      })
+    })
+  })
+
+  it('offers Reset name once renamed, restoring the stock label', async () => {
+    const user = await openMenu({ entry: entry({ name: 'Personal', customName: 'Personal' }) })
+    await user.click(screen.getByRole('menuitem', { name: 'Rename…' }))
+    await user.click(await screen.findByRole('button', { name: 'Reset name' }))
+    await waitFor(() => {
+      // mutationFn also receives TanStack's context argument; only the patch matters.
+      expect(vi.mocked(updateAppState).mock.calls[0]?.[0]).toEqual({
+        defaultProfileName: { app: 'claude', name: '' },
+      })
+    })
   })
 })

@@ -36,6 +36,7 @@ export function useAppState(): UseAppStateResult {
           themeMode: patch.themeMode ?? previous.themeMode,
           selectedEntryId: patch.clearSelectedEntryId ? null : (patch.selectedEntryId ?? previous.selectedEntryId),
           dockIconAcknowledgedAt: patch.dockIconAcknowledgedAt ?? previous.dockIconAcknowledgedAt,
+          defaultProfileNames: withDefaultProfileName(previous.defaultProfileNames, patch.defaultProfileName),
         }
         queryClient.setQueryData(queryKeys.appState, optimistic)
       }
@@ -62,4 +63,22 @@ export function useAppState(): UseAppStateResult {
       await queryClient.invalidateQueries({ queryKey: queryKeys.appState })
     },
   }
+}
+
+/** Mirrors the Rust side: trims, and an empty name drops the custom name. */
+function withDefaultProfileName(
+  names: AppState['defaultProfileNames'] | undefined,
+  rename: AppStatePatch['defaultProfileName'],
+): AppState['defaultProfileNames'] {
+  const next = { ...(names ?? {}) }
+  if (rename === undefined) {
+    return next
+  }
+  const name = rename.name.trim()
+  if (name.length === 0) {
+    delete next[rename.app]
+  } else {
+    next[rename.app] = name
+  }
+  return next
 }

@@ -1,12 +1,14 @@
 //! Persisted app-level state — independent of profiles.json.
 //! Holds first-run flags and dismissal timestamps.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::app_kind::AppKind;
 use crate::error::{AppError, AppResult};
 use crate::paths::{app_state_json_path, ensure_app_dir};
 
@@ -38,7 +40,23 @@ pub struct AppState {
     /// profile gets one; afterwards it does not ask again.
     #[serde(default)]
     pub dock_icon_acknowledged_at: Option<String>,
+    /// Display names the user gave the stock-install ("Default") entries, by
+    /// app. Label only: nothing on disk is named after it. Absent means the
+    /// entry shows its stock label.
+    #[serde(default)]
+    pub default_profile_names: BTreeMap<AppKind, String>,
 }
+
+/// Renames one app's stock-install entry. An empty (or all-whitespace) name
+/// clears the custom name, putting the stock label back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultProfileName {
+    pub app: AppKind,
+    pub name: String,
+}
+
+const DEFAULT_PROFILE_NAME_MAX_CHARS: usize = 64;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,6 +81,8 @@ pub struct AppStatePatch {
     /// something the user has been told.
     #[serde(default)]
     pub dock_icon_acknowledged_at: Option<String>,
+    #[serde(default)]
+    pub default_profile_name: Option<DefaultProfileName>,
 }
 
 pub fn load() -> AppResult<AppState> {
@@ -112,8 +132,33 @@ pub fn apply(patch: AppStatePatch) -> AppResult<AppState> {
     if patch.dock_icon_acknowledged_at.is_some() {
         state.dock_icon_acknowledged_at = patch.dock_icon_acknowledged_at;
     }
+    if let Some(rename) = patch.default_profile_name {
+        let name = rename.name.trim();
+        if name.is_empty() {
+            state.default_profile_names.remove(&rename.app);
+        } else {
+            validate_default_profile_name(name)?;
+            state
+                .default_profile_names
+                .insert(rename.app, name.to_string());
+        }
+    }
     save(&state)?;
     Ok(state)
+}
+
+fn validate_default_profile_name(name: &str) -> AppResult<()> {
+    if name.chars().any(char::is_control) {
+        return Err(AppError::Validation(
+            "name must not contain control characters".to_string(),
+        ));
+    }
+    if name.chars().count() > DEFAULT_PROFILE_NAME_MAX_CHARS {
+        return Err(AppError::Validation(format!(
+            "name must be at most {DEFAULT_PROFILE_NAME_MAX_CHARS} characters"
+        )));
+    }
+    Ok(())
 }
 
 fn atomic_write(path: &Path, body: &[u8]) -> AppResult<()> {
@@ -187,6 +232,7 @@ mod tests {
             theme_mode: ThemeMode::default(),
             selected_entry_id: None,
             dock_icon_acknowledged_at: Some("2026-05-21T09:30:00Z".into()),
+            default_profile_names: BTreeMap::from([(AppKind::Claude, "Personal".into())]),
         };
         save(&state).unwrap();
         let loaded = load().unwrap();
@@ -205,6 +251,7 @@ mod tests {
             theme_mode: ThemeMode::default(),
             selected_entry_id: None,
             dock_icon_acknowledged_at: Some("acknowledged".into()),
+            default_profile_names: BTreeMap::new(),
         })
         .unwrap();
 
@@ -233,6 +280,7 @@ mod tests {
             theme_mode: ThemeMode::default(),
             selected_entry_id: None,
             dock_icon_acknowledged_at: None,
+            default_profile_names: BTreeMap::new(),
         })
         .unwrap();
 
@@ -294,6 +342,7 @@ mod tests {
             theme_mode: ThemeMode::default(),
             selected_entry_id: Some("profile-xyz".into()),
             dock_icon_acknowledged_at: None,
+            default_profile_names: BTreeMap::new(),
         })
         .unwrap();
         let after = apply(AppStatePatch {
@@ -354,5 +403,59 @@ mod tests {
         .unwrap();
         assert_eq!(load().unwrap().dock_icon_acknowledged_at, None);
         purge();
+    }
+
+    fn rename_default(app: AppKind, name: &str) -> AppResult<AppState> {
+        apply(AppStatePatch {
+            default_profile_name: Some(DefaultProfileName {
+                app,
+                name: name.to_string(),
+            }),
+            ..AppStatePatch::default()
+        })
+    }
+
+    #[test]
+    fn apply_sets_trims_and_clears_default_profile_names() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        rename_default(AppKind::Claude, "  Personal  ").unwrap();
+        let after = rename_default(AppKind::Codex, "Work").unwrap();
+        assert_eq!(
+            after
+                .default_profile_names
+                .get(&AppKind::Claude)
+                .map(String::as_str),
+            Some("Personal")
+        );
+        assert_eq!(
+            load()
+                .unwrap()
+                .default_profile_names
+                .get(&AppKind::Codex)
+                .map(String::as_str),
+            Some("Work")
+        );
+
+        let cleared = rename_default(AppKind::Claude, "   ").unwrap();
+        assert!(!cleared.default_profile_names.contains_key(&AppKind::Claude));
+        assert!(cleared.default_profile_names.contains_key(&AppKind::Codex));
+        purge();
+    }
+
+    #[test]
+    fn apply_rejects_bad_default_profile_names_without_saving() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        assert!(rename_default(AppKind::Claude, "Work\nrm -rf ~").is_err());
+        assert!(rename_default(AppKind::Claude, &"x".repeat(65)).is_err());
+        assert!(load().unwrap().default_profile_names.is_empty());
+        purge();
+    }
+
+    #[test]
+    fn state_without_default_profile_names_still_loads() {
+        let parsed: AppState = serde_json::from_str(r#"{"welcomeShown": true}"#).unwrap();
+        assert!(parsed.default_profile_names.is_empty());
     }
 }

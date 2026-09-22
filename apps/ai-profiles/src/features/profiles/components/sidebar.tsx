@@ -173,9 +173,10 @@ function AppSection({
   const matches = (name: string) => trimmedQuery.length === 0 || name.toLowerCase().includes(trimmedQuery)
 
   // The row reads just "Default" — the app it belongs to is stated by the
-  // glyph in its leading column. (entry.name stays the app name for surfaces
-  // without grouping, e.g. the command palette.)
-  const defaultRowName = 'Default'
+  // glyph in its leading column — unless the user has renamed it. (Without a
+  // custom name, entry.name stays the app name for surfaces without grouping,
+  // e.g. the command palette.)
+  const defaultRowName = group.default?.entry.customName ?? 'Default'
   const visibleDefault = group.default !== null && matches(defaultRowName) ? group.default : null
   const visibleManaged = group.managed.filter((managedEntry) => matches(managedEntry.profile.name))
 

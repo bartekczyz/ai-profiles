@@ -31,6 +31,7 @@ function defaultEntry(app: 'claude' | 'codex' = 'claude'): SidebarEntry {
       id: `default:${app}`,
       app,
       name: app === 'codex' ? 'Codex' : 'Default',
+      customName: null,
       surfaces: { gui: true, cli: true },
     },
   }
