@@ -24,6 +24,7 @@ vi.mock('@/lib/commands', async () => {
   return {
     ...actual,
     profilePaths: vi.fn(),
+    listSessions: vi.fn(async () => []),
     getProfileUsage: vi.fn(async () => ({
       quota: {
         primary: { utilization: 10, resetsAt: null },

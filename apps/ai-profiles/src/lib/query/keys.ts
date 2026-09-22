@@ -16,6 +16,14 @@ export const queryKeys = {
   // (which fires on reorder/delete/migration) doesn't refetch every
   // visible profile's quota in parallel and trip the rate limiter.
   profileUsage: (id: string) => ['profile-usage', id] as const,
+  // A profile's Claude sessions, and the plan for moving one. Outside the
+  // `profiles` subtree for the same reason as usage: reading every transcript
+  // is not something a reorder should set off.
+  sessions: {
+    all: ['sessions'] as const,
+    list: (id: string) => ['sessions', id] as const,
+    transferPlan: (request: object) => ['sessions', 'transfer-plan', request] as const,
+  },
   dependencies: ['dependencies'] as const,
   migration: {
     existing: ['migration', 'existing'] as const,

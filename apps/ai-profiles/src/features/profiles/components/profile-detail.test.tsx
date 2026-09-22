@@ -19,6 +19,7 @@ vi.mock('@/lib/commands', async () => {
   return {
     ...actual,
     profilePaths: vi.fn(),
+    listSessions: vi.fn(async () => []),
     openInFinder: vi.fn(async () => {}),
     openProfileInApp: vi.fn(async () => {}),
     copyToClipboard: vi.fn(async () => {}),

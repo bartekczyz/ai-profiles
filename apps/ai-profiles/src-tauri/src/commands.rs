@@ -15,6 +15,7 @@ use crate::paths::{
     stock_gui_support_dir,
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
+use crate::sessions::{self, SessionSummary, TransferPlan, TransferReport, TransferRequest};
 use crate::usage::{
     self,
     codex::CodexQuotaProvider,
@@ -233,6 +234,25 @@ pub fn open_default_gui(handle: tauri::AppHandle, app: AppKind, data_dir: String
 #[tauri::command]
 pub fn profile_paths(id: String) -> AppResult<ProfilePaths> {
     profiles::paths(&id)
+}
+
+/// The Claude sessions kept by profile `id` (or `default:claude`), newest
+/// first. Reads every transcript, so it runs off the main thread.
+#[tauri::command(async)]
+pub fn list_sessions(id: String) -> AppResult<Vec<SessionSummary>> {
+    sessions::list(&sessions::home(&id)?)
+}
+
+/// What moving a session would do, without doing it.
+#[tauri::command(async)]
+pub fn plan_session_transfer(request: TransferRequest) -> AppResult<TransferPlan> {
+    sessions::plan(&request)
+}
+
+/// Move a session to another profile. See [`sessions::transfer`].
+#[tauri::command(async)]
+pub fn transfer_session(request: TransferRequest) -> AppResult<TransferReport> {
+    sessions::transfer(&request)
 }
 
 /// Open a web URL (or `mailto:` link) in the user's default handler via

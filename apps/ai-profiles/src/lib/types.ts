@@ -262,3 +262,62 @@ export type ProfileUsage = {
   quotaError: QuotaError | null
   fetchedAt: string
 }
+
+/**
+ * One Claude session a profile keeps, as the Sessions panel lists it.
+ */
+export type SessionSummary = {
+  id: string
+  /** The folder the session last worked in. */
+  cwd: string | null
+  /** Desktop-app name, else the `/rename` name, else Claude's generated one. */
+  title: string | null
+  lastPrompt: string | null
+  /** RFC 3339. */
+  updatedAt: string
+  sizeBytes: number
+  /** A `claude` process has it open right now. */
+  running: boolean
+  /** The profile's desktop app lists it. */
+  inDesktop: boolean
+  /** Why it can't be moved, if it can't. */
+  unmovableReason: string | null
+}
+
+export type TransferRequest = {
+  sourceId: string
+  sessionId: string
+  destinationId: string
+  addToDesktop: boolean
+  archiveSource: boolean
+  replaceNewer?: boolean
+}
+
+export type TransferItemAction = 'copy' | 'same' | 'replace'
+
+export type TransferDesktopAction = 'skip' | 'add' | 'alreadyListed' | 'unavailable'
+
+export type TransferPlan = {
+  sessionId: string
+  title: string | null
+  cwd: string | null
+  sourceLabel: string
+  destinationLabel: string
+  items: Array<{ path: string; action: TransferItemAction }>
+  /** The destination's copy is newer: moving would roll it back. */
+  destinationNewer: boolean
+  desktop: TransferDesktopAction
+  desktopReason: string | null
+  /** Why the move can't happen right now. Empty when it can. */
+  blockers: Array<string>
+  notes: Array<string>
+}
+
+export type TransferReport = {
+  destinationTranscript: string
+  backupDir: string | null
+  desktopRecord: string | null
+  archivedTo: string | null
+  memoryCopied: Array<string>
+  memoryConflicts: Array<string>
+}

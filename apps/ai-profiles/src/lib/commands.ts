@@ -14,9 +14,13 @@ import type {
   ProfilePatch,
   ProfilePaths,
   ProfileUsage,
+  SessionSummary,
   Shell,
   Surface,
   Surfaces,
+  TransferPlan,
+  TransferReport,
+  TransferRequest,
 } from './types'
 
 import { invoke } from '@tauri-apps/api/core'
@@ -133,4 +137,16 @@ export function openCliLogin(id: string): Promise<void> {
 
 export function getProfileUsage(profileId: string): Promise<ProfileUsage> {
   return invoke<ProfileUsage>('get_profile_usage', { profileId })
+}
+
+export function listSessions(id: string): Promise<Array<SessionSummary>> {
+  return invoke<Array<SessionSummary>>('list_sessions', { id })
+}
+
+export function planSessionTransfer(request: TransferRequest): Promise<TransferPlan> {
+  return invoke<TransferPlan>('plan_session_transfer', { request })
+}
+
+export function transferSession(request: TransferRequest): Promise<TransferReport> {
+  return invoke<TransferReport>('transfer_session', { request })
 }

@@ -14,6 +14,7 @@ import { formatLastUsed } from './format-last-used'
 import { ProfileDetailHeader, ProfileSwatch } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
 import { ProfileDetailOverflowMenu, ProfileDetailOverflowMenuFallback } from './profile-detail-overflow-menu'
+import { ProfileDetailSessions } from './profile-detail-sessions'
 import { ProfileDetailSurfacesPanel } from './profile-detail-surfaces-panel'
 import { ProfileDetailUsageCard } from './profile-detail-usage-card'
 import { useGuiLaunch } from './use-gui-launch'
@@ -92,6 +93,8 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
           />
         </Suspense>
       </div>
+
+      {profile.app === 'claude' ? <ProfileDetailSessions key={profile.id} profileId={profile.id} /> : null}
 
       {actionError ? (
         <p role="alert" className="mb-4 text-meta text-red">

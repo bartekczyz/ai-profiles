@@ -13,6 +13,7 @@ import { BrandSwatch, ProfileDetailHeader } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
 import { ProfileDetailMigrateAction } from './profile-detail-migrate-action'
 import { ProfileDetailOverflowMenu, ProfileDetailOverflowMenuFallback } from './profile-detail-overflow-menu'
+import { ProfileDetailSessions } from './profile-detail-sessions'
 import { ProfileDetailSurfacesPanel } from './profile-detail-surfaces-panel'
 import { ProfileDetailUsageCard } from './profile-detail-usage-card'
 import { RenameDefaultProfileDialog } from './rename-default-profile-dialog'
@@ -79,6 +80,8 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
           <ResolvedDefaultSurfaces entry={entry} launch={launch} onError={setActionError} />
         </Suspense>
       </div>
+
+      {entry.app === 'claude' ? <ProfileDetailSessions key={entry.id} profileId={entry.id} /> : null}
 
       {actionError ? (
         <p role="alert" className="mb-4 text-meta text-red">

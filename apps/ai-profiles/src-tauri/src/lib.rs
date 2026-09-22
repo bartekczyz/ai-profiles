@@ -12,6 +12,7 @@ mod migration;
 mod path_setup;
 mod paths;
 mod profiles;
+mod sessions;
 mod shared_config;
 mod slug;
 #[cfg(test)]
@@ -132,6 +133,9 @@ pub fn run() {
             commands::get_profile_usage,
             commands::open_external_url,
             commands::open_cli_login,
+            commands::list_sessions,
+            commands::plan_session_transfer,
+            commands::transfer_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
