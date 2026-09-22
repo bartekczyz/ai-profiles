@@ -6,10 +6,10 @@ import { formatDistanceToNow } from 'date-fns'
 import { Archive, ArrowRightLeft, Monitor, Terminal } from 'lucide-react'
 
 import { Button, Skeleton, StatusDot } from '@/design'
-import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { useProfileSessions } from '../api/use-profile-sessions'
 import { ArchiveSessionDialog } from './archive-session-dialog'
+import { sessionErrorMessage } from './session-error-message'
 import { shortenHomePath } from './shorten-home-path'
 import { TransferSessionDialog } from './transfer-session-dialog'
 
@@ -54,7 +54,7 @@ export function ProfileDetailSessions({ profileId }: Props) {
           </div>
         ) : error ? (
           <p role="alert" className="px-[13px] py-[10px] text-meta text-red">
-            {extractErrorMessage(error, 'Could not read the sessions.')}
+            {sessionErrorMessage(error, 'Could not read the sessions.')}
           </p>
         ) : sessions.length === 0 ? (
           <p className="px-[13px] py-[10px] text-meta text-muted">No sessions yet.</p>

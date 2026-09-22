@@ -3,10 +3,10 @@ import type { SessionSummary, TransferPlan, TransferReport, TransferRequest } fr
 import { useMemo, useState } from 'react'
 
 import { Button, Dialog, Kbd } from '@/design'
-import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { useTransferPlan, useTransferSession } from '../api/use-profile-sessions'
 import { useProfiles } from '../api/use-profiles'
+import { sessionErrorMessage } from './session-error-message'
 import { shortenHomePath } from './shorten-home-path'
 
 const stockId = 'default:claude'
@@ -63,7 +63,7 @@ export function TransferSessionDialog({ open, sourceId, session, onClose }: Prop
     try {
       setReport(await move.mutateAsync({ ...request, replaceNewer }))
     } catch (caught) {
-      setMoveError(extractErrorMessage(caught, 'The session could not be moved.'))
+      setMoveError(sessionErrorMessage(caught, 'The session could not be moved.'))
       await plan.refetch()
     }
   }
@@ -153,7 +153,7 @@ export function TransferSessionDialog({ open, sourceId, session, onClose }: Prop
           <PlanBody
             plan={plan.data}
             loading={plan.isLoading}
-            error={plan.error ? extractErrorMessage(plan.error) : null}
+            error={plan.error ? sessionErrorMessage(plan.error) : null}
             replaceNewer={replaceNewer}
             onReplaceNewer={setReplaceNewer}
             onRecheck={() => void plan.refetch()}

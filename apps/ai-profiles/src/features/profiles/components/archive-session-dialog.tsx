@@ -3,9 +3,9 @@ import type { SessionSummary } from '@/lib/types'
 import { useState } from 'react'
 
 import { Button, Dialog, Kbd } from '@/design'
-import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { useArchiveSession } from '../api/use-profile-sessions'
+import { sessionErrorMessage } from './session-error-message'
 
 type Props = {
   open: boolean
@@ -35,7 +35,7 @@ export function ArchiveSessionDialog({ open, profileId, session, onClose }: Prop
       await archive.mutateAsync({ profileId, sessionId: session.id })
       onClose()
     } catch (caught) {
-      setError(extractErrorMessage(caught, 'The session could not be archived.'))
+      setError(sessionErrorMessage(caught, 'The session could not be archived.'))
     }
   }
 
