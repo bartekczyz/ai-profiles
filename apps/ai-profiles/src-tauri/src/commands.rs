@@ -15,7 +15,9 @@ use crate::paths::{
     stock_gui_support_dir,
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
-use crate::sessions::{self, SessionSummary, TransferPlan, TransferReport, TransferRequest};
+use crate::sessions::{
+    self, ArchiveReport, SessionSummary, TransferPlan, TransferReport, TransferRequest,
+};
 use crate::usage::{
     self,
     codex::CodexQuotaProvider,
@@ -253,6 +255,12 @@ pub fn plan_session_transfer(request: TransferRequest) -> AppResult<TransferPlan
 #[tauri::command(async)]
 pub fn transfer_session(request: TransferRequest) -> AppResult<TransferReport> {
     sessions::transfer(&request)
+}
+
+/// Take a session out of a profile, keeping it in `session-transfer-backups`.
+#[tauri::command(async)]
+pub fn archive_session(profile_id: String, session_id: String) -> AppResult<ArchiveReport> {
+    sessions::archive(&profile_id, &session_id)
 }
 
 /// Open a web URL (or `mailto:` link) in the user's default handler via

@@ -3,12 +3,13 @@ import type { SessionSummary } from '@/lib/types'
 import { useState } from 'react'
 
 import { formatDistanceToNow } from 'date-fns'
-import { ArrowRightLeft, Monitor, Terminal } from 'lucide-react'
+import { Archive, ArrowRightLeft, Monitor, Terminal } from 'lucide-react'
 
 import { Button, Skeleton, StatusDot } from '@/design'
 import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { useProfileSessions } from '../api/use-profile-sessions'
+import { ArchiveSessionDialog } from './archive-session-dialog'
 import { shortenHomePath } from './shorten-home-path'
 import { TransferSessionDialog } from './transfer-session-dialog'
 
@@ -27,7 +28,7 @@ type Props = {
 
 /**
  * The Claude sessions this profile keeps, with a way to move one to another
- * profile. Lists the CLI transcripts, which is where every session lives: a
+ * profile or archive it. Lists the CLI transcripts, which is where every session lives: a
  * desktop Code tab session is one too, and wears a Desktop pill instead of a
  * CLI one.
  */
@@ -35,6 +36,7 @@ export function ProfileDetailSessions({ profileId }: Props) {
   const { data, error, isLoading } = useProfileSessions(profileId)
   const [expanded, setExpanded] = useState(false)
   const [moving, setMoving] = useState<SessionSummary | null>(null)
+  const [archiving, setArchiving] = useState<SessionSummary | null>(null)
 
   const sessions = data ?? []
   const visible = expanded ? sessions : sessions.slice(0, collapsedCount)
@@ -59,7 +61,12 @@ export function ProfileDetailSessions({ profileId }: Props) {
         ) : (
           <ul>
             {visible.map((session) => (
-              <SessionRow key={session.id} session={session} onMove={() => setMoving(session)} />
+              <SessionRow
+                key={session.id}
+                session={session}
+                onMove={() => setMoving(session)}
+                onArchive={() => setArchiving(session)}
+              />
             ))}
           </ul>
         )}
@@ -76,6 +83,9 @@ export function ProfileDetailSessions({ profileId }: Props) {
 
       {moving ? (
         <TransferSessionDialog open sourceId={profileId} session={moving} onClose={() => setMoving(null)} />
+      ) : null}
+      {archiving ? (
+        <ArchiveSessionDialog open profileId={profileId} session={archiving} onClose={() => setArchiving(null)} />
       ) : null}
     </section>
   )
@@ -102,7 +112,13 @@ function SurfacePill({ surface }: { surface: 'desktop' | 'cli' }) {
   )
 }
 
-function SessionRow({ session, onMove }: { session: SessionSummary; onMove: () => void }) {
+type SessionRowProps = {
+  session: SessionSummary
+  onMove: () => void
+  onArchive: () => void
+}
+
+function SessionRow({ session, onMove, onArchive }: SessionRowProps) {
   const title = session.title ?? session.lastPrompt ?? session.id
   return (
     <li className={rowClasses}>
@@ -132,16 +148,23 @@ function SessionRow({ session, onMove }: { session: SessionSummary; onMove: () =
             <StatusDot tone="success" />
             Open
           </div>
-          <div className="text-meta text-muted">Quit to move</div>
+          <div className="text-meta text-muted">Quit to move or archive</div>
         </div>
-      ) : session.unmovableReason ? (
-        <span className="shrink-0 cursor-default text-meta text-muted" title={session.unmovableReason}>
-          Can't move
-        </span>
       ) : (
-        <Button variant="ghost" size="sm" leadingIcon={<ArrowRightLeft />} onClick={onMove}>
-          Move
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          {session.unmovableReason ? (
+            <span className="cursor-default px-2 text-meta text-muted" title={session.unmovableReason}>
+              Can't move
+            </span>
+          ) : (
+            <Button variant="ghost" size="sm" leadingIcon={<ArrowRightLeft />} onClick={onMove}>
+              Move
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" aria-label="Archive" title="Archive" onClick={onArchive}>
+            <Archive aria-hidden className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       )}
     </li>
   )

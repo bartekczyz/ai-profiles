@@ -12,6 +12,7 @@
 //! Everything here reads Claude Code and Claude desktop internals, which can
 //! change between versions.
 
+mod archive;
 mod desktop;
 mod scan;
 mod transfer;
@@ -27,6 +28,7 @@ use crate::error::{AppError, AppResult};
 use crate::paths::resolve_gui_app;
 use crate::profiles;
 
+pub use archive::{archive, ArchiveReport};
 pub use scan::{list, SessionSummary};
 pub use transfer::{plan, transfer, TransferPlan, TransferReport, TransferRequest};
 
@@ -154,6 +156,28 @@ pub(crate) fn running_sessions(
             })
         })
         .collect()
+}
+
+/// Why session `id` can't be moved or archived out of `home` right now because
+/// something has it open, if something does.
+pub(crate) fn open_blocker(
+    home: &Home,
+    id: &str,
+    processes: &HashMap<i32, String>,
+) -> Option<String> {
+    let open = running_sessions(&home.config_dir, processes);
+    let running = open.iter().find(|running| running.session_id == id)?;
+    Some(if running.desktop {
+        format!(
+            "Claude ({}) has the session open. Quit it first.",
+            home.label
+        )
+    } else {
+        format!(
+            "The session is open in a terminal under {}. Close it first.",
+            home.label
+        )
+    })
 }
 
 #[cfg(test)]

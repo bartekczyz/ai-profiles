@@ -3,6 +3,7 @@ import type {
   AppMetadata,
   AppState,
   AppStatePatch,
+  ArchiveReport,
   Dependencies,
   ExistingInstallInfo,
   ExistingInstallSizes,
@@ -149,4 +150,8 @@ export function planSessionTransfer(request: TransferRequest): Promise<TransferP
 
 export function transferSession(request: TransferRequest): Promise<TransferReport> {
   return invoke<TransferReport>('transfer_session', { request })
+}
+
+export function archiveSession(input: { profileId: string; sessionId: string }): Promise<ArchiveReport> {
+  return invoke<ArchiveReport>('archive_session', input)
 }

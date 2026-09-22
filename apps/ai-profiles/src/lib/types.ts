@@ -323,3 +323,8 @@ export type TransferReport = {
   memoryCopied: Array<string>
   memoryConflicts: Array<string>
 }
+
+export type ArchiveReport = {
+  /** Where the transcript (and desktop record) went. */
+  archivedTo: string
+}

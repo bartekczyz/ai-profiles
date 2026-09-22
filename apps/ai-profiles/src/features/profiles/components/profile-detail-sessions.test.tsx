@@ -4,7 +4,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { listProfiles, listSessions, planSessionTransfer, transferSession } from '@/lib/commands'
+import { archiveSession, listProfiles, listSessions, planSessionTransfer, transferSession } from '@/lib/commands'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import { ProfileDetailSessions } from './profile-detail-sessions'
@@ -15,6 +15,7 @@ vi.mock('@/lib/commands', async () => {
     ...actual,
     listProfiles: vi.fn(),
     listSessions: vi.fn(),
+    archiveSession: vi.fn(),
     planSessionTransfer: vi.fn(),
     transferSession: vi.fn(),
   }
@@ -101,7 +102,7 @@ describe('ProfileDetailSessions', () => {
     expect(screen.getAllByText(/~\/code\/app/)).toHaveLength(4)
     expect(screen.getByText('what now')).toBeInTheDocument()
     expect(screen.getAllByText('Open')).toHaveLength(2)
-    expect(screen.getAllByText('Quit to move')).toHaveLength(2)
+    expect(screen.getAllByText('Quit to move or archive')).toHaveLength(2)
     expect(screen.getByText("Can't move")).toHaveAttribute('title', 'It works in a scratch folder.')
     const pill = (name: string) =>
       within(screen.getByText(name).closest('li') as HTMLElement).getByText(/^(Desktop|CLI)$/).textContent
@@ -183,5 +184,34 @@ describe('ProfileDetailSessions', () => {
     expect(move).toBeDisabled()
     await user.click(replace)
     expect(move).toBeEnabled()
+  })
+})
+
+describe('ProfileDetailSessions — archive', () => {
+  it('archives a session after confirming, and shows why when it cannot', async () => {
+    vi.mocked(listSessions).mockResolvedValue([session({ inDesktop: true })])
+    vi.mocked(archiveSession)
+      .mockRejectedValueOnce({ kind: 'Validation', message: 'Quit Claude (Work) first.' })
+      .mockResolvedValueOnce({ archivedTo: '/x' })
+    renderWithQuery(<ProfileDetailSessions profileId="work" />)
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Archive' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Archive session?' })
+    expect(within(dialog).getByText(/and its desktop app/)).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: /^Archive/ }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Quit Claude (Work) first.')
+
+    await user.click(within(dialog).getByRole('button', { name: /^Archive/ }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(archiveSession).toHaveBeenLastCalledWith({ profileId: 'work', sessionId: 's1' })
+  })
+
+  it('offers no archive for a session that is open', async () => {
+    vi.mocked(listSessions).mockResolvedValue([session({ running: true })])
+    renderWithQuery(<ProfileDetailSessions profileId="work" />)
+    expect(await screen.findByText('Quit to move or archive')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument()
   })
 })

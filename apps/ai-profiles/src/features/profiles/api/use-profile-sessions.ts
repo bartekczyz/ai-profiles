@@ -2,7 +2,7 @@ import type { TransferRequest } from '@/lib/types'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { listSessions, planSessionTransfer, transferSession } from '@/lib/commands'
+import { archiveSession, listSessions, planSessionTransfer, transferSession } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 
 /**
@@ -42,6 +42,17 @@ export function useTransferSession() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (request: TransferRequest) => transferSession(request),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all }),
+  })
+}
+
+/**
+ * Takes a session out of a profile, keeping it in session-transfer-backups.
+ */
+export function useArchiveSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { profileId: string; sessionId: string }) => archiveSession(input),
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all }),
   })
 }

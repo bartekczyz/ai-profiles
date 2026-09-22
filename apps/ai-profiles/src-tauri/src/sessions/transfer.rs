@@ -13,13 +13,14 @@ use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
+use super::archive::{archive_files, move_into};
 use super::desktop::{self, DesktopRecord, NewRecord};
 use super::scan::{self, is_safe_name, TranscriptInfo};
-use super::{home, parse_process_list, running_sessions, Home};
+use super::{home, open_blocker, parse_process_list, Home};
 use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
 
-const BACKUPS_DIR: &str = "session-transfer-backups";
+use super::archive::BACKUPS_DIR;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -185,18 +186,7 @@ fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
         blockers.push(reason);
     }
     for side in [&source, &destination] {
-        let open = running_sessions(&side.config_dir, &processes);
-        match open.iter().find(|running| running.session_id == id) {
-            Some(running) if running.desktop => blockers.push(format!(
-                "Claude ({}) has the session open. Quit it first.",
-                side.label
-            )),
-            Some(_) => blockers.push(format!(
-                "The session is open in a terminal under {}. Close it first.",
-                side.label
-            )),
-            None => {}
-        }
+        blockers.extend(open_blocker(side, id, &processes));
     }
 
     let mut desktop_reason = None;
@@ -298,7 +288,7 @@ fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
 }
 
 /// The one transcript of session `id` in `home`, as (project, path).
-fn single_transcript(home: &Home, id: &str) -> AppResult<Option<(String, PathBuf)>> {
+pub(super) fn single_transcript(home: &Home, id: &str) -> AppResult<Option<(String, PathBuf)>> {
     let mut found: Vec<(String, PathBuf)> = scan::transcripts(&home.config_dir)
         .into_iter()
         .filter(|(_, session, _)| session == id)
@@ -474,25 +464,13 @@ fn execute(prepared: &Prepared, archive_source: bool) -> AppResult<TransferRepor
     };
 
     let archived_to = if archive_source {
-        let root = prepared
-            .source
-            .config_dir
-            .join(BACKUPS_DIR)
-            .join(id)
-            .join(format!("{stamp}-archived"));
-        let transcript_rel = Path::new("projects")
-            .join(&prepared.source_project)
-            .join(format!("{id}.jsonl"));
-        move_into(&prepared.source_transcript, &root.join(&transcript_rel))?;
-        let records_root = prepared.source.gui_data_dir.join("claude-code-sessions");
-        for record in &prepared.source_records {
-            let rel = record
-                .path
-                .strip_prefix(&records_root)
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|_| PathBuf::from(record.path.file_name().unwrap_or_default()));
-            move_into(&record.path, &root.join("desktop-records").join(rel))?;
-        }
+        let root = archive_files(
+            &prepared.source,
+            id,
+            &prepared.source_project,
+            &prepared.source_records,
+            &stamp,
+        )?;
         Some(root.display().to_string())
     } else {
         None
@@ -690,16 +668,6 @@ fn remove_any(path: &Path) -> AppResult<()> {
         Ok(_) => fs::remove_file(path)?,
         Err(_) => {}
     }
-    Ok(())
-}
-
-/// Move `from` to `to`, making `to`'s folder. Both are under the same app data,
-/// so this is a rename.
-fn move_into(from: &Path, to: &Path) -> AppResult<()> {
-    if let Some(parent) = to.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::rename(from, to)?;
     Ok(())
 }
 
