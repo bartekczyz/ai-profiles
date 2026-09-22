@@ -14,7 +14,10 @@ use serde::Serialize;
 
 use super::desktop::{self, DesktopRecord};
 use super::transfer::single_transcript;
-use super::{home, open_blocker, parse_process_list, Home};
+use super::{
+    apps_blocker, home, open_in, parse_process_list, quit_apps, terminal_blocker, AppToQuit, Home,
+    OpenIn,
+};
 use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
 
@@ -27,10 +30,25 @@ pub struct ArchiveReport {
     pub archived_to: String,
 }
 
-/// Archive session `session_id` of profile `profile_id` (or `default:claude`).
-/// Refuses while anything has the session open, and while the desktop app that
-/// lists it is running, since that app rewrites its session list from memory.
-pub fn archive(profile_id: &str, session_id: &str) -> AppResult<ArchiveReport> {
+/// What stands between session `session_id` and being archived.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveCheck {
+    /// A reason only the user can clear, if there is one.
+    pub blocker: Option<String>,
+    /// The profile's desktop app, if it has to quit first: it holds the
+    /// session open, or keeps the list the session is taken out of.
+    pub app_to_quit: Option<AppToQuit>,
+}
+
+struct Prepared {
+    home: Home,
+    project: String,
+    records: Vec<DesktopRecord>,
+    check: ArchiveCheck,
+}
+
+fn prepare(profile_id: &str, session_id: &str) -> AppResult<Prepared> {
     if !super::scan::is_safe_name(session_id) {
         return Err(AppError::Validation(format!(
             "invalid session id {session_id:?}"
@@ -46,18 +64,54 @@ pub fn archive(profile_id: &str, session_id: &str) -> AppResult<ArchiveReport> {
         .collect();
 
     let processes = parse_process_list(&process_list()?);
-    if let Some(blocker) = open_blocker(&home, session_id, &processes) {
+    let open = open_in(&home, session_id, &processes);
+    let check = ArchiveCheck {
+        blocker: (open == Some(OpenIn::Terminal)).then(|| terminal_blocker(&home)),
+        app_to_quit: (open == Some(OpenIn::Desktop)
+            || (!records.is_empty() && desktop::app_running(&home, &processes)))
+        .then(|| AppToQuit::of(&home)),
+    };
+    Ok(Prepared {
+        home,
+        project,
+        records,
+        check,
+    })
+}
+
+/// What archiving the session would need, without doing it.
+pub fn check_archive(profile_id: &str, session_id: &str) -> AppResult<ArchiveCheck> {
+    Ok(prepare(profile_id, session_id)?.check)
+}
+
+/// Archive session `session_id` of profile `profile_id` (or `default:claude`).
+/// Refuses while a terminal has the session open. The profile's desktop app,
+/// when it holds the session or lists it, is quit first if `quit_app` is set
+/// (it rewrites its session list from memory) and refused otherwise.
+pub fn archive(profile_id: &str, session_id: &str, quit_app: bool) -> AppResult<ArchiveReport> {
+    let mut prepared = prepare(profile_id, session_id)?;
+    if let Some(blocker) = prepared.check.blocker {
         return Err(AppError::Validation(blocker));
     }
-    if !records.is_empty() && desktop::app_running(&home, &processes) {
-        return Err(AppError::Validation(format!(
-            "Quit Claude ({}) first, so the session can be taken out of its list.",
-            home.label
-        )));
+    if let Some(app) = prepared.check.app_to_quit.clone() {
+        if !quit_app {
+            return Err(apps_blocker(&[app]));
+        }
+        quit_apps(&[app])?;
+        prepared = prepare(profile_id, session_id)?;
+        if let Some(app) = prepared.check.app_to_quit {
+            return Err(apps_blocker(&[app]));
+        }
     }
 
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
-    let root = archive_files(&home, session_id, &project, &records, &stamp)?;
+    let root = archive_files(
+        &prepared.home,
+        session_id,
+        &prepared.project,
+        &prepared.records,
+        &stamp,
+    )?;
     Ok(ArchiveReport {
         archived_to: root.display().to_string(),
     })
@@ -120,6 +174,7 @@ mod tests {
     fn archives_the_transcript_and_records_but_keeps_the_session_folder() {
         let dir = tempfile::tempdir().unwrap();
         let home = Home {
+            id: "p".into(),
             label: "P".into(),
             config_dir: dir.path().join("cli-config"),
             gui_data_dir: dir.path().join("gui-data"),

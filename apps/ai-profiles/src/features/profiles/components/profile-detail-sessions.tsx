@@ -128,6 +128,15 @@ function SessionRow({ session, onMove, onArchive }: SessionRowProps) {
             {title}
           </span>
           <SurfacePill surface={surfaceOf(session)} />
+          {session.running && session.openInDesktop ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 text-meta text-muted-strong"
+              title="The desktop app has it open. Moving or archiving it quits the app first."
+            >
+              <StatusDot tone="success" />
+              Open
+            </span>
+          ) : null}
         </div>
         <div className="flex min-w-0 font-mono text-mono text-muted-strong">
           <span className="truncate" title={session.cwd ?? undefined}>
@@ -139,16 +148,13 @@ function SessionRow({ session, onMove, onArchive }: SessionRowProps) {
           </span>
         </div>
       </div>
-      {session.running ? (
-        <div
-          className="shrink-0 text-right"
-          title={session.openInDesktop ? 'The desktop app holds it open until it quits.' : 'A terminal has it open.'}
-        >
+      {session.running && !session.openInDesktop ? (
+        <div className="shrink-0 text-right" title="A terminal has it open.">
           <div className="flex items-center justify-end gap-1.5 text-meta text-ink-soft">
             <StatusDot tone="success" />
             Open
           </div>
-          <div className="text-meta text-muted">Quit to move or archive</div>
+          <div className="text-meta text-muted">Close to move or archive</div>
         </div>
       ) : (
         <div className="flex shrink-0 items-center gap-1">

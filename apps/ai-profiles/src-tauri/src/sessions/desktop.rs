@@ -7,12 +7,16 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
 
-use super::Home;
+use super::{parse_process_list, Home};
 use crate::app_kind::CLAUDE;
-use crate::launch::find_running_pid;
+use crate::error::{AppError, AppResult};
+use crate::launch::{find_running_pid, process_list};
 use crate::paths::resolve_gui_app;
 
 const RECORDS_DIR: &str = "claude-code-sessions";
@@ -141,12 +145,12 @@ fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
 }
 
-/// Whether `home`'s desktop app is running.
+/// The pid of `home`'s desktop app, if it is running.
 ///
 /// A profile's app, and the stock app when ai-profiles opened it, carry
 /// `--user-data-dir`. The stock app opened from the Dock or Finder carries no
 /// arguments at all.
-pub(crate) fn app_running(home: &Home, processes: &HashMap<i32, String>) -> bool {
+pub(crate) fn app_pid(home: &Home, processes: &HashMap<i32, String>) -> Option<i32> {
     let ps_output: String = processes
         .iter()
         .map(|(pid, command)| format!("{pid} {command}\n"))
@@ -155,19 +159,59 @@ pub(crate) fn app_running(home: &Home, processes: &HashMap<i32, String>) -> bool
     let bound = CLAUDE
         .gui_bundle_candidates
         .iter()
-        .any(|candidate| find_running_pid(&ps_output, &data_dir, candidate.macos_exec).is_some());
-    if bound || !home.stock {
+        .find_map(|candidate| find_running_pid(&ps_output, &data_dir, candidate.macos_exec));
+    if bound.is_some() || !home.stock {
         return bound;
     }
-    resolve_gui_app(&CLAUDE).is_some_and(|app| {
-        let exec = app
-            .bundle_path
-            .join("Contents/MacOS")
-            .join(app.macos_exec)
-            .display()
-            .to_string();
-        processes.values().any(|command| *command == exec)
-    })
+    let app = resolve_gui_app(&CLAUDE)?;
+    let exec = app
+        .bundle_path
+        .join("Contents/MacOS")
+        .join(app.macos_exec)
+        .display()
+        .to_string();
+    processes
+        .iter()
+        .find(|(_, command)| **command == exec)
+        .map(|(pid, _)| *pid)
+}
+
+pub(crate) fn app_running(home: &Home, processes: &HashMap<i32, String>) -> bool {
+    app_pid(home, processes).is_some()
+}
+
+/// How long [`quit_app`] waits for the app to finish quitting.
+const QUIT_WAIT: Duration = Duration::from_secs(15);
+
+/// Quit `home`'s desktop app, if it is running, and wait until it has gone.
+///
+/// Sends SIGTERM to that one process, which Electron treats as a normal quit:
+/// windows close and state is saved, as with ⌘Q. Other profiles' apps share
+/// the bundle id, so asking the app to quit by name would quit them all.
+pub(crate) fn quit_app(home: &Home) -> AppResult<()> {
+    let Some(pid) = app_pid(home, &parse_process_list(&process_list()?)) else {
+        return Ok(());
+    };
+    let status = Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .status()?;
+    if !status.success() {
+        return Err(AppError::Validation(format!(
+            "Claude ({}) could not be quit. Quit it yourself and try again.",
+            home.label
+        )));
+    }
+    let deadline = Instant::now() + QUIT_WAIT;
+    while Instant::now() < deadline {
+        if !parse_process_list(&process_list()?).contains_key(&pid) {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+    Err(AppError::Validation(format!(
+        "Claude ({}) didn't finish quitting. Quit it yourself and try again.",
+        home.label
+    )))
 }
 
 /// What a moved session's record starts from.
@@ -243,6 +287,7 @@ mod tests {
 
     fn home(root: &Path) -> Home {
         Home {
+            id: "p".into(),
             label: "P".into(),
             config_dir: root.join("cli-config"),
             gui_data_dir: root.join("gui-data"),
@@ -385,6 +430,42 @@ mod tests {
         let path = write_record(&dir.path().join("a/b"), &record).unwrap();
         assert_eq!(path, dir.path().join("a/b/local_x.json"));
         assert_eq!(fs::read_dir(dir.path().join("a/b")).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn quit_app_ends_only_this_profiles_app_and_waits_for_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = home(dir.path());
+        fs::create_dir_all(&home.gui_data_dir).unwrap();
+        let other_data = dir.path().join("other-gui-data");
+        let mut other =
+            crate::test_support::fake_wrapper_process(&dir.path().join("o"), &other_data);
+        let mut child = crate::test_support::fake_wrapper_process(dir.path(), &home.gui_data_dir);
+        let pid = child.id() as i32;
+        // `wait` closes stdin, which the stand-in would take as its cue to exit;
+        // keep it open so only the quit ends it.
+        let _stdin = child.stdin.take();
+        // Reap it the way launchd reaps a real app, so it leaves the process list.
+        let reaper = thread::spawn(move || {
+            let mut child = child;
+            child.wait().unwrap()
+        });
+        assert_eq!(
+            app_pid(&home, &parse_process_list(&process_list().unwrap())),
+            Some(pid)
+        );
+
+        quit_app(&home).unwrap();
+
+        assert!(!reaper.join().unwrap().success());
+        assert!(
+            other.try_wait().unwrap().is_none(),
+            "another profile's app was quit"
+        );
+        other.kill().unwrap();
+        other.wait().unwrap();
+        // Nothing running: a no-op.
+        quit_app(&home).unwrap();
     }
 
     #[test]

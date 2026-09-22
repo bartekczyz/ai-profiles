@@ -293,6 +293,17 @@ export type TransferRequest = {
   addToDesktop: boolean
   archiveSource: boolean
   replaceNewer?: boolean
+  /** Quit the apps the plan lists in `appsToQuit` first. */
+  quitApps?: boolean
+}
+
+/**
+ * A profile's desktop app that has to quit before a move or archive: it holds
+ * the session open, or keeps the session list being changed.
+ */
+export type AppToQuit = {
+  profileId: string
+  label: string
 }
 
 export type TransferItemAction = 'copy' | 'same' | 'replace'
@@ -310,8 +321,10 @@ export type TransferPlan = {
   destinationNewer: boolean
   desktop: TransferDesktopAction
   desktopReason: string | null
-  /** Why the move can't happen right now. Empty when it can. */
+  /** Why the move can't happen right now, which only the user can clear. */
   blockers: Array<string>
+  /** Apps that have to quit first. ai-profiles quits them when asked. */
+  appsToQuit: Array<AppToQuit>
   notes: Array<string>
 }
 
@@ -327,4 +340,11 @@ export type TransferReport = {
 export type ArchiveReport = {
   /** Where the transcript (and desktop record) went. */
   archivedTo: string
+}
+
+export type ArchiveCheck = {
+  /** A reason only the user can clear (a terminal has it open). */
+  blocker: string | null
+  /** The profile's desktop app, if it has to quit first. */
+  appToQuit: AppToQuit | null
 }

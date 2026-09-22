@@ -136,6 +136,7 @@ pub fn run() {
             commands::list_sessions,
             commands::plan_session_transfer,
             commands::transfer_session,
+            commands::check_session_archive,
             commands::archive_session,
         ])
         .run(tauri::generate_context!())

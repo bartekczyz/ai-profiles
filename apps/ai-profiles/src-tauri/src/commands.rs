@@ -16,7 +16,8 @@ use crate::paths::{
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
 use crate::sessions::{
-    self, ArchiveReport, SessionSummary, TransferPlan, TransferReport, TransferRequest,
+    self, ArchiveCheck, ArchiveReport, SessionSummary, TransferPlan, TransferReport,
+    TransferRequest,
 };
 use crate::usage::{
     self,
@@ -257,10 +258,22 @@ pub fn transfer_session(request: TransferRequest) -> AppResult<TransferReport> {
     sessions::transfer(&request)
 }
 
-/// Take a session out of a profile, keeping it in `session-transfer-backups`.
+/// What archiving a session would need: a terminal to close, or the
+/// profile's desktop app to quit.
 #[tauri::command(async)]
-pub fn archive_session(profile_id: String, session_id: String) -> AppResult<ArchiveReport> {
-    sessions::archive(&profile_id, &session_id)
+pub fn check_session_archive(profile_id: String, session_id: String) -> AppResult<ArchiveCheck> {
+    sessions::check_archive(&profile_id, &session_id)
+}
+
+/// Take a session out of a profile, keeping it in `session-transfer-backups`.
+/// With `quit_app`, quits the profile's desktop app first when it has to.
+#[tauri::command(async)]
+pub fn archive_session(
+    profile_id: String,
+    session_id: String,
+    quit_app: bool,
+) -> AppResult<ArchiveReport> {
+    sessions::archive(&profile_id, &session_id, quit_app)
 }
 
 /// Open a web URL (or `mailto:` link) in the user's default handler via

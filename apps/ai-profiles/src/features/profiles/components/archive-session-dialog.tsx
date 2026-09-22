@@ -4,7 +4,8 @@ import { useState } from 'react'
 
 import { Button, Dialog, Kbd } from '@/design'
 
-import { useArchiveSession } from '../api/use-profile-sessions'
+import { useArchiveCheck, useArchiveSession } from '../api/use-profile-sessions'
+import { appsToQuitLabel } from './apps-to-quit'
 import { sessionErrorMessage } from './session-error-message'
 
 type Props = {
@@ -17,25 +18,31 @@ type Props = {
 
 /**
  * Takes a session out of this profile. Nothing is deleted: the transcript, and
- * the desktop app's record of it, go to session-transfer-backups. What stops
- * it (the app that lists the session is running) comes back as an error and
- * is shown in place, so the user can quit that app and press Archive again.
+ * the desktop app's record of it, go to session-transfer-backups. When the
+ * profile's desktop app has the session open or lists it, the button says it
+ * will quit that app first, and does; a terminal holding the session is
+ * something only the user can close, so that is shown and the button held.
  */
 export function ArchiveSessionDialog({ open, profileId, session, onClose }: Props) {
   const archive = useArchiveSession()
+  const check = useArchiveCheck(profileId, session.id)
   const [error, setError] = useState<string | null>(null)
+  const appToQuit = check.data?.appToQuit ?? null
+  const blocker = check.data?.blocker ?? (check.error ? sessionErrorMessage(check.error) : null)
+  const ready = check.data !== undefined && blocker === null && !archive.isPending
   const title = session.title ?? session.lastPrompt ?? session.id
 
   async function handleArchive() {
-    if (archive.isPending) {
+    if (!ready) {
       return
     }
     setError(null)
     try {
-      await archive.mutateAsync({ profileId, sessionId: session.id })
+      await archive.mutateAsync({ profileId, sessionId: session.id, quitApp: appToQuit !== null })
       onClose()
     } catch (caught) {
       setError(sessionErrorMessage(caught, 'The session could not be archived.'))
+      await check.refetch()
     }
   }
 
@@ -51,14 +58,14 @@ export function ArchiveSessionDialog({ open, profileId, session, onClose }: Prop
           <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={archive.isPending} onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            trailingKbd={<Kbd>⏎</Kbd>}
-            disabled={archive.isPending}
-            onClick={handleArchive}
-          >
-            {archive.isPending ? 'Archiving…' : 'Archive'}
+          <Button variant="primary" size="sm" trailingKbd={<Kbd>⏎</Kbd>} disabled={!ready} onClick={handleArchive}>
+            {archive.isPending
+              ? appToQuit
+                ? 'Quitting and archiving…'
+                : 'Archiving…'
+              : appToQuit
+                ? `Quit ${appsToQuitLabel([appToQuit])} and archive`
+                : 'Archive'}
           </Button>
         </>
       }
@@ -69,6 +76,16 @@ export function ArchiveSessionDialog({ open, profileId, session, onClose }: Prop
           {session.inDesktop ? ', and its desktop app' : ''}. Nothing is deleted: the transcript is kept in{' '}
           <code className="font-mono text-mono">session-transfer-backups</code>, so it can be put back.
         </p>
+        {blocker ? (
+          <p role="alert" className="text-meta text-red">
+            {blocker}
+          </p>
+        ) : appToQuit ? (
+          <p className="text-meta text-amber">
+            {appsToQuitLabel([appToQuit])} will quit first, since it keeps this session's list. Its other sessions close
+            too, and come back when you open it again.
+          </p>
+        ) : null}
         {error ? (
           <p role="alert" className="text-meta text-red">
             {error}

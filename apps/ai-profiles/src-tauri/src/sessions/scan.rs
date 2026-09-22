@@ -296,6 +296,7 @@ mod tests {
     #[test]
     fn scratch_workspace_sessions_are_unmovable() {
         let home = Home {
+            id: "p".into(),
             label: "P".into(),
             config_dir: "/p/cli-config".into(),
             gui_data_dir: "/p/gui-data".into(),

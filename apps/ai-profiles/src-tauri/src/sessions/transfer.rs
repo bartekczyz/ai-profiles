@@ -16,7 +16,10 @@ use serde::{Deserialize, Serialize};
 use super::archive::{archive_files, move_into};
 use super::desktop::{self, DesktopRecord, NewRecord};
 use super::scan::{self, is_safe_name, TranscriptInfo};
-use super::{home, open_blocker, parse_process_list, Home};
+use super::{
+    apps_blocker, home, open_in, parse_process_list, push_app, quit_apps, terminal_blocker,
+    AppToQuit, Home, OpenIn,
+};
 use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
 
@@ -35,6 +38,9 @@ pub struct TransferRequest {
     /// Go ahead even though the destination's copy is newer than the source's.
     #[serde(default)]
     pub replace_newer: bool,
+    /// Quit the apps the plan lists in `apps_to_quit` first.
+    #[serde(default)]
+    pub quit_apps: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -83,8 +89,11 @@ pub struct TransferPlan {
     pub destination_newer: bool,
     pub desktop: DesktopAction,
     pub desktop_reason: Option<String>,
-    /// Reasons the move can't happen right now. Empty when it can.
+    /// Reasons the move can't happen right now that only the user can clear.
     pub blockers: Vec<String>,
+    /// Desktop apps that have to quit first: they hold the session open, or
+    /// keep a session list the move changes. ai-profiles can quit them.
+    pub apps_to_quit: Vec<AppToQuit>,
     /// Things worth knowing that don't stop the move.
     pub notes: Vec<String>,
 }
@@ -131,12 +140,23 @@ pub fn plan(request: &TransferRequest) -> AppResult<TransferPlan> {
 }
 
 /// Move the session. Refuses whatever [`plan`] lists as a blocker, and a
-/// newer destination copy unless `replace_newer` is set.
+/// newer destination copy unless `replace_newer` is set. Apps the plan lists
+/// to quit are quit first when `quit_apps` is set, and refused otherwise.
 pub fn transfer(request: &TransferRequest) -> AppResult<TransferReport> {
-    let prepared = prepare(request)?;
+    let mut prepared = prepare(request)?;
+    if prepared.plan.blockers.is_empty()
+        && !prepared.plan.apps_to_quit.is_empty()
+        && request.quit_apps
+    {
+        quit_apps(&prepared.plan.apps_to_quit)?;
+        prepared = prepare(request)?;
+    }
     let plan = &prepared.plan;
     if !plan.blockers.is_empty() {
         return Err(AppError::Validation(plan.blockers.join(" ")));
+    }
+    if !plan.apps_to_quit.is_empty() {
+        return Err(apps_blocker(&plan.apps_to_quit));
     }
     if plan.destination_newer && !request.replace_newer {
         return Err(AppError::Validation(format!(
@@ -185,8 +205,13 @@ fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
     if let Some(reason) = scan::unmovable_reason(&source, info.cwd.as_deref()) {
         blockers.push(reason);
     }
+    let mut apps_to_quit = Vec::new();
     for side in [&source, &destination] {
-        blockers.extend(open_blocker(side, id, &processes));
+        match open_in(side, id, &processes) {
+            Some(OpenIn::Desktop) => push_app(&mut apps_to_quit, side),
+            Some(OpenIn::Terminal) => blockers.push(terminal_blocker(side)),
+            None => {}
+        }
     }
 
     let mut desktop_reason = None;
@@ -207,10 +232,7 @@ fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
     } else if let Some(dir) = desktop::records_dir(&destination) {
         destination_records_dir = Some(dir);
         if desktop::app_running(&destination, &processes) {
-            blockers.push(format!(
-                "Quit Claude ({}) first: it rewrites its session list while it's open.",
-                destination.label
-            ));
+            push_app(&mut apps_to_quit, &destination);
         }
         DesktopAction::Add
     } else {
@@ -229,10 +251,7 @@ fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
         && !source_records.is_empty()
         && desktop::app_running(&source, &processes)
     {
-        blockers.push(format!(
-            "Quit Claude ({}) first, so the session can be taken out of its list.",
-            source.label
-        ));
+        push_app(&mut apps_to_quit, &source);
     }
 
     let mut notes = vec![format!(
@@ -271,6 +290,7 @@ fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
         desktop: desktop_action,
         desktop_reason,
         blockers,
+        apps_to_quit,
         notes,
     };
     Ok(Prepared {
@@ -683,6 +703,7 @@ mod tests {
 
     fn home(root: &Path, name: &str) -> Home {
         Home {
+            id: name.into(),
             label: name.into(),
             config_dir: root.join(name).join("cli-config"),
             gui_data_dir: root.join(name).join("gui-data"),
@@ -795,6 +816,7 @@ mod tests {
                 desktop: DesktopAction::Add,
                 desktop_reason: None,
                 blockers: Vec::new(),
+                apps_to_quit: Vec::new(),
                 notes: Vec::new(),
             },
             source,

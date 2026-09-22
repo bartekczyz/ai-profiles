@@ -23,6 +23,8 @@ export const queryKeys = {
     all: ['sessions'] as const,
     list: (id: string) => ['sessions', id] as const,
     transferPlan: (request: object) => ['sessions', 'transfer-plan', request] as const,
+    archiveCheck: (profileId: string, sessionId: string) =>
+      ['sessions', 'archive-check', profileId, sessionId] as const,
   },
   dependencies: ['dependencies'] as const,
   migration: {

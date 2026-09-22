@@ -21,20 +21,22 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::app_kind::{spec, AppKind};
 use crate::error::{AppError, AppResult};
 use crate::paths::resolve_gui_app;
 use crate::profiles;
 
-pub use archive::{archive, ArchiveReport};
+pub use archive::{archive, check_archive, ArchiveCheck, ArchiveReport};
 pub use scan::{list, SessionSummary};
 pub use transfer::{plan, transfer, TransferPlan, TransferReport, TransferRequest};
 
 /// Where one profile (or the stock install) keeps its sessions.
 #[derive(Debug, Clone)]
 pub struct Home {
+    /// The profile's id, or `default:claude`.
+    pub id: String,
     /// The profile's name, or "Default" for the stock install.
     pub label: String,
     /// `CLAUDE_CONFIG_DIR` of the profile: the CLI half of every session.
@@ -84,6 +86,7 @@ pub fn home(id: &str) -> AppResult<Home> {
         }
     };
     Ok(Home {
+        id: id.to_string(),
         label,
         config_dir: PathBuf::from(paths.cli_config_dir),
         gui_data_dir: PathBuf::from(paths.gui_data_dir),
@@ -158,26 +161,74 @@ pub(crate) fn running_sessions(
         .collect()
 }
 
-/// Why session `id` can't be moved or archived out of `home` right now because
-/// something has it open, if something does.
-pub(crate) fn open_blocker(
-    home: &Home,
-    id: &str,
-    processes: &HashMap<i32, String>,
-) -> Option<String> {
+/// What has session `id` of `home` open, if anything does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OpenIn {
+    /// The desktop app, which lets go of it when it quits.
+    Desktop,
+    /// A `claude` in a terminal, which only the user can close.
+    Terminal,
+}
+
+pub(crate) fn open_in(home: &Home, id: &str, processes: &HashMap<i32, String>) -> Option<OpenIn> {
     let open = running_sessions(&home.config_dir, processes);
     let running = open.iter().find(|running| running.session_id == id)?;
     Some(if running.desktop {
-        format!(
-            "Claude ({}) has the session open. Quit it first.",
-            home.label
-        )
+        OpenIn::Desktop
     } else {
-        format!(
-            "The session is open in a terminal under {}. Close it first.",
-            home.label
-        )
+        OpenIn::Terminal
     })
+}
+
+/// Why a session open in a terminal under `home` can't be moved or archived.
+pub(crate) fn terminal_blocker(home: &Home) -> String {
+    format!(
+        "The session is open in a terminal under {}. Close it first.",
+        home.label
+    )
+}
+
+/// A profile's desktop app that has to quit before a move or archive can go
+/// ahead, because it holds the session open or keeps the list it's in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppToQuit {
+    pub profile_id: String,
+    pub label: String,
+}
+
+impl AppToQuit {
+    pub(crate) fn of(home: &Home) -> Self {
+        AppToQuit {
+            profile_id: home.id.clone(),
+            label: home.label.clone(),
+        }
+    }
+}
+
+/// Add `home`'s app to `apps`, once.
+pub(crate) fn push_app(apps: &mut Vec<AppToQuit>, home: &Home) {
+    let app = AppToQuit::of(home);
+    if !apps.contains(&app) {
+        apps.push(app);
+    }
+}
+
+/// Quit each app in `apps`, the way ⌘Q would, and wait for it to go.
+pub(crate) fn quit_apps(apps: &[AppToQuit]) -> AppResult<()> {
+    for app in apps {
+        desktop::quit_app(&home(&app.profile_id)?)?;
+    }
+    Ok(())
+}
+
+/// The refusal for apps that are still running.
+pub(crate) fn apps_blocker(apps: &[AppToQuit]) -> AppError {
+    let names: Vec<String> = apps
+        .iter()
+        .map(|app| format!("Claude ({})", app.label))
+        .collect();
+    AppError::Validation(format!("Quit {} first.", names.join(" and ")))
 }
 
 #[cfg(test)]

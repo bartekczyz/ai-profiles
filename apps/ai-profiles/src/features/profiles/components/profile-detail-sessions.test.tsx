@@ -4,7 +4,14 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { archiveSession, listProfiles, listSessions, planSessionTransfer, transferSession } from '@/lib/commands'
+import {
+  archiveSession,
+  checkSessionArchive,
+  listProfiles,
+  listSessions,
+  planSessionTransfer,
+  transferSession,
+} from '@/lib/commands'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import { ProfileDetailSessions } from './profile-detail-sessions'
@@ -16,6 +23,7 @@ vi.mock('@/lib/commands', async () => {
     listProfiles: vi.fn(),
     listSessions: vi.fn(),
     archiveSession: vi.fn(),
+    checkSessionArchive: vi.fn(),
     planSessionTransfer: vi.fn(),
     transferSession: vi.fn(),
   }
@@ -66,6 +74,7 @@ function plan(overrides: Partial<TransferPlan> = {}): TransferPlan {
     desktop: 'add',
     desktopReason: null,
     blockers: [],
+    appsToQuit: [],
     notes: ["Connectors come from Personal's own settings."],
     ...overrides,
   }
@@ -80,6 +89,8 @@ beforeEach(() => {
   vi.mocked(listSessions).mockReset()
   vi.mocked(planSessionTransfer).mockReset()
   vi.mocked(transferSession).mockReset()
+  vi.mocked(archiveSession).mockReset()
+  vi.mocked(checkSessionArchive).mockReset()
 })
 
 async function openMoveDialog() {
@@ -102,13 +113,13 @@ describe('ProfileDetailSessions', () => {
     expect(screen.getAllByText(/~\/code\/app/)).toHaveLength(4)
     expect(screen.getByText('what now')).toBeInTheDocument()
     expect(screen.getAllByText('Open')).toHaveLength(2)
-    expect(screen.getAllByText('Quit to move or archive')).toHaveLength(2)
+    expect(screen.getAllByText('Close to move or archive')).toHaveLength(1)
     expect(screen.getByText("Can't move")).toHaveAttribute('title', 'It works in a scratch folder.')
     const pill = (name: string) =>
       within(screen.getByText(name).closest('li') as HTMLElement).getByText(/^(Desktop|CLI)$/).textContent
     expect(pill('Fix the login bug')).toBe('CLI')
     expect(pill('Desktop one')).toBe('Desktop')
-    expect(screen.getAllByRole('button', { name: 'Move' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Move' })).toHaveLength(2)
     expect(listSessions).toHaveBeenCalledWith('work')
   })
 
@@ -164,11 +175,33 @@ describe('ProfileDetailSessions', () => {
         addToDesktop: true,
         archiveSource: false,
         replaceNewer: false,
+        quitApps: false,
       }),
     )
     const done = await screen.findByRole('dialog', { name: 'Session moved' })
     expect(within(done).getByText(/and its desktop app lists it/)).toBeInTheDocument()
     expect(within(done).getByText(/notes\.md/)).toBeInTheDocument()
+  })
+
+  it('offers to quit the apps a move needs closed, and asks the backend to', async () => {
+    vi.mocked(listSessions).mockResolvedValue([session()])
+    vi.mocked(planSessionTransfer).mockResolvedValue(
+      plan({ appsToQuit: [{ profileId: 'personal', label: 'Personal' }] }),
+    )
+    vi.mocked(transferSession).mockResolvedValue({
+      destinationTranscript: '/t',
+      backupDir: null,
+      desktopRecord: '/r',
+      archivedTo: null,
+      memoryCopied: [],
+      memoryConflicts: [],
+    })
+    renderWithQuery(<ProfileDetailSessions profileId="work" />)
+    const { user, dialog } = await openMoveDialog()
+
+    expect(await within(dialog).findByText(/Claude \(Personal\) will quit first/)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: /^Quit Claude \(Personal\) and move/ }))
+    await waitFor(() => expect(transferSession).toHaveBeenCalledWith(expect.objectContaining({ quitApps: true })))
   })
 
   it('asks before rolling back a newer copy in the destination', async () => {
@@ -190,6 +223,7 @@ describe('ProfileDetailSessions', () => {
 describe('ProfileDetailSessions — archive', () => {
   it('archives a session after confirming, and shows why when it cannot', async () => {
     vi.mocked(listSessions).mockResolvedValue([session({ inDesktop: true })])
+    vi.mocked(checkSessionArchive).mockResolvedValue({ blocker: null, appToQuit: null })
     vi.mocked(archiveSession)
       .mockRejectedValueOnce({ kind: 'Validation', message: 'Quit Claude (Work) first.' })
       .mockResolvedValueOnce({ archivedTo: '/x' })
@@ -205,13 +239,33 @@ describe('ProfileDetailSessions — archive', () => {
 
     await user.click(within(dialog).getByRole('button', { name: /^Archive/ }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(archiveSession).toHaveBeenLastCalledWith({ profileId: 'work', sessionId: 's1' })
+    expect(archiveSession).toHaveBeenLastCalledWith({ profileId: 'work', sessionId: 's1', quitApp: false })
   })
 
-  it('offers no archive for a session that is open', async () => {
+  it('offers no archive for a session a terminal has open', async () => {
     vi.mocked(listSessions).mockResolvedValue([session({ running: true })])
     renderWithQuery(<ProfileDetailSessions profileId="work" />)
-    expect(await screen.findByText('Quit to move or archive')).toBeInTheDocument()
+    expect(await screen.findByText('Close to move or archive')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument()
+  })
+
+  it('offers to quit the desktop app that keeps the session, then archives', async () => {
+    vi.mocked(listSessions).mockResolvedValue([session({ inDesktop: true, running: true, openInDesktop: true })])
+    vi.mocked(checkSessionArchive).mockResolvedValue({
+      blocker: null,
+      appToQuit: { profileId: 'work', label: 'Work' },
+    })
+    vi.mocked(archiveSession).mockResolvedValue({ archivedTo: '/x' })
+    renderWithQuery(<ProfileDetailSessions profileId="work" />)
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Archive' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Archive session?' })
+    expect(await within(dialog).findByText(/Claude \(Work\) will quit first/)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: /^Quit Claude \(Work\) and archive/ }))
+
+    await waitFor(() =>
+      expect(archiveSession).toHaveBeenCalledWith({ profileId: 'work', sessionId: 's1', quitApp: true }),
+    )
   })
 })

@@ -2,7 +2,7 @@ import type { TransferRequest } from '@/lib/types'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { archiveSession, listSessions, planSessionTransfer, transferSession } from '@/lib/commands'
+import { archiveSession, checkSessionArchive, listSessions, planSessionTransfer, transferSession } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 
 /**
@@ -47,12 +47,25 @@ export function useTransferSession() {
 }
 
 /**
+ * What archiving a session needs first. Re-read on focus, like the transfer
+ * plan: the app it may need quit is quit or reopened outside ai-profiles.
+ */
+export function useArchiveCheck(profileId: string, sessionId: string) {
+  return useQuery({
+    queryKey: queryKeys.sessions.archiveCheck(profileId, sessionId),
+    queryFn: () => checkSessionArchive({ profileId, sessionId }),
+    refetchOnWindowFocus: 'always',
+    gcTime: 0,
+  })
+}
+
+/**
  * Takes a session out of a profile, keeping it in session-transfer-backups.
  */
 export function useArchiveSession() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (input: { profileId: string; sessionId: string }) => archiveSession(input),
+    mutationFn: (input: { profileId: string; sessionId: string; quitApp: boolean }) => archiveSession(input),
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all }),
   })
 }

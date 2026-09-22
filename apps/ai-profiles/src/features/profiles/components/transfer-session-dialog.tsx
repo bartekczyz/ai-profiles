@@ -6,6 +6,7 @@ import { Button, Dialog, Kbd } from '@/design'
 
 import { useTransferPlan, useTransferSession } from '../api/use-profile-sessions'
 import { useProfiles } from '../api/use-profiles'
+import { appsToQuitLabel } from './apps-to-quit'
 import { sessionErrorMessage } from './session-error-message'
 import { shortenHomePath } from './shorten-home-path'
 
@@ -55,13 +56,15 @@ export function TransferSessionDialog({ open, sourceId, session, onClose }: Prop
     (!plan.data.destinationNewer || replaceNewer) &&
     !move.isPending
 
+  const appsToQuit = plan.data?.appsToQuit ?? []
+
   async function handleMove() {
     if (!ready || !request) {
       return
     }
     setMoveError(null)
     try {
-      setReport(await move.mutateAsync({ ...request, replaceNewer }))
+      setReport(await move.mutateAsync({ ...request, replaceNewer, quitApps: appsToQuit.length > 0 }))
     } catch (caught) {
       setMoveError(sessionErrorMessage(caught, 'The session could not be moved.'))
       await plan.refetch()
@@ -102,7 +105,13 @@ export function TransferSessionDialog({ open, sourceId, session, onClose }: Prop
             Cancel
           </Button>
           <Button variant="primary" size="sm" trailingKbd={<Kbd>⏎</Kbd>} disabled={!ready} onClick={handleMove}>
-            {move.isPending ? 'Moving…' : 'Move'}
+            {move.isPending
+              ? appsToQuit.length > 0
+                ? 'Quitting and moving…'
+                : 'Moving…'
+              : appsToQuit.length > 0
+                ? `Quit ${appsToQuitLabel(appsToQuit)} and move`
+                : 'Move'}
           </Button>
         </>
       }
@@ -260,6 +269,12 @@ function PlanBody({
             Check again
           </button>
         </div>
+      ) : null}
+      {plan.appsToQuit.length > 0 && plan.blockers.length === 0 ? (
+        <p className="text-meta text-amber">
+          {appsToQuitLabel(plan.appsToQuit)} will quit first: it has the session open or keeps the list it's changing.
+          Its other sessions close too, and come back when you open it again.
+        </p>
       ) : null}
       {plan.notes.map((note) => (
         <p key={note} className="text-meta text-muted">

@@ -3,6 +3,7 @@ import type {
   AppMetadata,
   AppState,
   AppStatePatch,
+  ArchiveCheck,
   ArchiveReport,
   Dependencies,
   ExistingInstallInfo,
@@ -152,6 +153,15 @@ export function transferSession(request: TransferRequest): Promise<TransferRepor
   return invoke<TransferReport>('transfer_session', { request })
 }
 
-export function archiveSession(input: { profileId: string; sessionId: string }): Promise<ArchiveReport> {
+export function checkSessionArchive(input: { profileId: string; sessionId: string }): Promise<ArchiveCheck> {
+  return invoke<ArchiveCheck>('check_session_archive', input)
+}
+
+export function archiveSession(input: {
+  profileId: string
+  sessionId: string
+  /** Quit the profile's desktop app first when it has to. */
+  quitApp: boolean
+}): Promise<ArchiveReport> {
   return invoke<ArchiveReport>('archive_session', input)
 }
