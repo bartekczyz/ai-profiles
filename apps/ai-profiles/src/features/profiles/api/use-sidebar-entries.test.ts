@@ -3,7 +3,7 @@ import type { ExistingInstallInfo, SidebarEntry } from '@/lib/types'
 
 import { describe, expect, it } from 'vitest'
 
-import { groupEntriesByApp, makeDefaultEntries } from './use-sidebar-entries'
+import { entryId, groupEntriesByApp, makeDefaultEntries, shortcutEntries } from './use-sidebar-entries'
 
 function existing(overrides: Partial<ExistingInstallInfo> = {}): ExistingInstallInfo {
   return { guiPath: null, cliPath: null, guiSizeBytes: null, cliSizeBytes: null, ...overrides }
@@ -40,6 +40,20 @@ describe('makeDefaultEntries', () => {
     expect(entries[0].name).toBe('Claude')
   })
 
+  it('uses a custom name when one was given, and records it', () => {
+    const detected = byApp(existing({ cliPath: '/Users/me/.claude' }), existing({ cliPath: '/Users/me/.codex' }))
+    const entries = makeDefaultEntries(detected, { claude: 'Personal' })
+    expect(entries[0]).toMatchObject({ name: 'Personal', customName: 'Personal' })
+    expect(entries[1]).toMatchObject({ name: 'ChatGPT', customName: null })
+  })
+
+  it('carries the colours given to the defaults, and none otherwise', () => {
+    const detected = byApp(existing({ guiPath: '/Applications/Claude.app' }), existing({ cliPath: '/Users/me/.codex' }))
+    const entries = makeDefaultEntries(detected, {}, { claude: '#6a9bcc' })
+    expect(entries[0].color).toBe('#6a9bcc')
+    expect(entries[1].color).toBeNull()
+  })
+
   it('emits only claude when codex is absent', () => {
     const entries = makeDefaultEntries(byApp(existing({ guiPath: '/Applications/Claude.app' }), existing()))
     expect(entries.map((entry) => entry.id)).toEqual(['default:claude'])
@@ -64,7 +78,10 @@ function managed(id: string, app: AppId): SidebarEntry {
 }
 
 function defaultFor(app: AppId): SidebarEntry {
-  return { kind: 'default', entry: { id: `default:${app}`, app, name: app, surfaces: { gui: true, cli: true } } }
+  return {
+    kind: 'default',
+    entry: { id: `default:${app}`, app, name: app, customName: null, color: null, surfaces: { gui: true, cli: true } },
+  }
 }
 
 describe('groupEntriesByApp', () => {
@@ -91,5 +108,26 @@ describe('groupEntriesByApp', () => {
 
   it('returns no groups for no entries', () => {
     expect(groupEntriesByApp([])).toEqual([])
+  })
+})
+
+describe('shortcutEntries', () => {
+  it('numbers rows in sidebar order: each app’s default, then its profiles', () => {
+    const order = shortcutEntries([
+      defaultFor('claude'),
+      defaultFor('codex'),
+      managed('a', 'claude'),
+      managed('b', 'codex'),
+      managed('c', 'claude'),
+    ]).map(entryId)
+    expect(order).toEqual(['default:claude', 'a', 'c', 'default:codex', 'b'])
+  })
+
+  it('stops at nine', () => {
+    const many = Array.from({ length: 12 }, (_, index) => managed(`p${index}`, 'claude'))
+    const order = shortcutEntries([defaultFor('claude'), ...many]).map(entryId)
+    expect(order).toHaveLength(9)
+    expect(order[0]).toBe('default:claude')
+    expect(order[8]).toBe('p7')
   })
 })

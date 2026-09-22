@@ -1,6 +1,6 @@
 import type { Profile, SidebarEntry } from '@/lib/types'
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -31,6 +31,8 @@ function defaultEntry(app: 'claude' | 'codex' = 'claude'): SidebarEntry {
       id: `default:${app}`,
       app,
       name: app === 'codex' ? 'Codex' : 'Default',
+      customName: null,
+      color: null,
       surfaces: { gui: true, cli: true },
     },
   }
@@ -119,7 +121,7 @@ describe('Sidebar', () => {
     expect(defaultIndex).toBeLessThan(personalIndex)
   })
 
-  it('does not render a ⌘ shortcut chip on the default row', () => {
+  it('gives the default row ⌘1', () => {
     render(
       <Sidebar
         entries={[defaultEntry()]}
@@ -129,10 +131,10 @@ describe('Sidebar', () => {
         onSettings={vi.fn()}
       />,
     )
-    expect(screen.queryByText(/⌘\d/)).toBeNull()
+    expect(screen.getByText('⌘1')).toBeInTheDocument()
   })
 
-  it('managed rows keep ⌘1..⌘N numbering regardless of the default row', () => {
+  it('numbers the default row first and the managed rows after it', () => {
     render(
       <Sidebar
         entries={[defaultEntry(), managedEntry({ id: '1', name: 'Personal' }), managedEntry({ id: '2', name: 'Work' })]}
@@ -142,8 +144,11 @@ describe('Sidebar', () => {
         onSettings={vi.fn()}
       />,
     )
-    expect(screen.getByText('⌘1')).toBeInTheDocument()
-    expect(screen.getByText('⌘2')).toBeInTheDocument()
+    const chipIn = (name: string) =>
+      within(screen.getByText(name).closest('[aria-keyshortcuts]') as HTMLElement).getByText(/⌘\d/).textContent
+    expect(chipIn('Default')).toBe('⌘1')
+    expect(chipIn('Personal')).toBe('⌘2')
+    expect(chipIn('Work')).toBe('⌘3')
   })
 
   it('shows app glyphs when entries span both Claude and Codex', () => {

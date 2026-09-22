@@ -20,7 +20,7 @@ import { Cog, Plus } from 'lucide-react'
 import { ariaKeyshortcutsFor, Button, Kbd } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
 
-import { entryId, groupEntriesByApp } from '../api/use-sidebar-entries'
+import { entryId, groupEntriesByApp, shortcutEntries } from '../api/use-sidebar-entries'
 import { AppGlyph } from './app-glyph'
 import { ManagedSidebarSwatch } from './managed-sidebar-swatch'
 import { OutlinedSwatch } from './outlined-swatch'
@@ -73,9 +73,11 @@ export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreat
   // row and spend width the profile names need.
   const showAppGlyphs = groups.length > 1
 
-  // Flat managed list in store order — the source of truth for the ⌘N chip
-  // index and for rebuilding the full order after a per-section reorder.
+  // Flat managed list in store order — the source of truth for rebuilding the
+  // full order after a per-section reorder.
   const managedFlat: Array<ManagedEntry> = entries.filter((entry): entry is ManagedEntry => entry.kind === 'managed')
+  // The ids ⌘1…⌘9 select, in the order the rows appear.
+  const shortcutIds = shortcutEntries(entries).map(entryId)
 
   // Reorder requires a handler and an unfiltered list — dragging within a
   // filtered list would produce a confusing result on the canonical order.
@@ -98,6 +100,7 @@ export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreat
             query={query}
             canReorder={canReorder}
             managedFlat={managedFlat}
+            shortcutIds={shortcutIds}
             onSelect={onSelect}
             onReorder={onReorder}
           />
@@ -137,6 +140,7 @@ type AppSectionProps = {
   query: string
   canReorder: boolean
   managedFlat: Array<ManagedEntry>
+  shortcutIds: Array<string>
   onSelect: (id: string) => void
   onReorder?: (ids: Array<string>) => void
 }
@@ -159,6 +163,7 @@ function AppSection({
   query,
   canReorder,
   managedFlat,
+  shortcutIds,
   onSelect,
   onReorder,
 }: AppSectionProps) {
@@ -173,9 +178,10 @@ function AppSection({
   const matches = (name: string) => trimmedQuery.length === 0 || name.toLowerCase().includes(trimmedQuery)
 
   // The row reads just "Default" — the app it belongs to is stated by the
-  // glyph in its leading column. (entry.name stays the app name for surfaces
-  // without grouping, e.g. the command palette.)
-  const defaultRowName = 'Default'
+  // glyph in its leading column — unless the user has renamed it. (Without a
+  // custom name, entry.name stays the app name for surfaces without grouping,
+  // e.g. the command palette.)
+  const defaultRowName = group.default?.entry.customName ?? 'Default'
   const visibleDefault = group.default !== null && matches(defaultRowName) ? group.default : null
   const visibleManaged = group.managed.filter((managedEntry) => matches(managedEntry.profile.name))
 
@@ -183,7 +189,10 @@ function AppSection({
     return null
   }
 
-  const shortcutIndexFor = (id: string) => managedFlat.findIndex((managedEntry) => managedEntry.profile.id === id)
+  const shortcutIndexFor = (id: string) => {
+    const index = shortcutIds.indexOf(id)
+    return index === -1 ? undefined : index
+  }
   const reorderable = canReorder && group.managed.length > 1
   // Built once and handed to every row in the section — the mark is per-app,
   // not per-row, and a single-app sidebar suppresses it entirely.
@@ -217,7 +226,14 @@ function AppSection({
       {visibleDefault ? (
         <SidebarProfileRow
           name={defaultRowName}
-          swatch={<OutlinedSwatch size={10} />}
+          swatch={
+            visibleDefault.entry.color ? (
+              <ManagedSidebarSwatch color={visibleDefault.entry.color} />
+            ) : (
+              <OutlinedSwatch size={10} />
+            )
+          }
+          shortcutIndex={shortcutIndexFor(entryId(visibleDefault))}
           surfaces={visibleDefault.entry.surfaces}
           selected={entryId(visibleDefault) === selectedId}
           glyph={rowGlyph}

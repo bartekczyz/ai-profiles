@@ -32,6 +32,8 @@ function defaultEntry(): SidebarEntry {
       id: 'default:claude',
       app: 'claude',
       name: 'Default',
+      customName: null,
+      color: null,
       surfaces: { gui: true, cli: true },
     },
   }
