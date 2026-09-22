@@ -17,6 +17,7 @@
 
 mod entitlements;
 mod info_plist;
+mod localized_name;
 mod sign;
 
 use std::fs;
@@ -111,6 +112,8 @@ pub fn build(request: &WrapperRequest<'_>) -> AppResult<()> {
     let resources = contents.join("Resources");
     fs::create_dir_all(&resources)?;
     fs::write(resources.join(format!("{ICON_FILE}.icns")), request.icon)?;
+    // The menu bar's name for the app, which Info.plist can't carry.
+    localized_name::write(&resources, request.display_name)?;
 
     // The vendor's executable moves aside and the shim takes its name, which is
     // what `CFBundleExecutable` still points at.
@@ -603,6 +606,16 @@ mod tests {
         );
         assert_eq!(text("CFBundleDisplayName").as_deref(), Some("Fake (Work)"));
         assert_eq!(text("CFBundleName").as_deref(), Some("Fake"));
+        // The menu bar reads the localized name, so the profile's name is there.
+        let localized =
+            Value::from_file(destination.join("Contents/Resources/en.lproj/InfoPlist.strings"))
+                .unwrap()
+                .into_dictionary()
+                .unwrap();
+        assert_eq!(
+            localized.get("CFBundleName").and_then(Value::as_string),
+            Some("Fake (Work)")
+        );
         assert_eq!(text("CFBundleIconFile").as_deref(), Some("AppIcon"));
         assert_eq!(
             text(profile_shim::USER_DATA_DIR_KEY).as_deref(),
