@@ -6,7 +6,7 @@ import { Button, Dialog, Kbd } from '@/design'
 
 import { useTransferPlan, useTransferSession } from '../api/use-profile-sessions'
 import { useProfiles } from '../api/use-profiles'
-import { appsToQuitLabel } from './apps-to-quit'
+import { appsToQuitNote } from './apps-to-quit'
 import { sessionErrorMessage } from './session-error-message'
 import { shortenHomePath } from './shorten-home-path'
 
@@ -110,7 +110,7 @@ export function TransferSessionDialog({ open, sourceId, session, onClose }: Prop
                 ? 'Quitting and moving…'
                 : 'Moving…'
               : appsToQuit.length > 0
-                ? `Quit ${appsToQuitLabel(appsToQuit)} and move`
+                ? 'Quit and move'
                 : 'Move'}
           </Button>
         </>
@@ -271,10 +271,7 @@ function PlanBody({
         </div>
       ) : null}
       {plan.appsToQuit.length > 0 && plan.blockers.length === 0 ? (
-        <p className="text-meta text-amber">
-          {appsToQuitLabel(plan.appsToQuit)} will quit first: it has the session open or keeps the list it's changing.
-          Its other sessions close too, and come back when you open it again.
-        </p>
+        <p className="text-meta text-amber">{appsToQuitNote(plan.appsToQuit)}</p>
       ) : null}
       {plan.notes.map((note) => (
         <p key={note} className="text-meta text-muted">

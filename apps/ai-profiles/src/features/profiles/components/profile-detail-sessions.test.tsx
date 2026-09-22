@@ -200,7 +200,7 @@ describe('ProfileDetailSessions', () => {
     const { user, dialog } = await openMoveDialog()
 
     expect(await within(dialog).findByText(/Claude \(Personal\) will quit first/)).toBeInTheDocument()
-    await user.click(within(dialog).getByRole('button', { name: /^Quit Claude \(Personal\) and move/ }))
+    await user.click(within(dialog).getByRole('button', { name: /^Quit and move/ }))
     await waitFor(() => expect(transferSession).toHaveBeenCalledWith(expect.objectContaining({ quitApps: true })))
   })
 
@@ -262,7 +262,7 @@ describe('ProfileDetailSessions — archive', () => {
     await user.click(await screen.findByRole('button', { name: 'Archive' }))
     const dialog = await screen.findByRole('dialog', { name: 'Archive session?' })
     expect(await within(dialog).findByText(/Claude \(Work\) will quit first/)).toBeInTheDocument()
-    await user.click(within(dialog).getByRole('button', { name: /^Quit Claude \(Work\) and archive/ }))
+    await user.click(within(dialog).getByRole('button', { name: /^Quit and archive/ }))
 
     await waitFor(() =>
       expect(archiveSession).toHaveBeenCalledWith({ profileId: 'work', sessionId: 's1', quitApp: true }),

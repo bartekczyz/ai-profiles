@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { Button, Dialog, Kbd } from '@/design'
 
 import { useArchiveCheck, useArchiveSession } from '../api/use-profile-sessions'
-import { appsToQuitLabel } from './apps-to-quit'
+import { appsToQuitNote } from './apps-to-quit'
 import { sessionErrorMessage } from './session-error-message'
 
 type Props = {
@@ -64,7 +64,7 @@ export function ArchiveSessionDialog({ open, profileId, session, onClose }: Prop
                 ? 'Quitting and archiving…'
                 : 'Archiving…'
               : appToQuit
-                ? `Quit ${appsToQuitLabel([appToQuit])} and archive`
+                ? 'Quit and archive'
                 : 'Archive'}
           </Button>
         </>
@@ -81,10 +81,7 @@ export function ArchiveSessionDialog({ open, profileId, session, onClose }: Prop
             {blocker}
           </p>
         ) : appToQuit ? (
-          <p className="text-meta text-amber">
-            {appsToQuitLabel([appToQuit])} will quit first, since it keeps this session's list. Its other sessions close
-            too, and come back when you open it again.
-          </p>
+          <p className="text-meta text-amber">{appsToQuitNote([appToQuit])}</p>
         ) : null}
         {error ? (
           <p role="alert" className="text-meta text-red">
