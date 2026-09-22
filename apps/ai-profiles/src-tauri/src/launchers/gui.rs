@@ -25,7 +25,7 @@ pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
     let bundle = gui_launcher_path(&profile.name, spec);
 
     if profile.distinct_dock_icon {
-        build_wrapper(profile, &resolved_gui_app, &bundle)?;
+        build_wrapper(profile, version, &resolved_gui_app, &bundle)?;
     } else {
         build_script_launcher(profile, version, &resolved_gui_app, &bundle)?;
     }
@@ -92,11 +92,21 @@ fn build_script_launcher(
 /// there. That launcher is kept until the wrapper has been built and verified,
 /// and put back if the build fails, so a failed rebuild never leaves the
 /// profile without one.
-fn build_wrapper(profile: &Profile, app: &ResolvedGuiApp, bundle: &Path) -> AppResult<()> {
+fn build_wrapper(
+    profile: &Profile,
+    version: &str,
+    app: &ResolvedGuiApp,
+    bundle: &Path,
+) -> AppResult<()> {
     let spec = profile.app.spec();
     let icon = icons::render_icns(&profile.color, &app.bundle_path)?;
     let user_data_dir = profile_dir(&profile.id)?.join("gui-data");
     let config_home = cli_config_dir(&profile.id)?;
+
+    // Where the shim sends a launch it cannot serve itself. Recorded rather
+    // than assumed, so a wrapper keeps working from wherever this app is
+    // installed — and is rebuilt if that stops being true.
+    let host_binary = std::env::current_exe().map_err(AppError::Io)?;
 
     let parked = park_existing(bundle)?;
     let built = wrapper::build(&WrapperRequest {
@@ -106,6 +116,9 @@ fn build_wrapper(profile: &Profile, app: &ResolvedGuiApp, bundle: &Path) -> AppR
         display_name: &plist::display_name(profile),
         icon: &icon,
         user_data_dir: &user_data_dir,
+        profile_id: &profile.id,
+        host_binary: &host_binary,
+        built_by: version,
         config_env: spec
             .gui_auth_via_config_env
             .then_some((spec.cli_config_env, config_home.as_path())),
@@ -426,7 +439,7 @@ mod tests {
             macos_exec: "Claude",
         };
 
-        let result = build_wrapper(&fixture(), &missing, &bundle);
+        let result = build_wrapper(&fixture(), "0.1.0", &missing, &bundle);
 
         assert!(result.is_err());
         assert_eq!(fs::read(bundle.join("marker")).unwrap(), b"kept");
@@ -462,7 +475,7 @@ mod tests {
             wrapper::built_from_version(&bundle),
             wrapper::bundle_version(&vendor.bundle_path)
         );
-        let state = || wrapper::state(Some(&vendor.bundle_path), &bundle);
+        let state = || wrapper::state(Some(&vendor.bundle_path), &bundle, "0.1.0");
         assert_eq!(state(), WrapperState::Current);
 
         profile.distinct_dock_icon = false;

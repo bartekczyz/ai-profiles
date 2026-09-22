@@ -2,6 +2,7 @@
 
 mod app_kind;
 mod app_state;
+pub mod cli;
 mod commands;
 mod deps;
 mod error;

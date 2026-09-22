@@ -212,11 +212,21 @@ pub fn open_in_finder(path: String) -> AppResult<()> {
 /// ChatGPT dedupes by data dir (a bare `open -n` would spawn an unbounded number
 /// of stock windows), so we detect an existing instance ourselves and focus it
 /// instead of launching another.
-#[tauri::command]
-pub fn open_default_gui(app: AppKind, data_dir: String) -> AppResult<()> {
+/// Runs off the main thread, because it waits for the app to come up: the
+/// caller keeps its control in an "Opening" state until this returns, and
+/// `open` on its own says nothing about there being a window.
+#[tauri::command(async)]
+pub fn open_default_gui(handle: tauri::AppHandle, app: AppKind, data_dir: String) -> AppResult<()> {
     let app_spec = spec(app);
-    crate::launch::focus_or_launch(&data_dir, app_spec, crate::launch::focus_pid, || {
-        crate::launch::open_new_instance(&data_dir, app_spec, None)
+    // AppKit wants another app brought forward from the main thread, which this
+    // command is no longer on.
+    let focus = |pid: i32| {
+        let _ = handle.run_on_main_thread(move || crate::launch::focus_pid(pid));
+    };
+    crate::launch::focus_or_launch(&data_dir, app_spec, focus, || {
+        crate::launch::open_new_instance(&data_dir, app_spec, None)?;
+        crate::launch::wait_for_new_instance(&data_dir, app_spec);
+        Ok(())
     })
 }
 

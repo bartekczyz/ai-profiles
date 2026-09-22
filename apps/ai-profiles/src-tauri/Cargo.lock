@@ -2802,6 +2802,7 @@ name = "profile-shim"
 version = "0.0.0"
 dependencies = [
  "plist",
+ "tempfile",
 ]
 
 [[package]]

@@ -1,13 +1,25 @@
 //! The wrapper's `Info.plist`: the vendor's, patched.
 
 use plist::{Dictionary, Value};
-use profile_shim::{CONFIG_ENV_NAME_KEY, CONFIG_ENV_VALUE_KEY, USER_DATA_DIR_KEY};
+use profile_shim::{
+    CONFIG_ENV_NAME_KEY, CONFIG_ENV_VALUE_KEY, HOST_BINARY_KEY, PROFILE_ID_KEY, USER_DATA_DIR_KEY,
+    VENDOR_BUNDLE_KEY,
+};
 
 use crate::error::{AppError, AppResult};
 
 /// Records the vendor `CFBundleVersion` a wrapper was cloned from, so a later
 /// vendor update can be told from an up-to-date wrapper by comparing the two.
-pub const VENDOR_VERSION_KEY: &str = "AIProfilesVendorVersion";
+/// Defined with the shim's other keys, because the shim reads it too.
+pub use profile_shim::VENDOR_VERSION_KEY;
+
+/// Records the ai-profiles version that built the wrapper.
+///
+/// A wrapper carries a copy of the shim and whatever else this app puts in one,
+/// so an upgrade that changes either has to reach the wrappers already on disk.
+/// The vendor's version keys cannot say this — they belong to the vendor, and
+/// the app shows them in its About box — so this is kept separately.
+pub const BUILT_BY_KEY: &str = "AIProfilesBuiltBy";
 
 /// What makes one wrapper's `Info.plist` differ from the vendor's.
 pub struct Patch<'a> {
@@ -21,6 +33,19 @@ pub struct Patch<'a> {
     pub icon_file: &'a str,
     /// The profile's `--user-data-dir`, which the shim adds at launch.
     pub user_data_dir: &'a str,
+    /// The profile's id, which the shim passes to [`Patch::host_binary`] to
+    /// have this wrapper rebuilt once it has fallen behind the vendor app.
+    pub profile_id: &'a str,
+    /// The vendor `.app` being cloned, which the shim reads the installed
+    /// version out of to notice that it has.
+    pub vendor_bundle: &'a str,
+    /// The ai-profiles executable the shim hands a launch back to. A wrapper
+    /// cannot rebuild itself: the rebuild replaces the bundle the shim is
+    /// running from.
+    pub host_binary: &'a str,
+    /// The ai-profiles version doing the building, so an upgrade that changes
+    /// what a wrapper contains reaches the ones already on disk.
+    pub built_by: &'a str,
     /// `(name, value)` env var the shim sets before starting the vendor binary.
     pub config_env: Option<(&'a str, &'a str)>,
 }
@@ -55,6 +80,14 @@ pub fn patch(vendor: &Dictionary, patch: &Patch<'_>) -> AppResult<Dictionary> {
         info.insert(CONFIG_ENV_VALUE_KEY.into(), string(value));
     }
     info.insert(VENDOR_VERSION_KEY.into(), Value::String(vendor_version));
+
+    // What the shim needs to have this wrapper rebuilt when the version above
+    // stops matching the vendor's. Written together: the shim only hands a
+    // launch back when it has all three.
+    info.insert(PROFILE_ID_KEY.into(), string(patch.profile_id));
+    info.insert(VENDOR_BUNDLE_KEY.into(), string(patch.vendor_bundle));
+    info.insert(HOST_BINARY_KEY.into(), string(patch.host_binary));
+    info.insert(BUILT_BY_KEY.into(), string(patch.built_by));
 
     // A Sparkle app would otherwise go looking for updates to the wrapper and
     // replace it with the vendor's own bundle.
@@ -137,6 +170,10 @@ mod tests {
             display_name: "Claude (Work)",
             icon_file: "AppIcon",
             user_data_dir: "/data/gui-data",
+            profile_id: "1",
+            vendor_bundle: "/Applications/Claude.app",
+            host_binary: "/Applications/ai-profiles.app/Contents/MacOS/ai-profiles",
+            built_by: "1.3.0",
             config_env: None,
         }
     }
@@ -225,6 +262,24 @@ mod tests {
         let info = patch(&vendor(), &request()).unwrap();
 
         assert_eq!(info.get(VENDOR_VERSION_KEY), Some(&string("2.2553.1")));
+    }
+
+    #[test]
+    fn patch_records_what_the_shim_needs_to_ask_for_a_rebuild() {
+        let info = patch(&vendor(), &request()).unwrap();
+
+        assert_eq!(info.get(PROFILE_ID_KEY), Some(&string("1")));
+        assert_eq!(
+            info.get(VENDOR_BUNDLE_KEY),
+            Some(&string("/Applications/Claude.app"))
+        );
+        assert_eq!(
+            info.get(HOST_BINARY_KEY),
+            Some(&string(
+                "/Applications/ai-profiles.app/Contents/MacOS/ai-profiles"
+            ))
+        );
+        assert_eq!(info.get(BUILT_BY_KEY), Some(&string("1.3.0")));
     }
 
     #[test]
