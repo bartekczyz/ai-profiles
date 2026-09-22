@@ -13,8 +13,9 @@
 use crate::launch;
 use crate::profiles;
 
-/// Flag that opens one profile and exits, instead of starting the GUI.
-pub const OPEN_PROFILE_FLAG: &str = "--open-profile";
+/// Flag that opens one profile and exits, instead of starting the GUI. Defined
+/// with the shim's keys, because the shim is what passes it.
+pub use profile_shim::OPEN_PROFILE_FLAG;
 
 /// What the process was asked to do.
 #[derive(Debug, Clone, PartialEq, Eq)]

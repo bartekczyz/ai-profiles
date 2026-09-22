@@ -60,6 +60,83 @@ pub const HOST_BINARY_KEY: &str = "AIProfilesHostBinary";
 /// Suffix appended to the shim's file name to get the vendor binary it execs.
 pub const VENDOR_BINARY_SUFFIX: &str = ".bin";
 
+/// ai-profiles' flag for opening one profile and exiting, which is what a
+/// wrapper asks for when it finds itself behind the vendor app.
+pub const OPEN_PROFILE_FLAG: &str = "--open-profile";
+
+/// What the shim needs to have its own wrapper rebuilt.
+///
+/// A wrapper is a clone of one version of the vendor app, and the vendor's own
+/// updater cannot install into it: the clone carries a different bundle id and
+/// an ad-hoc signature, so the update is rejected. Left alone it would go on
+/// running the version it was cloned from for good. Instead it hands the launch
+/// back to ai-profiles, which rebuilds it from the installed vendor app and
+/// opens it again — the rebuild replaces the very bundle the shim runs from, so
+/// it cannot be done here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Handoff {
+    /// The profile to open: [`OPEN_PROFILE_FLAG`]'s argument.
+    pub profile_id: String,
+    /// The vendor `.app` this wrapper was cloned from, to read the installed
+    /// version out of.
+    pub vendor_bundle: PathBuf,
+    /// The ai-profiles executable to run.
+    pub host_binary: PathBuf,
+}
+
+/// The handoff a wrapper's `Info.plist` records, or `None` when it records no
+/// usable one.
+///
+/// All or nothing: the three keys are written together, and a wrapper built
+/// before they existed has none of them. Without a complete set the shim simply
+/// starts the version it has, which is what it did before any of this.
+pub fn handoff(info: &Dictionary) -> Option<Handoff> {
+    Some(Handoff {
+        profile_id: non_empty_string(info.get(PROFILE_ID_KEY))?,
+        vendor_bundle: PathBuf::from(non_empty_string(info.get(VENDOR_BUNDLE_KEY))?),
+        host_binary: PathBuf::from(non_empty_string(info.get(HOST_BINARY_KEY))?),
+    })
+}
+
+/// The vendor version a wrapper's `Info.plist` says it was cloned from.
+pub fn built_from_version(info: &Dictionary) -> Option<String> {
+    non_empty_string(info.get(VENDOR_VERSION_KEY))
+}
+
+/// The `CFBundleVersion` of the bundle at `bundle`, or `None` if it cannot be
+/// read. Read off the vendor app, to compare with [`built_from_version`].
+pub fn bundle_version(bundle: &Path) -> Option<String> {
+    let info = Value::from_file(bundle.join("Contents/Info.plist")).ok()?;
+    non_empty_string(info.as_dictionary()?.get("CFBundleVersion"))
+}
+
+/// Pure: whether a wrapper cloned from `built_from` should hand its launch
+/// back, given the vendor app now reporting `vendor_now`.
+///
+/// Any difference counts — a downgrade or a replacement as much as an update —
+/// and so does a wrapper that does not say what it was cloned from, since there
+/// is no telling.
+///
+/// A vendor version that cannot be read is no reason to hand anything off:
+/// there is nothing to compare with, and a rebuild against an app that cannot
+/// be read would fail anyway. Starting the version the wrapper has is the
+/// better answer.
+pub fn should_hand_off(built_from: Option<&str>, vendor_now: Option<&str>) -> bool {
+    match vendor_now {
+        None => false,
+        Some(current) => built_from != Some(current),
+    }
+}
+
+/// The arguments that ask ai-profiles to open `profile_id`, rebuilding its
+/// wrapper on the way.
+pub fn rebuild_argv(profile_id: &str) -> Vec<OsString> {
+    vec![
+        OsString::from(OPEN_PROFILE_FLAG),
+        OsString::from(profile_id),
+    ]
+}
+
 /// What the shim needs to know to launch one profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchParams {
@@ -318,5 +395,94 @@ mod tests {
     fn info_plist_is_none_outside_a_bundle_layout() {
         assert_eq!(info_plist_path(Path::new("shim")), None);
         assert_eq!(info_plist_path(Path::new("/shim")), None);
+    }
+
+    /// The three handoff keys, complete.
+    fn handoff_entries() -> Vec<(&'static str, &'static str)> {
+        vec![
+            (PROFILE_ID_KEY, "profile-1"),
+            (VENDOR_BUNDLE_KEY, "/Applications/Claude.app"),
+            (
+                HOST_BINARY_KEY,
+                "/Applications/ai-profiles.app/Contents/MacOS/ai-profiles",
+            ),
+        ]
+    }
+
+    #[test]
+    fn a_complete_set_of_keys_is_a_handoff() {
+        assert_eq!(
+            handoff(&info(&handoff_entries())),
+            Some(Handoff {
+                profile_id: "profile-1".to_owned(),
+                vendor_bundle: PathBuf::from("/Applications/Claude.app"),
+                host_binary: PathBuf::from(
+                    "/Applications/ai-profiles.app/Contents/MacOS/ai-profiles"
+                ),
+            })
+        );
+    }
+
+    #[test]
+    fn a_wrapper_built_before_the_handoff_existed_records_none() {
+        assert_eq!(handoff(&info(&[(USER_DATA_DIR_KEY, "/data")])), None);
+    }
+
+    #[test]
+    fn one_key_short_or_empty_is_no_handoff_at_all() {
+        for dropped in [PROFILE_ID_KEY, VENDOR_BUNDLE_KEY, HOST_BINARY_KEY] {
+            let partial: Vec<_> = handoff_entries()
+                .into_iter()
+                .filter(|(key, _)| *key != dropped)
+                .collect();
+            assert_eq!(handoff(&info(&partial)), None, "without {dropped}");
+
+            let emptied: Vec<_> = handoff_entries()
+                .into_iter()
+                .map(|(key, value)| {
+                    if key == dropped {
+                        (key, "")
+                    } else {
+                        (key, value)
+                    }
+                })
+                .collect();
+            assert_eq!(handoff(&info(&emptied)), None, "{dropped} empty");
+        }
+    }
+
+    #[test]
+    fn a_wrapper_hands_off_only_when_the_vendor_reports_another_version() {
+        assert!(!should_hand_off(Some("2.0"), Some("2.0")), "equal");
+        assert!(should_hand_off(Some("2.0"), Some("2.1")), "vendor newer");
+        assert!(should_hand_off(Some("2.1"), Some("2.0")), "vendor older");
+        assert!(should_hand_off(None, Some("2.0")), "nothing recorded");
+    }
+
+    #[test]
+    fn a_vendor_version_that_cannot_be_read_starts_the_version_at_hand() {
+        assert!(!should_hand_off(Some("2.0"), None));
+        assert!(!should_hand_off(None, None));
+    }
+
+    #[test]
+    fn the_recorded_vendor_version_is_read_back_when_it_is_usable() {
+        assert_eq!(
+            built_from_version(&info(&[(VENDOR_VERSION_KEY, "2.2553.13")])),
+            Some("2.2553.13".to_owned())
+        );
+        assert_eq!(built_from_version(&info(&[(VENDOR_VERSION_KEY, "")])), None);
+        assert_eq!(built_from_version(&info(&[])), None);
+    }
+
+    #[test]
+    fn a_rebuild_is_asked_for_by_profile_id() {
+        assert_eq!(
+            rebuild_argv("profile-1"),
+            vec![
+                OsString::from("--open-profile"),
+                OsString::from("profile-1")
+            ]
+        );
     }
 }

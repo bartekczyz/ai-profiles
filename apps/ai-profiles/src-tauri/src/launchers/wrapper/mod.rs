@@ -60,6 +60,9 @@ pub struct WrapperRequest<'a> {
     /// The ai-profiles executable the shim hands a launch back to, recorded
     /// for the same reason.
     pub host_binary: &'a Path,
+    /// This app's own version, recorded so an upgrade that changes what a
+    /// wrapper contains — the shim above all — reaches the ones on disk.
+    pub built_by: &'a str,
     /// `(name, value)` env var set before the vendor binary starts, for apps
     /// that read their account from one rather than from `--user-data-dir`
     /// (Codex: `CODEX_HOME`).
@@ -109,6 +112,7 @@ pub fn build(request: &WrapperRequest<'_>) -> AppResult<()> {
             profile_id: request.profile_id,
             vendor_bundle: utf8(request.vendor_bundle)?,
             host_binary: utf8(request.host_binary)?,
+            built_by: request.built_by,
             config_env: request
                 .config_env
                 .map(|(name, value)| Ok::<_, AppError>((name, utf8(value)?)))
@@ -207,12 +211,11 @@ pub fn built_from_version(wrapper: &Path) -> Option<String> {
 /// Whether a wrapper built from `built_from` is out of step with a vendor now
 /// at `current`.
 ///
-/// Any difference counts, a downgrade or a replacement as much as an update,
-/// and so does a wrapper that does not say what it was built from, since there
-/// is no telling. Left alone, a stale wrapper goes on running the version it was
-/// cloned from without any error.
+/// Defers to the shim's own comparison, because both sides decide this and they
+/// must not disagree: the shim rebuilds a wrapper the app would call current, or
+/// the other way round, and a launch bounces between them.
 pub fn version_drifted(current: &str, built_from: Option<&str>) -> bool {
-    built_from != Some(current)
+    profile_shim::should_hand_off(built_from, Some(current))
 }
 
 /// Where a wrapper stands against the vendor app it was cloned from.
@@ -261,20 +264,33 @@ fn handoff_ready(wrapper: &Path) -> bool {
             .is_some_and(|path| Path::new(path).exists())
 }
 
+/// The ai-profiles version that built the wrapper at `wrapper`.
+fn built_by_version(wrapper: &Path) -> Option<String> {
+    let info = read_info_plist(wrapper).ok()?;
+    info.get(info_plist::BUILT_BY_KEY)
+        .and_then(Value::as_string)
+        .map(str::to_owned)
+}
+
 /// The state of the wrapper at `wrapper`, given the vendor app it is a clone of
-/// (`None` if that is not installed). A vendor whose version cannot be read
-/// leaves an existing wrapper `Current`, because there is nothing to compare it
-/// with and a rebuild would fail anyway — but a wrapper that cannot ask for a
-/// rebuild is stale whatever the vendor says, since that is the one thing no
-/// later launch could put right on its own.
-pub fn state(vendor_bundle: Option<&Path>, wrapper: &Path) -> WrapperState {
+/// (`None` if that is not installed) and the ai-profiles version asking,
+/// `built_by`.
+///
+/// A vendor whose version cannot be read leaves an existing wrapper `Current`,
+/// because there is nothing to compare it with and a rebuild would fail anyway.
+/// The other two checks have no such excuse: a wrapper that cannot ask for a
+/// rebuild, or that an older ai-profiles built, is stale whatever the vendor
+/// says — the contents are this app's to keep up to date, and no later launch
+/// would put either right on its own.
+pub fn state(vendor_bundle: Option<&Path>, wrapper: &Path, built_by: &str) -> WrapperState {
     if !wrapper.exists() {
         return WrapperState::Missing;
     }
     let drifted = vendor_bundle
         .and_then(bundle_version)
         .is_some_and(|current| version_drifted(&current, built_from_version(wrapper).as_deref()));
-    if drifted || !handoff_ready(wrapper) {
+    let ours = built_by_version(wrapper).as_deref() == Some(built_by);
+    if drifted || !ours || !handoff_ready(wrapper) {
         WrapperState::Stale
     } else {
         WrapperState::Current
@@ -594,6 +610,7 @@ mod tests {
             user_data_dir: Path::new("/data/gui data"),
             profile_id: "1",
             host_binary: Path::new("/Applications/ai-profiles.app/Contents/MacOS/ai-profiles"),
+            built_by: BUILT_BY,
             config_env: home.map(|home| ("AI_PROFILES_TEST_HOME", home)),
         }
     }
@@ -867,6 +884,9 @@ mod tests {
         assert!(problem.contains("library validation"), "{problem}");
     }
 
+    /// The ai-profiles version the tests build wrappers with.
+    const BUILT_BY: &str = "1.3.0";
+
     /// `<dir>/<name>` as a bundle whose `Info.plist` holds `entries`.
     fn bundle_with_info(dir: &Path, name: &str, entries: &[(&str, &str)]) -> PathBuf {
         let bundle = dir.join(name);
@@ -951,6 +971,7 @@ mod tests {
             (profile_shim::PROFILE_ID_KEY, "profile-1"),
             (profile_shim::VENDOR_BUNDLE_KEY, "/Applications/Vendor.app"),
             (profile_shim::HOST_BINARY_KEY, host),
+            (info_plist::BUILT_BY_KEY, BUILT_BY),
         ]
     }
 
@@ -974,7 +995,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let host = write_host_binary(dir.path());
         let vendor = bundle_with_info(dir.path(), "Vendor.app", &[("CFBundleVersion", "2.0")]);
-        let state_of = |wrapper: &Path| state(Some(&vendor), wrapper);
+        let state_of = |wrapper: &Path| state(Some(&vendor), wrapper, BUILT_BY);
 
         let current = wrapper_bundle(dir.path(), "Current.app", "2.0", &host);
         assert_eq!(state_of(&current), WrapperState::Current);
@@ -999,14 +1020,17 @@ mod tests {
 
         let not_installed = None;
         let unreadable = Some(dir.path().join("NoVendor.app"));
-        assert_eq!(state(not_installed, &wrapper), WrapperState::Current);
         assert_eq!(
-            state(unreadable.as_deref(), &wrapper),
+            state(not_installed, &wrapper, BUILT_BY),
+            WrapperState::Current
+        );
+        assert_eq!(
+            state(unreadable.as_deref(), &wrapper, BUILT_BY),
             WrapperState::Current
         );
         // Nothing to compare with does not make up for nothing being there.
         assert_eq!(
-            state(not_installed, &dir.path().join("Missing.app")),
+            state(not_installed, &dir.path().join("Missing.app"), BUILT_BY),
             WrapperState::Missing
         );
     }
@@ -1024,8 +1048,8 @@ mod tests {
             "Before.app",
             &[(info_plist::VENDOR_VERSION_KEY, "2.0")],
         );
-        assert_eq!(state(Some(&vendor), &before), WrapperState::Stale);
-        assert_eq!(state(None, &before), WrapperState::Stale);
+        assert_eq!(state(Some(&vendor), &before, BUILT_BY), WrapperState::Stale);
+        assert_eq!(state(None, &before, BUILT_BY), WrapperState::Stale);
 
         // One key short is no better than none.
         for dropped in [
@@ -1041,7 +1065,7 @@ mod tests {
             );
             let partial = bundle_with_info(dir.path(), &format!("No{dropped}.app"), &entries);
             assert_eq!(
-                state(Some(&vendor), &partial),
+                state(Some(&vendor), &partial, BUILT_BY),
                 WrapperState::Stale,
                 "{dropped}"
             );
@@ -1054,7 +1078,24 @@ mod tests {
             "2.0",
             &dir.path().join("not-there").display().to_string(),
         );
-        assert_eq!(state(Some(&vendor), &gone), WrapperState::Stale);
+        assert_eq!(state(Some(&vendor), &gone, BUILT_BY), WrapperState::Stale);
+    }
+
+    #[test]
+    fn a_wrapper_an_older_ai_profiles_built_is_stale_even_in_step_with_the_vendor() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = write_host_binary(dir.path());
+        let vendor = bundle_with_info(dir.path(), "Vendor.app", &[("CFBundleVersion", "2.0")]);
+        let wrapper = wrapper_bundle(dir.path(), "Wrapper.app", "2.0", &host);
+
+        // A wrapper carries a copy of the shim, so it is only as new as the
+        // ai-profiles that wrote it.
+        assert_eq!(
+            state(Some(&vendor), &wrapper, BUILT_BY),
+            WrapperState::Current
+        );
+        assert_eq!(state(Some(&vendor), &wrapper, "1.4.0"), WrapperState::Stale);
+        assert_eq!(state(None, &wrapper, "1.4.0"), WrapperState::Stale);
     }
 
     /// Opt-in: builds wrappers from whichever vendor apps are installed, into a
@@ -1088,6 +1129,7 @@ mod tests {
                 user_data_dir: &data,
                 profile_id: "e2e-profile-1",
                 host_binary: &std::env::current_exe().unwrap(),
+                built_by: BUILT_BY,
                 config_env: spec
                     .gui_auth_via_config_env
                     .then_some((spec.cli_config_env, home.as_path())),

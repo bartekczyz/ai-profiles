@@ -519,7 +519,7 @@ impl Effects for ProfileLaunch<'_> {
             .vendor
             .as_ref()
             .map(|vendor| vendor.bundle_path.as_path());
-        wrapper::state(vendor, &self.launcher)
+        wrapper::state(vendor, &self.launcher, self.version)
     }
 
     fn open_script_launcher(&mut self) -> AppResult<()> {

@@ -13,6 +13,14 @@ use crate::error::{AppError, AppResult};
 /// Defined with the shim's other keys, because the shim reads it too.
 pub use profile_shim::VENDOR_VERSION_KEY;
 
+/// Records the ai-profiles version that built the wrapper.
+///
+/// A wrapper carries a copy of the shim and whatever else this app puts in one,
+/// so an upgrade that changes either has to reach the wrappers already on disk.
+/// The vendor's version keys cannot say this — they belong to the vendor, and
+/// the app shows them in its About box — so this is kept separately.
+pub const BUILT_BY_KEY: &str = "AIProfilesBuiltBy";
+
 /// What makes one wrapper's `Info.plist` differ from the vendor's.
 pub struct Patch<'a> {
     /// `CFBundleIdentifier`, unique per profile so LaunchServices and the Dock
@@ -35,6 +43,9 @@ pub struct Patch<'a> {
     /// cannot rebuild itself: the rebuild replaces the bundle the shim is
     /// running from.
     pub host_binary: &'a str,
+    /// The ai-profiles version doing the building, so an upgrade that changes
+    /// what a wrapper contains reaches the ones already on disk.
+    pub built_by: &'a str,
     /// `(name, value)` env var the shim sets before starting the vendor binary.
     pub config_env: Option<(&'a str, &'a str)>,
 }
@@ -76,6 +87,7 @@ pub fn patch(vendor: &Dictionary, patch: &Patch<'_>) -> AppResult<Dictionary> {
     info.insert(PROFILE_ID_KEY.into(), string(patch.profile_id));
     info.insert(VENDOR_BUNDLE_KEY.into(), string(patch.vendor_bundle));
     info.insert(HOST_BINARY_KEY.into(), string(patch.host_binary));
+    info.insert(BUILT_BY_KEY.into(), string(patch.built_by));
 
     // A Sparkle app would otherwise go looking for updates to the wrapper and
     // replace it with the vendor's own bundle.
@@ -161,6 +173,7 @@ mod tests {
             profile_id: "1",
             vendor_bundle: "/Applications/Claude.app",
             host_binary: "/Applications/ai-profiles.app/Contents/MacOS/ai-profiles",
+            built_by: "1.3.0",
             config_env: None,
         }
     }
@@ -266,6 +279,7 @@ mod tests {
                 "/Applications/ai-profiles.app/Contents/MacOS/ai-profiles"
             ))
         );
+        assert_eq!(info.get(BUILT_BY_KEY), Some(&string("1.3.0")));
     }
 
     #[test]
