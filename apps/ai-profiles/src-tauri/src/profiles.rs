@@ -147,9 +147,7 @@ pub fn create(
     distinct_dock_icon: bool,
 ) -> AppResult<Profile> {
     let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return Err(AppError::Validation("name must not be empty".to_string()));
-    }
+    validate_name(trimmed)?;
     if !is_valid_hex_color(color) {
         return Err(AppError::Validation(format!(
             "color must be a 7-char hex like #7C3AED, got '{color}'"
@@ -229,6 +227,22 @@ fn is_valid_hex_color(color: &str) -> bool {
     color.chars().skip(1).all(|ch| ch.is_ascii_hexdigit())
 }
 
+/// Checks an already-trimmed display name. The name becomes part of a path
+/// (`/Applications/<App> (<name>).app`), so `/`, a leading `.` and control
+/// characters are rejected — they'd let a name escape `/Applications` or
+/// smuggle a newline into generated files.
+pub fn validate_name(name: &str) -> AppResult<()> {
+    if name.is_empty() {
+        return Err(AppError::Validation("name must not be empty".to_string()));
+    }
+    if name.contains('/') || name.starts_with('.') || name.chars().any(char::is_control) {
+        return Err(AppError::Validation(
+            "name must not contain '/', control characters, or start with '.'".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// True when an existing profile already claims `slug` for the same `app`.
 /// Uniqueness is scoped per app, so a ChatGPT "personal" can coexist with a
 /// Claude "personal". `exclude_id` skips a profile by id — used by `update`
@@ -249,9 +263,7 @@ fn patched(original: &Profile, patch: ProfilePatch, all: &[Profile]) -> AppResul
         .unwrap_or(&original.name)
         .trim()
         .to_string();
-    if new_name.is_empty() {
-        return Err(AppError::Validation("name must not be empty".into()));
-    }
+    validate_name(&new_name)?;
     let new_color = patch.color.unwrap_or_else(|| original.color.clone());
     if !is_valid_hex_color(&new_color) {
         return Err(AppError::Validation(format!(
@@ -1105,5 +1117,22 @@ mod tests {
         assert!(!wrapper.exists());
         assert!(load().unwrap().is_empty());
         purge_for_test();
+    }
+
+    #[test]
+    fn validate_name_rejects_path_and_control_characters() {
+        for bad in [
+            "",
+            "../../x",
+            "a/b",
+            ".hidden",
+            "Work\nrm -rf ~",
+            "tab\there",
+        ] {
+            assert!(validate_name(bad).is_err(), "{bad:?} should be rejected");
+        }
+        for good in ["Personal", "Work (ACME)", "Zażółć", "a.b"] {
+            assert!(validate_name(good).is_ok(), "{good:?} should be accepted");
+        }
     }
 }

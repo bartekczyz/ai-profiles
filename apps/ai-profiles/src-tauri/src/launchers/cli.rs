@@ -46,12 +46,13 @@ pub fn wrapper_script(profile: &Profile, cli_config_path: &Path) -> String {
     let spec = profile.app.spec();
     format!(
         r#"#!/bin/bash
-{marker} — profile: {name} ({id})
+{marker} — profile: {id}
 export {env}="{path}"
 exec {binary} "$@"
 "#,
         marker = MARKER,
-        name = profile.name,
+        // The display name is deliberately left out: it is free text, and a
+        // newline in it would become a live command in this script.
         id = profile.id,
         env = spec.cli_config_env,
         binary = spec.cli_binary,
@@ -166,9 +167,18 @@ mod tests {
     }
 
     #[test]
-    fn script_includes_profile_name_and_id_in_header() {
+    fn script_includes_profile_id_in_header() {
         let script = wrapper_script(&fixture(), &PathBuf::from("/Users/u/cli-config"));
-        assert!(script.contains("profile: Personal (deadbeef-0000-0000-0000-000000000000)"));
+        assert!(script.contains("profile: deadbeef-0000-0000-0000-000000000000"));
+    }
+
+    #[test]
+    fn script_never_embeds_the_display_name() {
+        let mut profile = fixture();
+        profile.name = "Work\ntouch /tmp/pwned".to_string();
+        let script = wrapper_script(&profile, &PathBuf::from("/Users/u/cli-config"));
+        assert!(!script.contains("pwned"));
+        assert_eq!(script.lines().count(), 4);
     }
 
     #[test]
