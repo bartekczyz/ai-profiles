@@ -9,23 +9,20 @@ use crate::app_kind::AppSpec;
 /// function of its arguments rather than reaching into the filesystem
 /// itself.
 ///
-/// For apps whose GUI reads auth from a config-home env var rather than from
-/// the `--user-data-dir` (Codex, via `CODEX_HOME`), the script also exports
-/// that env var at the profile's `cli-config` dir — the same home the CLI
-/// wrapper and usage provider use. Without it the app falls back to the stock
-/// home (`~/.codex`) and shows the default account regardless of
-/// `--user-data-dir`. `open` propagates the exported environment to the
-/// launched GUI app, so the export reaches it.
+/// The script also exports the app's config-home env var
+/// ([`AppSpec::cli_config_env`]) at the profile's `cli-config` dir — the same
+/// home the CLI wrapper and usage provider use. Without it the app falls back
+/// to the stock home: Codex (`CODEX_HOME`) shows the default account
+/// regardless of `--user-data-dir`, and Claude's Code tab (`CLAUDE_CONFIG_DIR`)
+/// shares `~/.claude`'s history, settings, plugins and MCP servers. `open`
+/// propagates the exported environment to the launched GUI app, so the export
+/// reaches it.
 pub fn launcher_script(profile_id: &str, spec: &AppSpec, gui_app_target: &str) -> String {
     let profiles_base = "$HOME/Library/Application Support/ai-profiles/profiles";
-    let config_home_export = if spec.gui_exports_config_env {
-        format!(
-            "CONFIG_DIR=\"{profiles_base}/{profile_id}/cli-config\"\nexport {env}=\"$CONFIG_DIR\"\n",
-            env = spec.cli_config_env,
-        )
-    } else {
-        String::new()
-    };
+    let config_home_export = format!(
+        "CONFIG_DIR=\"{profiles_base}/{profile_id}/cli-config\"\nexport {env}=\"$CONFIG_DIR\"\n",
+        env = spec.cli_config_env,
+    );
     format!(
         r#"#!/bin/bash
 # ai-profiles launcher — profile id: {profile_id}

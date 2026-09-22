@@ -17,6 +17,8 @@
 
 mod entitlements;
 mod info_plist;
+
+pub use info_plist::BUILT_BY_KEY;
 mod sign;
 
 use std::fs;
@@ -63,10 +65,13 @@ pub struct WrapperRequest<'a> {
     /// This app's own version, recorded so an upgrade that changes what a
     /// wrapper contains — the shim above all — reaches the ones on disk.
     pub built_by: &'a str,
-    /// `(name, value)` env var set before the vendor binary starts, for apps
-    /// that read their account from one rather than from `--user-data-dir`
-    /// (Codex: `CODEX_HOME`).
-    pub config_env: Option<(&'a str, &'a Path)>,
+    /// `(name, value)` env var set before the vendor binary starts: the app's
+    /// config home ([`AppSpec::cli_config_env`] at the profile's `cli-config`
+    /// dir), where Codex reads its account and Claude's Code tab its config and
+    /// history.
+    ///
+    /// [`AppSpec::cli_config_env`]: crate::app_kind::AppSpec::cli_config_env
+    pub config_env: (&'a str, &'a Path),
 }
 
 /// Build the wrapper described by `request` at its destination.
@@ -113,10 +118,7 @@ pub fn build(request: &WrapperRequest<'_>) -> AppResult<()> {
             vendor_bundle: utf8(request.vendor_bundle)?,
             host_binary: utf8(request.host_binary)?,
             built_by: request.built_by,
-            config_env: request
-                .config_env
-                .map(|(name, value)| Ok::<_, AppError>((name, utf8(value)?)))
-                .transpose()?,
+            config_env: (request.config_env.0, utf8(request.config_env.1)?),
         },
     )?;
     write_plist(&contents.join("Info.plist"), info)?;
@@ -611,7 +613,10 @@ mod tests {
             profile_id: "1",
             host_binary: Path::new("/Applications/ai-profiles.app/Contents/MacOS/ai-profiles"),
             built_by: BUILT_BY,
-            config_env: home.map(|home| ("AI_PROFILES_TEST_HOME", home)),
+            config_env: (
+                "AI_PROFILES_TEST_HOME",
+                home.unwrap_or(Path::new("/data/cli-config")),
+            ),
         }
     }
 
@@ -1130,9 +1135,7 @@ mod tests {
                 profile_id: "e2e-profile-1",
                 host_binary: &std::env::current_exe().unwrap(),
                 built_by: BUILT_BY,
-                config_env: spec
-                    .gui_exports_config_env
-                    .then_some((spec.cli_config_env, home.as_path())),
+                config_env: (spec.cli_config_env, home.as_path()),
             })
             .unwrap_or_else(|err| panic!("{}: {err}", spec.display_name));
 

@@ -38,6 +38,25 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
+            // Bring the desktop launchers an earlier version built up to this
+            // one, so every profile changes over now rather than whenever it
+            // next happens to be rebuilt. Off the main thread: a wrapper takes
+            // seconds to build.
+            std::thread::spawn(|| {
+                let Ok(all) = profiles::load() else {
+                    return;
+                };
+                let version = env!("CARGO_PKG_VERSION");
+                for (id, result) in launchers::gui::refresh_outdated(&all, version) {
+                    match result {
+                        Ok(()) => eprintln!("ai-profiles: rebuilt the launcher of profile {id}"),
+                        Err(err) => {
+                            eprintln!("ai-profiles: left the launcher of profile {id}: {err}")
+                        }
+                    }
+                }
+            });
+
             // Build the macOS app menu manually so we can swap the default
             // About panel for a frontend-driven dialog. Everything else here
             // mirrors what Tauri would auto-generate (Services, Hide,

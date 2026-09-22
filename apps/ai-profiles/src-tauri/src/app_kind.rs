@@ -67,16 +67,10 @@ pub struct AppSpec {
     pub cli_binary: &'static str,
     /// Prefix for generated CLI wrappers: `"<prefix>-<slug>"`.
     pub cli_wrapper_prefix: &'static str,
-    /// Env var the wrapper exports to point the CLI at the per-profile config
-    /// dir, e.g. `"CLAUDE_CONFIG_DIR"`.
-    pub cli_config_env: &'static str,
-    /// Stock CLI config directory name under `$HOME`, e.g. `".claude"`.
-    pub cli_stock_config_dir_name: &'static str,
-    /// Whether this app exposes account usage/quota stats.
-    pub has_usage: bool,
-    /// Whether the desktop launcher exports [`cli_config_env`] at the profile's
-    /// `cli-config` dir, so the desktop app and the profile's CLI wrapper share
-    /// one config home.
+    /// Env var pointing the app at the profile's config home (its `cli-config`
+    /// dir), e.g. `"CLAUDE_CONFIG_DIR"`. The CLI wrapper exports it, and so
+    /// does the desktop launcher, so the desktop app and the CLI share one
+    /// config home.
     ///
     /// Codex needs it for auth: ChatGPT.app reads its login from `CODEX_HOME`,
     /// and `--user-data-dir` alone only isolates the browser layer. Claude keeps
@@ -85,9 +79,11 @@ pub struct AppSpec {
     /// the export every Claude desktop profile shared the stock `~/.claude`:
     /// one session history, and one set of hooks, permissions, plugins and MCP
     /// servers across accounts.
-    ///
-    /// [`cli_config_env`]: AppSpec::cli_config_env
-    pub gui_exports_config_env: bool,
+    pub cli_config_env: &'static str,
+    /// Stock CLI config directory name under `$HOME`, e.g. `".claude"`.
+    pub cli_stock_config_dir_name: &'static str,
+    /// Whether this app exposes account usage/quota stats.
+    pub has_usage: bool,
     /// Config-dir entries a profile *inherits* from the stock install
     /// (`~/.claude`, `~/.codex`) instead of isolating, by way of a symlink
     /// created in the profile's `cli-config` dir.
@@ -124,7 +120,6 @@ pub const CLAUDE: AppSpec = AppSpec {
     cli_config_env: "CLAUDE_CONFIG_DIR",
     cli_stock_config_dir_name: ".claude",
     has_usage: true,
-    gui_exports_config_env: true,
     shared_surfaces: &[
         "CLAUDE.md",
         "agents",
@@ -164,7 +159,6 @@ pub const CODEX: AppSpec = AppSpec {
     cli_config_env: "CODEX_HOME",
     cli_stock_config_dir_name: ".codex",
     has_usage: true,
-    gui_exports_config_env: true,
     shared_surfaces: &["AGENTS.md", "rules", "skills"],
 };
 
@@ -247,12 +241,6 @@ mod tests {
         assert_eq!(codex.cli_config_env, "CODEX_HOME");
         assert_eq!(codex.cli_stock_config_dir_name, ".codex");
         assert!(codex.has_usage);
-        // Both desktop launchers export their config home: Codex because its
-        // auth lives there, Claude so the Code tab stays inside the profile.
-        assert!(codex.gui_exports_config_env);
-        const {
-            assert!(CLAUDE.gui_exports_config_env);
-        }
     }
 
     #[test]
