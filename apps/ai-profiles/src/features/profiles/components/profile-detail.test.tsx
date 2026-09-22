@@ -245,6 +245,87 @@ describe('ProfileDetail — surfaces', () => {
     })
   })
 
+  /**
+   * A launch the test finishes itself, standing in for the command's wait for
+   * the app's process to appear.
+   */
+  function pendingLaunch(): { finish: () => void } {
+    let finish = (): void => {}
+    vi.mocked(openProfileInApp).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = () => resolve({ profile: profile(), wrapperBypass: null })
+      }),
+    )
+    return {
+      finish: () => {
+        act(() => {
+          finish()
+        })
+      },
+    }
+  }
+
+  it('says it is opening, and takes no second launch, until the app is up', async () => {
+    const launch = pendingLaunch()
+    renderDetail()
+    const user = userEvent.setup()
+    await user.click(await findLaunchControl())
+
+    const button = await screen.findByRole('button', { name: 'Opening' })
+    expect(button).toBeDisabled()
+    await user.keyboard('{Enter}')
+    expect(launchedProfileIds()).toEqual(['p1'])
+
+    launch.finish()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled()
+    })
+  })
+
+  it('goes on saying it is opening when the paths land mid-launch', async () => {
+    // The pane deliberately keeps Open live while the paths resolve, and
+    // swaps the whole panel for an identical one when they land. A launch
+    // started in that window has to survive the swap — state kept inside the
+    // panel would go with it, and the guard below with it.
+    let landPaths = (): void => {}
+    vi.mocked(profilePaths).mockReturnValueOnce(
+      new Promise((resolve) => {
+        landPaths = () => resolve(paths())
+      }),
+    )
+    const launch = pendingLaunch()
+    renderDetail()
+    const user = userEvent.setup()
+    await user.click(await findLaunchControl())
+    await screen.findByRole('button', { name: 'Opening' })
+
+    await act(async () => {
+      landPaths()
+    })
+
+    // The resolved panel is the one on screen now, so the swap really happened.
+    expect(await screen.findByText('Isolated launcher installed')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Opening' })).toBeDisabled()
+    launch.finish()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled()
+    })
+    expect(launchedProfileIds()).toEqual(['p1'])
+  })
+
+  it('offers the launch again once one that failed is over', async () => {
+    vi.mocked(openProfileInApp).mockRejectedValueOnce(new Error('launcher is missing'))
+    renderDetail()
+    const user = userEvent.setup()
+    await user.click(await findLaunchControl())
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled()
+    })
+    await user.click(await findLaunchControl())
+    expect(launchedProfileIds()).toEqual(['p1', 'p1'])
+  })
+
   it('copies the command from the token and confirms on it', async () => {
     renderDetail()
     const user = userEvent.setup()

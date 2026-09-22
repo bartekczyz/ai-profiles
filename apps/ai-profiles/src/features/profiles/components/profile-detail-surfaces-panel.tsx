@@ -22,6 +22,12 @@ type Props = {
    */
   shortcutsEnabled: boolean
   /**
+   * Whether a desktop launch is under way. Owned above the detail pane's
+   * `Suspense` boundary, because this panel is swapped for an identical one
+   * when the profile's paths land — see `useGuiLaunch`.
+   */
+  opening: boolean
+  /**
    * One short line about the desktop surface's own state, replacing the
    * card explainers. Undefined renders a skeleton bar — the per-profile
    * paths that describe the surface are still resolving.
@@ -57,6 +63,14 @@ const outlinedClasses =
   'border border-border bg-white/60 text-ink-soft hover:border-border-strong hover:bg-white dark:bg-white/[0.05] dark:hover:bg-white/[0.09]'
 
 /**
+ * Worn by the Open button while a launch is under way. The fill stays — this
+ * is the pane's one primary action and greying it out would read as switched
+ * off — but everything that invites another press is taken away.
+ */
+const busyClasses =
+  'disabled:cursor-default disabled:opacity-80 disabled:hover:brightness-100 disabled:active:translate-y-0'
+
+/**
  * The surfaces block: one inset grouped panel holding a Desktop app row and
  * a Terminal row, in the manner of macOS System Settings. Each row carries a
  * glyph, a title, a line describing that surface's own state, and its own
@@ -79,6 +93,7 @@ export function ProfileDetailSurfacesPanel({
   guiEnabled,
   cliEnabled,
   shortcutsEnabled,
+  opening,
   guiDescription,
   cliDescription,
   onLaunchGui,
@@ -158,13 +173,20 @@ export function ProfileDetailSurfacesPanel({
             guiEnabled ? (
               <button
                 type="button"
+                disabled={opening}
+                aria-busy={opening}
                 aria-keyshortcuts={ariaKeyshortcutsFor('open-selected-desktop')}
-                className={cn(controlClasses, filledClasses, 'gap-[7px] px-[11px] text-[12px] font-medium')}
+                className={cn(
+                  controlClasses,
+                  filledClasses,
+                  busyClasses,
+                  'gap-[7px] px-[11px] text-[12px] font-medium',
+                )}
                 onClick={() => {
                   void launch()
                 }}
               >
-                Open
+                {opening ? 'Opening' : 'Open'}
                 <Kbd variant="onOrange" shortcutId="open-selected-desktop" />
               </button>
             ) : null
