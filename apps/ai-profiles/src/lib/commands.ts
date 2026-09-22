@@ -11,6 +11,7 @@ import type {
   MigrationBackupInfo,
   PathHookOutcome,
   Profile,
+  ProfileAccount,
   ProfilePatch,
   ProfilePaths,
   ProfileUsage,
@@ -73,6 +74,10 @@ export function openDefaultGui(app: AppId, dataDir: string): Promise<void> {
 
 export function profilePaths(id: string): Promise<ProfilePaths> {
   return invoke<ProfilePaths>('profile_paths', { id })
+}
+
+export function profileAccount(id: string): Promise<ProfileAccount | null> {
+  return invoke<ProfileAccount | null>('profile_account', { id })
 }
 
 export function copyToClipboard(text: string): Promise<void> {

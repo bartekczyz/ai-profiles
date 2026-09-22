@@ -7,7 +7,14 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ToastProvider } from '@/design'
-import { copyToClipboard, openInFinder, openProfileInApp, profilePaths, touchProfileLastUsed } from '@/lib/commands'
+import {
+  copyToClipboard,
+  openInFinder,
+  openProfileInApp,
+  profileAccount,
+  profilePaths,
+  touchProfileLastUsed,
+} from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 import { renderWithQuery } from '@/test/render-with-query'
 
@@ -19,6 +26,7 @@ vi.mock('@/lib/commands', async () => {
   return {
     ...actual,
     profilePaths: vi.fn(),
+    profileAccount: vi.fn(async () => null),
     openInFinder: vi.fn(async () => {}),
     openProfileInApp: vi.fn(async () => {}),
     copyToClipboard: vi.fn(async () => {}),
@@ -458,5 +466,26 @@ describe('ProfileDetail — profile explainer', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull()
     })
+  })
+})
+
+describe('ProfileDetail — account', () => {
+  it('names the account the profile is signed in under', async () => {
+    vi.mocked(profileAccount).mockResolvedValue({
+      email: 'ada@example.com',
+      name: 'Ada',
+      organization: 'Ada Ltd',
+      plan: 'Max',
+    })
+    renderDetail()
+    const line = await screen.findByText('ada@example.com · Max')
+    expect(line).toHaveAttribute('title', 'Ada · ada@example.com · Ada Ltd · Max')
+    expect(profileAccount).toHaveBeenCalledWith('p1')
+  })
+
+  it('says so when the profile has not been signed in', async () => {
+    vi.mocked(profileAccount).mockResolvedValue(null)
+    renderDetail()
+    expect(await screen.findByText('Not signed in')).toBeInTheDocument()
   })
 })

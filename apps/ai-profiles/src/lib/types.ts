@@ -262,3 +262,13 @@ export type ProfileUsage = {
   quotaError: QuotaError | null
   fetchedAt: string
 }
+
+/** The account a profile is signed in under, from what its CLI keeps on disk. */
+export type ProfileAccount = {
+  email: string | null
+  /** The person's name, as the app recorded it. */
+  name: string | null
+  organization: string | null
+  /** The subscription, e.g. "Max" or "Pro". */
+  plan: string | null
+}

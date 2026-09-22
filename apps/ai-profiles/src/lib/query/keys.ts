@@ -10,6 +10,7 @@ export const queryKeys = {
     all: ['profiles'] as const,
     detail: (id: string) => ['profiles', id] as const,
     paths: (id: string) => ['profiles', id, 'paths'] as const,
+    account: (id: string) => ['profiles', id, 'account'] as const,
   },
   // Per-profile Anthropic usage stats. Deliberately OUTSIDE the
   // `profiles` subtree so a prefix invalidation of `['profiles']`
