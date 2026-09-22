@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/bartekczyz/ai-profiles/compare/v1.3.0...v1.3.1) (2026-09-22)
+
+
+### Fixed
+
+* **launchers:** let a profile app update itself again ([#54](https://github.com/bartekczyz/ai-profiles/issues/54)) ([9355732](https://github.com/bartekczyz/ai-profiles/commit/93557326e3176fd6d890dabcfcaf02fccb5e4662))
+
 ## [1.3.0](https://github.com/bartekczyz/ai-profiles/compare/v1.2.0...v1.3.0) (2026-09-21)
 
 
