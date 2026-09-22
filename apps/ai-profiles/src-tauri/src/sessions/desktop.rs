@@ -218,6 +218,8 @@ pub(crate) fn quit_app(home: &Home) -> AppResult<()> {
 pub(crate) struct NewRecord<'a> {
     pub cli_session_id: &'a str,
     pub cwd: &'a str,
+    /// The session's name, for a record that has none: see
+    /// [`super::scan::TranscriptInfo::name`].
     pub title: Option<&'a str>,
     /// The title was set by the user rather than generated.
     pub title_from_user: bool,
@@ -247,15 +249,22 @@ pub(crate) fn build_record(
             record.insert("createdAt".into(), new.created_at_ms.into());
             record.insert("lastActivityAt".into(), new.last_activity_ms.into());
             record.insert("lastFocusedAt".into(), new.last_activity_ms.into());
-            if let Some(title) = new.title {
-                record.insert("title".into(), title.into());
-                let source = if new.title_from_user { "user" } else { "auto" };
-                record.insert("titleSource".into(), source.into());
-            }
             record.insert("permissionMode".into(), "default".into());
             record
         }
     };
+    // Name it as the source did. Without a title the app shows a placeholder
+    // ("General coding session") that isn't stored anywhere, so a copied
+    // record that never got one is named here too.
+    let untitled = record
+        .get("title")
+        .and_then(Value::as_str)
+        .is_none_or(|title| title.trim().is_empty());
+    if let (true, Some(title)) = (untitled, new.title) {
+        record.insert("title".into(), title.into());
+        let source = if new.title_from_user { "user" } else { "auto" };
+        record.insert("titleSource".into(), source.into());
+    }
     record.insert(
         "sessionId".into(),
         format!("local_{}", uuid::Uuid::new_v4()).into(),
@@ -400,6 +409,28 @@ mod tests {
         for field in ACCOUNT_BOUND_FIELDS {
             assert!(!record.contains_key(*field), "{field} kept");
         }
+    }
+
+    #[test]
+    fn a_copied_record_keeps_its_title_or_gains_the_sessions_name() {
+        let new = NewRecord {
+            cli_session_id: "s",
+            cwd: "/w",
+            title: Some("Reply with just ok"),
+            title_from_user: false,
+            created_at_ms: 1,
+            last_activity_ms: 2,
+        };
+        let titled =
+            json!({"cliSessionId": "s", "title": "Named in the app", "titleSource": "user"});
+        let record = build_record(titled.as_object(), &new);
+        assert_eq!(record["title"], "Named in the app");
+        assert_eq!(record["titleSource"], "user");
+
+        let untitled = json!({"cliSessionId": "s", "completedTurns": 1});
+        let record = build_record(untitled.as_object(), &new);
+        assert_eq!(record["title"], "Reply with just ok");
+        assert_eq!(record["titleSource"], "auto");
     }
 
     #[test]

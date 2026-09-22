@@ -466,14 +466,14 @@ fn execute(prepared: &Prepared, archive_source: bool) -> AppResult<TransferRepor
                 .find(|record| !record.archived)
                 .or(prepared.source_records.first())
                 .map(|record| &record.body);
-            let title = prepared.plan.title.clone();
+            let name = prepared.info.name();
             let record = desktop::build_record(
                 source_record,
                 &NewRecord {
                     cli_session_id: id,
                     cwd: prepared.info.cwd.as_deref().unwrap_or_default(),
-                    title: title.as_deref(),
-                    title_from_user: prepared.info.custom_title.is_some(),
+                    title: name.as_ref().map(|(name, _)| name.as_str()),
+                    title_from_user: name.as_ref().is_some_and(|(_, from_user)| *from_user),
                     created_at_ms,
                     last_activity_ms,
                 },

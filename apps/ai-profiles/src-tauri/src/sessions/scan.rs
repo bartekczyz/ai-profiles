@@ -63,6 +63,19 @@ impl TranscriptInfo {
     pub fn title(&self) -> Option<String> {
         self.custom_title.clone().or_else(|| self.ai_title.clone())
     }
+
+    /// What to call the session where nothing has named it better: its
+    /// `/rename` name (the bool is true: the user chose it), else Claude's
+    /// generated title, else its last prompt cut to a short line.
+    pub fn name(&self) -> Option<(String, bool)> {
+        if let Some(title) = &self.custom_title {
+            return Some((title.clone(), true));
+        }
+        self.ai_title
+            .clone()
+            .or_else(|| self.last_prompt.as_deref().and_then(short_line))
+            .map(|name| (name, false))
+    }
 }
 
 /// The few fields of a transcript line that matter here. Everything else is
@@ -110,6 +123,18 @@ pub(crate) fn read_transcript(path: &Path) -> AppResult<TranscriptInfo> {
         }
     }
     Ok(info)
+}
+
+/// The first line of `text`, trimmed, cut to a title's length on a character
+/// boundary. `None` when nothing is left.
+fn short_line(text: &str) -> Option<String> {
+    const MAX_CHARS: usize = 60;
+    let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
+    if line.chars().count() <= MAX_CHARS {
+        return Some(line.to_string());
+    }
+    let cut: String = line.chars().take(MAX_CHARS - 1).collect();
+    Some(format!("{}…", cut.trim_end()))
 }
 
 /// A file name that stays inside the folder it is joined to.
@@ -269,6 +294,29 @@ mod tests {
             info.slugs.into_iter().collect::<Vec<_>>(),
             vec!["bold-plan".to_string()]
         );
+    }
+
+    #[test]
+    fn name_prefers_the_users_name_then_claudes_then_the_last_prompt() {
+        let mut info = TranscriptInfo {
+            last_prompt: Some("\n  Reply with just: ok  \nand more".into()),
+            ..TranscriptInfo::default()
+        };
+        assert_eq!(info.name(), Some(("Reply with just: ok".into(), false)));
+        info.ai_title = Some("Generated".into());
+        assert_eq!(info.name(), Some(("Generated".into(), false)));
+        info.custom_title = Some("Mine".into());
+        assert_eq!(info.name(), Some(("Mine".into(), true)));
+        assert_eq!(TranscriptInfo::default().name(), None);
+    }
+
+    #[test]
+    fn short_line_cuts_long_prompts_on_a_character_boundary() {
+        let long = "é".repeat(100);
+        let cut = short_line(&long).unwrap();
+        assert_eq!(cut.chars().count(), 60);
+        assert!(cut.ends_with('…'));
+        assert_eq!(short_line("   \n  "), None);
     }
 
     #[test]
