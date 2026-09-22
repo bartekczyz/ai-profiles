@@ -222,7 +222,7 @@ pub fn create(
     Ok(profile)
 }
 
-fn is_valid_hex_color(color: &str) -> bool {
+pub(crate) fn is_valid_hex_color(color: &str) -> bool {
     if color.len() != 7 || !color.starts_with('#') {
         return false;
     }

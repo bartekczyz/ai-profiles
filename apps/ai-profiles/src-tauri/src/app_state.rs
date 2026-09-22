@@ -45,6 +45,10 @@ pub struct AppState {
     /// entry shows its stock label.
     #[serde(default)]
     pub default_profile_names: BTreeMap<AppKind, String>,
+    /// Colours the user gave the stock-install entries, by app, as `#rrggbb`.
+    /// Absent means the entry shows the app's brand mark and no colour.
+    #[serde(default)]
+    pub default_profile_colors: BTreeMap<AppKind, String>,
 }
 
 /// Renames one app's stock-install entry. An empty (or all-whitespace) name
@@ -57,6 +61,14 @@ pub struct DefaultProfileName {
 }
 
 const DEFAULT_PROFILE_NAME_MAX_CHARS: usize = 64;
+
+/// Colours one app's stock-install entry. An empty colour clears it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultProfileColor {
+    pub app: AppKind,
+    pub color: String,
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,6 +95,8 @@ pub struct AppStatePatch {
     pub dock_icon_acknowledged_at: Option<String>,
     #[serde(default)]
     pub default_profile_name: Option<DefaultProfileName>,
+    #[serde(default)]
+    pub default_profile_color: Option<DefaultProfileColor>,
 }
 
 pub fn load() -> AppResult<AppState> {
@@ -141,6 +155,20 @@ pub fn apply(patch: AppStatePatch) -> AppResult<AppState> {
             state
                 .default_profile_names
                 .insert(rename.app, name.to_string());
+        }
+    }
+    if let Some(recolor) = patch.default_profile_color {
+        let color = recolor.color.trim();
+        if color.is_empty() {
+            state.default_profile_colors.remove(&recolor.app);
+        } else if crate::profiles::is_valid_hex_color(color) {
+            state
+                .default_profile_colors
+                .insert(recolor.app, color.to_ascii_lowercase());
+        } else {
+            return Err(AppError::Validation(
+                "color must be a #rrggbb hex value".to_string(),
+            ));
         }
     }
     save(&state)?;
@@ -233,6 +261,7 @@ mod tests {
             selected_entry_id: None,
             dock_icon_acknowledged_at: Some("2026-05-21T09:30:00Z".into()),
             default_profile_names: BTreeMap::from([(AppKind::Claude, "Personal".into())]),
+            default_profile_colors: BTreeMap::from([(AppKind::Claude, "#6a9bcc".into())]),
         };
         save(&state).unwrap();
         let loaded = load().unwrap();
@@ -252,6 +281,7 @@ mod tests {
             selected_entry_id: None,
             dock_icon_acknowledged_at: Some("acknowledged".into()),
             default_profile_names: BTreeMap::new(),
+            default_profile_colors: BTreeMap::new(),
         })
         .unwrap();
 
@@ -281,6 +311,7 @@ mod tests {
             selected_entry_id: None,
             dock_icon_acknowledged_at: None,
             default_profile_names: BTreeMap::new(),
+            default_profile_colors: BTreeMap::new(),
         })
         .unwrap();
 
@@ -343,6 +374,7 @@ mod tests {
             selected_entry_id: Some("profile-xyz".into()),
             dock_icon_acknowledged_at: None,
             default_profile_names: BTreeMap::new(),
+            default_profile_colors: BTreeMap::new(),
         })
         .unwrap();
         let after = apply(AppStatePatch {
@@ -440,6 +472,52 @@ mod tests {
         let cleared = rename_default(AppKind::Claude, "   ").unwrap();
         assert!(!cleared.default_profile_names.contains_key(&AppKind::Claude));
         assert!(cleared.default_profile_names.contains_key(&AppKind::Codex));
+        purge();
+    }
+
+    fn recolor_default(app: AppKind, color: &str) -> AppResult<AppState> {
+        apply(AppStatePatch {
+            default_profile_color: Some(DefaultProfileColor {
+                app,
+                color: color.to_string(),
+            }),
+            ..AppStatePatch::default()
+        })
+    }
+
+    #[test]
+    fn apply_sets_normalises_and_clears_default_profile_colors() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        let after = recolor_default(AppKind::Claude, " #6A9BCC ").unwrap();
+        assert_eq!(
+            after
+                .default_profile_colors
+                .get(&AppKind::Claude)
+                .map(String::as_str),
+            Some("#6a9bcc")
+        );
+        let cleared = recolor_default(AppKind::Claude, "").unwrap();
+        assert!(cleared.default_profile_colors.is_empty());
+        purge();
+    }
+
+    #[test]
+    fn apply_rejects_a_default_profile_color_that_is_not_hex_without_saving() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        recolor_default(AppKind::Claude, "#6a9bcc").unwrap();
+        for bad in ["red", "#12345", "#1234567", "6a9bcc", "#zzzzzz"] {
+            assert!(recolor_default(AppKind::Claude, bad).is_err(), "{bad}");
+        }
+        assert_eq!(
+            load()
+                .unwrap()
+                .default_profile_colors
+                .get(&AppKind::Claude)
+                .map(String::as_str),
+            Some("#6a9bcc")
+        );
         purge();
     }
 

@@ -37,6 +37,7 @@ export function useAppState(): UseAppStateResult {
           selectedEntryId: patch.clearSelectedEntryId ? null : (patch.selectedEntryId ?? previous.selectedEntryId),
           dockIconAcknowledgedAt: patch.dockIconAcknowledgedAt ?? previous.dockIconAcknowledgedAt,
           defaultProfileNames: withDefaultProfileName(previous.defaultProfileNames, patch.defaultProfileName),
+          defaultProfileColors: withDefaultProfileColor(previous.defaultProfileColors, patch.defaultProfileColor),
         }
         queryClient.setQueryData(queryKeys.appState, optimistic)
       }
@@ -79,6 +80,24 @@ function withDefaultProfileName(
     delete next[rename.app]
   } else {
     next[rename.app] = name
+  }
+  return next
+}
+
+/** Mirrors the Rust side: an empty colour drops it, others are lowercased. */
+function withDefaultProfileColor(
+  colors: AppState['defaultProfileColors'] | undefined,
+  recolor: AppStatePatch['defaultProfileColor'],
+): AppState['defaultProfileColors'] {
+  const next = { ...(colors ?? {}) }
+  if (recolor === undefined) {
+    return next
+  }
+  const color = recolor.color.trim().toLowerCase()
+  if (color.length === 0) {
+    delete next[recolor.app]
+  } else {
+    next[recolor.app] = color
   }
   return next
 }

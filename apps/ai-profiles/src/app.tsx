@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
 import type { AppId } from '@/lib/app-registry'
-import type { SidebarEntry } from '@/lib/types'
 
 import { Activity, Suspense, useEffect, useRef, useState } from 'react'
 
@@ -20,7 +19,7 @@ import { PathSetupBanner } from '@/features/onboarding/components/path-setup-ban
 import { WelcomeDialog } from '@/features/onboarding/components/welcome-dialog'
 import { useProfileLastUsed } from '@/features/profiles/api/use-profile-last-used'
 import { useProfiles } from '@/features/profiles/api/use-profiles'
-import { appFromEntry, entryId, useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
+import { appFromEntry, entryId, shortcutEntries, useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
 import { useSidebarSelection } from '@/features/profiles/api/use-sidebar-selection'
 import { CreateProfileDialog } from '@/features/profiles/components/create-profile-dialog'
 import { DeleteProfileDialog } from '@/features/profiles/components/delete-profile-dialog'
@@ -541,23 +540,21 @@ function AppContent() {
         />
       ) : null}
 
-      {/* Mod+1..Mod+9 — one binding per managed profile slot (default row
-          is not numbered). Disabled when any overlay is open to avoid
-          stealing keystrokes from the dialog/palette/migration prompt. */}
-      {entries
-        .filter((entry): entry is Extract<SidebarEntry, { kind: 'managed' }> => entry.kind === 'managed')
-        .slice(0, 9)
-        .map((managedEntry, index) => (
-          <SelectByIndexHotkey
-            key={managedEntry.profile.id}
-            index={index}
-            enabled={!overlayOpen}
-            onSelect={() => {
-              selection.select(managedEntry.profile.id)
-              setRightPane({ kind: 'profile' })
-            }}
-          />
-        ))}
+      {/* Mod+1..Mod+9, in the order the sidebar shows its rows: each app's
+          Default first, then its profiles. Disabled when any overlay is open
+          to avoid stealing keystrokes from the dialog/palette/migration
+          prompt. */}
+      {shortcutEntries(entries).map((entry, index) => (
+        <SelectByIndexHotkey
+          key={entryId(entry)}
+          index={index}
+          enabled={!overlayOpen}
+          onSelect={() => {
+            selection.select(entryId(entry))
+            setRightPane({ kind: 'profile' })
+          }}
+        />
+      ))}
 
       <CommandPalette
         open={palette.open}

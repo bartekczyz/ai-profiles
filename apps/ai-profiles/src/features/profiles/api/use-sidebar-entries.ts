@@ -25,7 +25,7 @@ export function useSidebarEntries(): Array<SidebarEntry> {
     codex: codexMigration.existing,
   }
 
-  const defaults = makeDefaultEntries(existingByApp, appState.defaultProfileNames)
+  const defaults = makeDefaultEntries(existingByApp, appState.defaultProfileNames, appState.defaultProfileColors)
   const managed: Array<SidebarEntry> = profiles.map((profile) => ({ kind: 'managed', profile }))
   const defaultEntries: Array<SidebarEntry> = defaults.map((entry) => ({ kind: 'default', entry }))
   return [...defaultEntries, ...managed]
@@ -53,6 +53,17 @@ export type SidebarGroup = {
   app: AppId
   default: Extract<SidebarEntry, { kind: 'default' }> | null
   managed: Array<Extract<SidebarEntry, { kind: 'managed' }>>
+}
+
+/**
+ * Pure: the entries ⌘1…⌘9 select, in the order the sidebar shows them: each
+ * app's Default first, then its profiles, app by app. The sidebar's ⌘N badges
+ * and app.tsx's bindings both read this, so the two can't disagree.
+ */
+export function shortcutEntries(entries: Array<SidebarEntry>): Array<SidebarEntry> {
+  return groupEntriesByApp(entries)
+    .flatMap((group) => [...(group.default ? [group.default] : []), ...group.managed])
+    .slice(0, 9)
 }
 
 /**
@@ -84,12 +95,14 @@ export function groupEntriesByApp(entries: Array<SidebarEntry>): Array<SidebarGr
 /**
  * Pure: builds one synthetic default entry per app that has a detected
  * stock install. Returns entries in `appIds` order (Claude before ChatGPT).
- * `customNames` carries the names the user gave those entries, if any.
+ * `customNames` and `customColors` carry the names and colours the user gave
+ * those entries, if any.
  * Exposed for unit-testing in isolation.
  */
 export function makeDefaultEntries(
   existingByApp: Record<AppId, ExistingInstallInfo>,
   customNames: Partial<Record<AppId, string>> = {},
+  customColors: Partial<Record<AppId, string>> = {},
 ): Array<DefaultEntry> {
   const entries: Array<DefaultEntry> = []
   for (const appId of appIds) {
@@ -105,6 +118,7 @@ export function makeDefaultEntries(
       app: appId,
       name: customName ?? appSpecs[appId].displayName,
       customName,
+      color: customColors[appId] ?? null,
       surfaces: { gui, cli },
     })
   }
