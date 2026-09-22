@@ -3,7 +3,7 @@ import type { SessionSummary } from '@/lib/types'
 import { useState } from 'react'
 
 import { formatDistanceToNow } from 'date-fns'
-import { ArrowRightLeft, Monitor } from 'lucide-react'
+import { ArrowRightLeft, Monitor, Terminal } from 'lucide-react'
 
 import { Button, Skeleton, StatusDot } from '@/design'
 import { extractErrorMessage } from '@/lib/extract-error-message'
@@ -27,8 +27,9 @@ type Props = {
 
 /**
  * The Claude sessions this profile keeps, with a way to move one to another
- * profile. Lists the CLI transcripts, which is where every session lives:
- * a desktop Code tab session is one too, and says so with a monitor icon.
+ * profile. Lists the CLI transcripts, which is where every session lives: a
+ * desktop Code tab session is one too, and wears a Desktop pill instead of a
+ * CLI one.
  */
 export function ProfileDetailSessions({ profileId }: Props) {
   const { data, error, isLoading } = useProfileSessions(profileId)
@@ -80,38 +81,62 @@ export function ProfileDetailSessions({ profileId }: Props) {
   )
 }
 
+/**
+ * Where a session lives: the desktop app if its Code tab lists the session
+ * (or holds it open), the CLI otherwise.
+ */
+function surfaceOf(session: SessionSummary): 'desktop' | 'cli' {
+  if (session.running) {
+    return session.openInDesktop ? 'desktop' : 'cli'
+  }
+  return session.inDesktop ? 'desktop' : 'cli'
+}
+
+function SurfacePill({ surface }: { surface: 'desktop' | 'cli' }) {
+  const Icon = surface === 'desktop' ? Monitor : Terminal
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-[5px] border border-border-soft px-1.5 py-px font-mono text-[10px] font-medium uppercase leading-[1.5] tracking-[0.08em] text-muted-strong">
+      <Icon aria-hidden strokeWidth={1.75} className="h-2.5 w-2.5" />
+      {surface === 'desktop' ? 'Desktop' : 'CLI'}
+    </span>
+  )
+}
+
 function SessionRow({ session, onMove }: { session: SessionSummary; onMove: () => void }) {
   const title = session.title ?? session.lastPrompt ?? session.id
-  const blocked = session.running
-    ? session.openInDesktop
-      ? 'The desktop app has it open. Quit the app to move it.'
-      : 'Open in a terminal. Close it to move it.'
-    : session.unmovableReason
   return (
     <li className={rowClasses}>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          {session.running ? (
-            <span role="img" aria-label="Open right now" className="inline-flex">
-              <StatusDot tone="success" />
-            </span>
-          ) : null}
+        <div className="flex min-w-0 items-center gap-1.5">
           <span className="truncate text-body text-ink" title={title}>
             {title}
           </span>
-          {session.inDesktop ? (
-            <Monitor aria-label="In the desktop app" className="h-3 w-3 shrink-0 text-muted" />
-          ) : null}
+          <SurfacePill surface={surfaceOf(session)} />
         </div>
-        <div className="truncate font-mono text-mono text-muted-strong">
-          {session.cwd ? shortenHomePath(session.cwd) : 'unknown folder'}
-          <span className="mx-1.5 text-border">·</span>
-          {formatDistanceToNow(new Date(session.updatedAt), { addSuffix: true })}
+        <div className="flex min-w-0 font-mono text-mono text-muted-strong">
+          <span className="truncate" title={session.cwd ?? undefined}>
+            {session.cwd ? shortenHomePath(session.cwd) : 'unknown folder'}
+          </span>
+          <span className="shrink-0 whitespace-nowrap">
+            <span className="mx-1.5 text-border">·</span>
+            {formatDistanceToNow(new Date(session.updatedAt), { addSuffix: true })}
+          </span>
         </div>
       </div>
-      {blocked ? (
-        <span className="shrink-0 cursor-default text-meta text-muted" title={blocked}>
-          {session.running ? (session.openInDesktop ? 'Open in the app' : 'Open now') : "Can't move"}
+      {session.running ? (
+        <div
+          className="shrink-0 text-right"
+          title={session.openInDesktop ? 'The desktop app holds it open until it quits.' : 'A terminal has it open.'}
+        >
+          <div className="flex items-center justify-end gap-1.5 text-meta text-ink-soft">
+            <StatusDot tone="success" />
+            Open
+          </div>
+          <div className="text-meta text-muted">Quit to move</div>
+        </div>
+      ) : session.unmovableReason ? (
+        <span className="shrink-0 cursor-default text-meta text-muted" title={session.unmovableReason}>
+          Can't move
         </span>
       ) : (
         <Button variant="ghost" size="sm" leadingIcon={<ArrowRightLeft />} onClick={onMove}>

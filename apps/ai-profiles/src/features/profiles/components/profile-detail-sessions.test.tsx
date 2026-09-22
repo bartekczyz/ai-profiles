@@ -100,12 +100,13 @@ describe('ProfileDetailSessions', () => {
     expect(await screen.findByText('Fix the login bug')).toBeInTheDocument()
     expect(screen.getAllByText(/~\/code\/app/)).toHaveLength(4)
     expect(screen.getByText('what now')).toBeInTheDocument()
-    expect(screen.getByText('Open now')).toHaveAttribute('title', 'Open in a terminal. Close it to move it.')
-    expect(screen.getByText('Open in the app')).toHaveAttribute(
-      'title',
-      'The desktop app has it open. Quit the app to move it.',
-    )
+    expect(screen.getAllByText('Open')).toHaveLength(2)
+    expect(screen.getAllByText('Quit to move')).toHaveLength(2)
     expect(screen.getByText("Can't move")).toHaveAttribute('title', 'It works in a scratch folder.')
+    const pill = (name: string) =>
+      within(screen.getByText(name).closest('li') as HTMLElement).getByText(/^(Desktop|CLI)$/).textContent
+    expect(pill('Fix the login bug')).toBe('CLI')
+    expect(pill('Desktop one')).toBe('Desktop')
     expect(screen.getAllByRole('button', { name: 'Move' })).toHaveLength(1)
     expect(listSessions).toHaveBeenCalledWith('work')
   })
