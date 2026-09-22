@@ -82,7 +82,11 @@ export function ProfileDetailSessions({ profileId }: Props) {
 
 function SessionRow({ session, onMove }: { session: SessionSummary; onMove: () => void }) {
   const title = session.title ?? session.lastPrompt ?? session.id
-  const blocked = session.running ? 'Open right now. Close it to move it.' : session.unmovableReason
+  const blocked = session.running
+    ? session.openInDesktop
+      ? 'The desktop app has it open. Quit the app to move it.'
+      : 'Open in a terminal. Close it to move it.'
+    : session.unmovableReason
   return (
     <li className={rowClasses}>
       <div className="min-w-0 flex-1">
@@ -107,7 +111,7 @@ function SessionRow({ session, onMove }: { session: SessionSummary; onMove: () =
       </div>
       {blocked ? (
         <span className="shrink-0 cursor-default text-meta text-muted" title={blocked}>
-          {session.running ? 'Open now' : "Can't move"}
+          {session.running ? (session.openInDesktop ? 'Open in the app' : 'Open now') : "Can't move"}
         </span>
       ) : (
         <Button variant="ghost" size="sm" leadingIcon={<ArrowRightLeft />} onClick={onMove}>

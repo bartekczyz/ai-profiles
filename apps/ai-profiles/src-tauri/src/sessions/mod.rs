@@ -116,15 +116,25 @@ pub(crate) fn parse_process_list(ps_output: &str) -> HashMap<i32, String> {
 struct RunningEntry {
     pid: i32,
     session_id: Option<String>,
+    entrypoint: Option<String>,
 }
 
-/// Session ids that a live `claude` process of `config_dir` has open, from the
+/// A session a live `claude` process has open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RunningSession {
+    pub session_id: String,
+    /// The process belongs to the desktop app, which keeps one running for
+    /// every Code tab session it has opened, idle or not, until it quits.
+    pub desktop: bool,
+}
+
+/// Sessions that a live `claude` process of `config_dir` has open, from the
 /// `sessions/<pid>.json` files it keeps there. A file whose pid is gone, or now
 /// belongs to something that is not Claude, is stale and ignored.
-pub(crate) fn running_session_ids(
+pub(crate) fn running_sessions(
     config_dir: &Path,
     processes: &HashMap<i32, String>,
-) -> Vec<String> {
+) -> Vec<RunningSession> {
     let Ok(entries) = fs::read_dir(config_dir.join("sessions")) else {
         return Vec::new();
     };
@@ -135,10 +145,13 @@ pub(crate) fn running_session_ids(
             let text = fs::read_to_string(entry.path()).ok()?;
             let running: RunningEntry = serde_json::from_str(&text).ok()?;
             let command = processes.get(&running.pid)?;
-            command
-                .to_lowercase()
-                .contains("claude")
-                .then_some(running.session_id)?
+            if !command.to_lowercase().contains("claude") {
+                return None;
+            }
+            Some(RunningSession {
+                session_id: running.session_id?,
+                desktop: running.entrypoint.as_deref() == Some("claude-desktop"),
+            })
         })
         .collect()
 }
@@ -165,16 +178,34 @@ mod tests {
         fs::create_dir_all(&sessions).unwrap();
         fs::write(sessions.join("10.json"), r#"{"pid":10,"sessionId":"live"}"#).unwrap();
         fs::write(
+            sessions.join("13.json"),
+            r#"{"pid":13,"sessionId":"in-app","entrypoint":"claude-desktop"}"#,
+        )
+        .unwrap();
+        fs::write(
             sessions.join("11.json"),
             r#"{"pid":11,"sessionId":"reused-pid"}"#,
         )
         .unwrap();
         fs::write(sessions.join("12.json"), r#"{"pid":12,"sessionId":"gone"}"#).unwrap();
         fs::write(sessions.join("10.abc.key"), "not json").unwrap();
-        let processes = parse_process_list("10 /Users/x/.local/bin/claude\n11 /bin/zsh\n");
+        let processes = parse_process_list(
+            "10 /Users/x/.local/bin/claude\n11 /bin/zsh\n13 /p/gui-data/claude-code/2.1/claude.app/Contents/MacOS/claude\n",
+        );
+        let mut running = running_sessions(dir.path(), &processes);
+        running.sort_by(|a, b| a.session_id.cmp(&b.session_id));
         assert_eq!(
-            running_session_ids(dir.path(), &processes),
-            vec!["live".to_string()]
+            running,
+            vec![
+                RunningSession {
+                    session_id: "in-app".to_string(),
+                    desktop: true
+                },
+                RunningSession {
+                    session_id: "live".to_string(),
+                    desktop: false
+                },
+            ]
         );
     }
 }

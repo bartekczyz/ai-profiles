@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::desktop::{self, DesktopRecord, NewRecord};
 use super::scan::{self, is_safe_name, TranscriptInfo};
-use super::{home, parse_process_list, running_session_ids, Home};
+use super::{home, parse_process_list, running_sessions, Home};
 use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
 
@@ -185,14 +185,17 @@ fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
         blockers.push(reason);
     }
     for side in [&source, &destination] {
-        if running_session_ids(&side.config_dir, &processes)
-            .iter()
-            .any(|running| running == id)
-        {
-            blockers.push(format!(
-                "The session is open in {}. Close it first.",
+        let open = running_sessions(&side.config_dir, &processes);
+        match open.iter().find(|running| running.session_id == id) {
+            Some(running) if running.desktop => blockers.push(format!(
+                "Claude ({}) has the session open. Quit it first.",
                 side.label
-            ));
+            )),
+            Some(_) => blockers.push(format!(
+                "The session is open in a terminal under {}. Close it first.",
+                side.label
+            )),
+            None => {}
         }
     }
 

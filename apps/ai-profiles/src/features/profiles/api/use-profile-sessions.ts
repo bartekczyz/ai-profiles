@@ -7,12 +7,15 @@ import { queryKeys } from '@/lib/query/keys'
 
 /**
  * The Claude sessions profile `id` keeps, newest first. Reads every
- * transcript, so it is fetched on mount and on focus rather than polled.
+ * transcript, so it is fetched on mount and when the window regains focus
+ * rather than polled: what changes it (a session started, an app quit so a
+ * session can move) happens outside ai-profiles.
  */
 export function useProfileSessions(id: string) {
   return useQuery({
     queryKey: queryKeys.sessions.list(id),
     queryFn: () => listSessions(id),
+    refetchOnWindowFocus: 'always',
   })
 }
 

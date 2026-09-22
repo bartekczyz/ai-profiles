@@ -278,6 +278,8 @@ export type SessionSummary = {
   sizeBytes: number
   /** A `claude` process has it open right now. */
   running: boolean
+  /** That process is the desktop app's, which holds it open until it quits. */
+  openInDesktop: boolean
   /** The profile's desktop app lists it. */
   inDesktop: boolean
   /** Why it can't be moved, if it can't. */

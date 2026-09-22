@@ -43,6 +43,7 @@ function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
     updatedAt: new Date().toISOString(),
     sizeBytes: 100,
     running: false,
+    openInDesktop: false,
     inDesktop: false,
     unmovableReason: null,
     ...overrides,
@@ -92,13 +93,18 @@ describe('ProfileDetailSessions', () => {
       session(),
       session({ id: 's2', title: null, lastPrompt: 'what now', running: true }),
       session({ id: 's3', title: 'Scratch', unmovableReason: 'It works in a scratch folder.' }),
+      session({ id: 's4', title: 'Desktop one', running: true, openInDesktop: true }),
     ])
     renderWithQuery(<ProfileDetailSessions profileId="work" />)
 
     expect(await screen.findByText('Fix the login bug')).toBeInTheDocument()
-    expect(screen.getAllByText(/~\/code\/app/)).toHaveLength(3)
+    expect(screen.getAllByText(/~\/code\/app/)).toHaveLength(4)
     expect(screen.getByText('what now')).toBeInTheDocument()
-    expect(screen.getByText('Open now')).toBeInTheDocument()
+    expect(screen.getByText('Open now')).toHaveAttribute('title', 'Open in a terminal. Close it to move it.')
+    expect(screen.getByText('Open in the app')).toHaveAttribute(
+      'title',
+      'The desktop app has it open. Quit the app to move it.',
+    )
     expect(screen.getByText("Can't move")).toHaveAttribute('title', 'It works in a scratch folder.')
     expect(screen.getAllByRole('button', { name: 'Move' })).toHaveLength(1)
     expect(listSessions).toHaveBeenCalledWith('work')

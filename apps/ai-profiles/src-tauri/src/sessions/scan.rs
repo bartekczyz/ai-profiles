@@ -9,7 +9,7 @@ use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 
 use super::desktop::{self, DesktopRecord};
-use super::{parse_process_list, running_session_ids, Home};
+use super::{parse_process_list, running_sessions, Home};
 use crate::error::AppResult;
 use crate::launch::process_list;
 
@@ -30,6 +30,9 @@ pub struct SessionSummary {
     pub size_bytes: u64,
     /// A `claude` process has the session open right now.
     pub running: bool,
+    /// That process is the desktop app's, which holds a session open until it
+    /// quits.
+    pub open_in_desktop: bool,
     /// The profile's desktop app lists the session.
     pub in_desktop: bool,
     /// Why the session cannot be moved, if it cannot.
@@ -167,7 +170,7 @@ pub(crate) fn unmovable_reason(home: &Home, cwd: Option<&str>) -> Option<String>
 /// out.
 pub fn list(home: &Home) -> AppResult<Vec<SessionSummary>> {
     let processes = parse_process_list(&process_list()?);
-    let running = running_session_ids(&home.config_dir, &processes);
+    let running = running_sessions(&home.config_dir, &processes);
     // A session can have an archived record and a live one; the live one wins.
     let mut records: HashMap<String, DesktopRecord> = HashMap::new();
     for record in desktop::records(&home.gui_data_dir) {
@@ -199,7 +202,10 @@ pub fn list(home: &Home) -> AppResult<Vec<SessionSummary>> {
                     .and_then(|record| record.title.clone())
                     .or_else(|| info.title()),
                 unmovable_reason: unmovable_reason(home, info.cwd.as_deref()),
-                running: running.contains(&id),
+                running: running.iter().any(|open| open.session_id == id),
+                open_in_desktop: running
+                    .iter()
+                    .any(|open| open.session_id == id && open.desktop),
                 in_desktop: record.is_some_and(|record| !record.archived),
                 cwd: info.cwd,
                 last_prompt: info.last_prompt,
