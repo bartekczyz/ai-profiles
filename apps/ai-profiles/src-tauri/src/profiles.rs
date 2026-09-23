@@ -8,7 +8,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::app_kind::{spec, AppKind};
+use crate::app_kind::{spec, AppKind, DockIconShape};
 use crate::error::{AppError, AppResult};
 use crate::paths::{
     cli_wrapper_path, ensure_app_dir, gui_launcher_path, profile_dir, profiles_json_path,
@@ -33,17 +33,33 @@ pub struct Profile {
     pub color: String,
     pub created_at: String,
     pub surfaces: Surfaces,
-    /// Whether the desktop launcher is a wrapper bundle with a Dock identity of
-    /// its own (its own icon, label and pinnable tile) rather than a script that
-    /// opens the stock app. Off unless asked for: building a wrapper re-signs a
-    /// copy of the app, and converting an existing profile costs a re-login, so
-    /// profiles saved before this field existed stay as they were.
+    /// Whether the profile's desktop app has a Dock identity of its own (its
+    /// own icon, label and pinnable tile) rather than looking like the stock
+    /// app. How it gets one is the app's [`DockIconShape`]. Off unless asked
+    /// for: building a wrapper re-signs a copy of the app, and converting an
+    /// existing profile costs a re-login, so profiles saved before this field
+    /// existed stay as they were.
+    ///
+    /// [`DockIconShape`]: crate::app_kind::DockIconShape
     #[serde(default)]
     pub distinct_dock_icon: bool,
     /// Set whenever the user opens the desktop app or copies the CLI
     /// command for this profile. `None` until the first such interaction.
     #[serde(default)]
     pub last_used_at: Option<String>,
+}
+
+impl Profile {
+    /// Whether the desktop launcher is a [wrapper](crate::launchers::wrapper).
+    pub fn uses_wrapper(&self) -> bool {
+        self.distinct_dock_icon && self.app.spec().dock_icon == DockIconShape::Wrapper
+    }
+
+    /// Whether the script launcher opens a
+    /// [signed copy](crate::launchers::signed_copy) rather than the stock app.
+    pub fn uses_signed_copy(&self) -> bool {
+        self.distinct_dock_icon && self.app.spec().dock_icon == DockIconShape::SignedCopy
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -360,6 +376,9 @@ pub fn delete(id: &str, move_to_trash: bool) -> AppResult<()> {
 
     let dir = crate::paths::profile_dir(&profile.id)?;
     if dir.exists() {
+        // Nothing but the vendor may delete inside a signed copy, so it goes to
+        // the Trash on its own first, whichever way the rest goes.
+        crate::launchers::signed_copy::discard(&profile.id)?;
         if move_to_trash {
             trash::delete(&dir).map_err(|err| {
                 AppError::Validation(format!("failed to move {} to Trash: {err}", dir.display()))
@@ -1117,6 +1136,25 @@ mod tests {
         assert!(!wrapper.exists());
         assert!(load().unwrap().is_empty());
         purge_for_test();
+    }
+
+    #[test]
+    fn a_dock_icon_is_a_signed_copy_for_claude_and_a_wrapper_for_chatgpt() {
+        let mut profile = fixture_profile("one", "One");
+        assert!(
+            !profile.uses_wrapper() && !profile.uses_signed_copy(),
+            "off"
+        );
+        profile.distinct_dock_icon = true;
+        assert!(
+            profile.uses_signed_copy() && !profile.uses_wrapper(),
+            "Claude"
+        );
+        profile.app = AppKind::Codex;
+        assert!(
+            profile.uses_wrapper() && !profile.uses_signed_copy(),
+            "ChatGPT"
+        );
     }
 
     #[test]

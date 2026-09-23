@@ -37,6 +37,19 @@ pub struct GuiBundleCandidate {
     pub macos_exec: &'static str,
 }
 
+/// How a profile gets a Dock icon of its own, when it asks for one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DockIconShape {
+    /// A clone of the vendor app re-signed on this Mac as an app in its own
+    /// right (see [`crate::launchers::wrapper`]): its own bundle id, name and
+    /// icon, but no longer the vendor's signature.
+    Wrapper,
+    /// An untouched copy of the vendor app with the profile's icon set on it
+    /// in Finder (see [`crate::launchers::signed_copy`]). It keeps the vendor's
+    /// signature, and with it everything the vendor's own services check for.
+    SignedCopy,
+}
+
 /// Static description of one managed app. All fields are `&'static str` (plus
 /// `has_usage`) so a spec lives in a `const` and is referenced without alloc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +117,8 @@ pub struct AppSpec {
     ///
     /// [`cli_config_env`]: AppSpec::cli_config_env
     pub shared_surfaces: &'static [&'static str],
+    /// How a profile with a Dock icon of its own gets it.
+    pub dock_icon: DockIconShape,
 }
 
 pub const CLAUDE: AppSpec = AppSpec {
@@ -131,6 +146,9 @@ pub const CLAUDE: AppSpec = AppSpec {
         "skills",
         "workflows",
     ],
+    // A wrapper loses Anthropic's signature, and Cowork won't attach a folder
+    // for an app without it.
+    dock_icon: DockIconShape::SignedCopy,
 };
 
 pub const CODEX: AppSpec = AppSpec {
@@ -163,6 +181,7 @@ pub const CODEX: AppSpec = AppSpec {
     has_usage: true,
     gui_auth_via_config_env: true,
     shared_surfaces: &["AGENTS.md", "rules", "skills"],
+    dock_icon: DockIconShape::Wrapper,
 };
 
 /// Borrow the static [`AppSpec`] for a kind.

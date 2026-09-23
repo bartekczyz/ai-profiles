@@ -327,10 +327,11 @@ fn check_entitlements(entitlements: &Dictionary, team_id: Option<&str>) -> Resul
     Ok(())
 }
 
-/// Clone `vendor` to `staged` with copy-on-write, so a wrapper costs almost no
-/// disk until it diverges. A plain copy would silently cost the whole app (over
-/// a gigabyte for ChatGPT) per profile, so that is refused rather than allowed.
-fn clone_bundle(vendor: &Path, staged: &Path, executable: &str) -> AppResult<()> {
+/// Clone `vendor` to `staged` with copy-on-write, so a wrapper (or a signed
+/// copy) costs almost no disk until it diverges. A plain copy would silently
+/// cost the whole app (over a gigabyte for ChatGPT) per profile, so that is
+/// refused rather than allowed.
+pub(crate) fn clone_bundle(vendor: &Path, staged: &Path, executable: &str) -> AppResult<()> {
     let directory = staged.parent().unwrap_or(Path::new("/"));
     if fs::metadata(vendor)?.dev() != fs::metadata(directory)?.dev() {
         return Err(AppError::Validation(format!(

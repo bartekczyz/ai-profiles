@@ -77,6 +77,21 @@ describe('DockIconConsentDialog', () => {
     expect(screen.getByText(cost as string).closest('td')?.cellIndex).toBe(onColumn)
   })
 
+  it('tells a signed copy apart from a wrapper by what it keeps', () => {
+    expect(appSpecs.claude.dockIcon.shape).toBe('signedCopy')
+    setup('claude')
+    expect(screen.getByText(/still signed by its developer/)).toBeInTheDocument()
+    expect(screen.queryByText(/signed on this Mac instead/)).toBeNull()
+    expect(screen.queryByText(/has to sign in again/)).toBeNull()
+  })
+
+  it('warns about a wrapper losing the signature and the sign-in', () => {
+    expect(appSpecs.codex.dockIcon.shape).toBe('wrapper')
+    setup('codex')
+    expect(screen.getByText(/signed on this Mac instead/)).toBeInTheDocument()
+    expect(screen.getByText(/has to sign in again/)).toBeInTheDocument()
+  })
+
   it('has nothing to say about a loss for an app that has none', () => {
     setup('claude')
     expect(screen.queryByText(appSpecs.codex.dockIcon.cost as string)).toBeNull()

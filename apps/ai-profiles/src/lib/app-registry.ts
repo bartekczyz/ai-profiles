@@ -38,6 +38,13 @@ export type AppUsageSpec = {
 
 export type AppDockIconSpec = {
   /**
+   * How the profile gets its Dock icon, mirroring the Rust `DockIconShape`: a
+   * `wrapper` is a copy of the app re-signed on this Mac as an app in its own
+   * right; a `signedCopy` is an untouched copy, still signed by its developer,
+   * with the profile's icon set on it in Finder.
+   */
+  shape: 'wrapper' | 'signedCopy'
+  /**
    * Whether a new profile of this app starts with its own Dock icon switched on,
    * once the user has acknowledged what that involves.
    */
@@ -106,7 +113,7 @@ const claude: AppSpec = {
     description: 'Exposes claude-{slug} in ~/.local/bin, pointed at this profile.',
     installUrl: 'https://docs.anthropic.com/en/docs/claude-code/overview',
   },
-  dockIcon: { defaultOn: true, cost: null },
+  dockIcon: { shape: 'signedCopy', defaultOn: true, cost: null },
   usage: {
     noCredentials: 'Sign in to Claude Code once with this profile to see usage.',
     unauthorized: 'Token refresh needed — run `claude` in a terminal once, then retry.',
@@ -148,7 +155,7 @@ const codex: AppSpec = {
   },
   // ChatGPT is signed with a push-notification entitlement (`aps-environment`)
   // that belongs to OpenAI's team, so the wrapper has to drop it.
-  dockIcon: { defaultOn: false, cost: "Notifications don't work for this profile." },
+  dockIcon: { shape: 'wrapper', defaultOn: false, cost: "Notifications don't work for this profile." },
   usage: {
     noCredentials: 'Sign in to ChatGPT once with this profile to see usage.',
     unauthorized: 'Token refresh needed — run `codex` in a terminal once, then retry.',

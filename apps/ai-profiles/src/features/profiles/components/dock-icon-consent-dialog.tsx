@@ -1,3 +1,4 @@
+import type { AppDockIconSpec } from '@/lib/app-registry'
 import type { AppId } from '@/lib/types'
 
 import { useState } from 'react'
@@ -34,15 +35,32 @@ type Comparison = {
 
 /**
  * What changes with a Dock icon of its own. Everything here is a consequence of
- * how it is done: the profile runs from a re-signed copy of the app, which macOS
- * sees as an app in its own right.
+ * how it is done ({@link AppDockIconSpec.shape}): a wrapper is a re-signed copy
+ * of the app, which macOS sees as an app in its own right; a signed copy is the
+ * developer's app as it is, with only its icon set on this Mac.
  */
-function comparisons(displayName: string, cost: string | null): Array<Comparison> {
+function comparisons(displayName: string, dockIcon: AppDockIconSpec): Array<Comparison> {
+  const cost = dockIcon.cost !== null ? [{ off: null, on: dockIcon.cost }] : []
+  const dock = {
+    off: `In the Dock and ⌘-Tab, every profile looks like ${displayName}.`,
+    on: 'In the Dock and ⌘-Tab, this profile has its own icon, badged with its color, and its own name.',
+  }
+  if (dockIcon.shape === 'signedCopy') {
+    return [
+      dock,
+      {
+        off: `The original ${displayName}, signed by its developer.`,
+        on: `A copy of ${displayName}, still signed by its developer. Only its icon is set on this Mac, so sign-in, permissions and passkeys work as they normally do.`,
+      },
+      ...cost,
+      {
+        off: `${displayName} updates itself, as usual.`,
+        on: `The copy updates itself, like ${displayName} does. An update resets its icon, which comes back the next time you open the profile.`,
+      },
+    ]
+  }
   return [
-    {
-      off: `In the Dock and ⌘-Tab, every profile looks like ${displayName}.`,
-      on: 'In the Dock and ⌘-Tab, this profile has its own icon, badged with its color, and its own name.',
-    },
+    dock,
     {
       off: `The original ${displayName}, signed by its developer.`,
       on: "A copy, signed on this Mac instead. macOS doesn't run its Gatekeeper checks on it, and it never leaves this Mac.",
@@ -51,7 +69,7 @@ function comparisons(displayName: string, cost: string | null): Array<Comparison
       off: 'Sign-in, permissions and passkeys work as they normally do.',
       on: 'macOS sees a different app, so the profile has to sign in again, permissions like the microphone and camera are asked for again, and passkeys may not work.',
     },
-    ...(cost !== null ? [{ off: null, on: cost }] : []),
+    ...cost,
     {
       off: `${displayName} updates itself, as usual.`,
       on: `After ${displayName} updates, opening this profile first makes a fresh copy of the new version. That takes several seconds.`,
@@ -126,7 +144,7 @@ export function DockIconConsentDialog({ open, app, onClose, onConfirm }: Props) 
       stacked
       open={open}
       title={onConfirm === undefined ? 'A Dock icon of its own' : 'Give this profile its own Dock icon?'}
-      description={`ai-profiles makes a copy of ${displayName} for this profile, using almost no extra disk space. You can turn it off again in Edit profile, which deletes the copy and goes back to the regular app. Your data stays where it is either way.`}
+      description={`ai-profiles makes a copy of ${displayName} for this profile, using almost no extra disk space${dockIcon.shape === 'signedCopy' ? ' until the copy updates' : ''}. You can turn it off again in Edit profile, which deletes the copy and goes back to the regular app. Your data stays where it is either way.`}
       className="w-[min(780px,calc(100%-64px))]"
       onClose={onClose}
       onSubmit={onConfirm === undefined ? onClose : handleConfirm}
@@ -153,7 +171,7 @@ export function DockIconConsentDialog({ open, app, onClose, onConfirm }: Props) 
         )
       }
     >
-      <ComparisonTable rows={comparisons(displayName, dockIcon.cost)} />
+      <ComparisonTable rows={comparisons(displayName, dockIcon)} />
     </Dialog>
   )
 }

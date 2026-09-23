@@ -3,9 +3,11 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::app_kind::AppSpec;
+#[cfg(doc)]
+use crate::app_kind::DockIconShape;
 use crate::error::{AppError, AppResult};
 use crate::launchers::wrapper::{self, WrapperRequest};
-use crate::launchers::{icons, plist, script};
+use crate::launchers::{icons, plist, script, signed_copy};
 use crate::paths::{
     cli_config_dir, gui_launcher_path, gui_launcher_path_with_prefix, profile_dir, resolve_gui_app,
     ResolvedGuiApp,
@@ -14,8 +16,9 @@ use crate::profiles::Profile;
 
 /// Build the launcher .app bundle for `profile` at
 /// `/Applications/<App> (<Name>).app/`, in the shape the profile asks for: a
-/// script that opens the stock app, or, with `distinct_dock_icon`, a wrapper
-/// that is an app in its own right and so gets a Dock tile of its own.
+/// script that opens the stock app, or, with `distinct_dock_icon`, one that
+/// gets a Dock tile of its own the app's way ([`DockIconShape`]): a wrapper
+/// that is an app in its own right, or a script that opens a signed copy.
 /// Idempotent: if the bundle already exists it's torn down and rebuilt.
 /// Returns the path to the generated .app.
 pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
@@ -24,7 +27,7 @@ pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
         .ok_or_else(|| AppError::Validation(format!("{} isn't installed", spec.display_name)))?;
     let bundle = gui_launcher_path(&profile.name, spec);
 
-    if profile.distinct_dock_icon {
+    if profile.uses_wrapper() {
         build_wrapper(profile, version, &resolved_gui_app, &bundle)?;
     } else {
         build_script_launcher(profile, version, &resolved_gui_app, &bundle)?;
@@ -46,7 +49,8 @@ pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
 }
 
 /// The shape every profile has had until now: a tiny bundle whose executable
-/// is a script that opens the stock app with the profile's `--user-data-dir`.
+/// is a script that opens the stock app with the profile's `--user-data-dir`,
+/// or, for a profile with a signed copy, that copy.
 fn build_script_launcher(
     profile: &Profile,
     version: &str,
@@ -54,6 +58,16 @@ fn build_script_launcher(
     bundle: &Path,
 ) -> AppResult<()> {
     let spec = profile.app.spec();
+    let icns_bytes = icons::render_icns(&profile.color, &app.bundle_path)?;
+    // Before the old launcher goes, so a copy that can't be made leaves it be.
+    let copy = if profile.uses_signed_copy() {
+        Some(signed_copy::ensure(profile, &app.bundle_path, &icns_bytes)?)
+    } else {
+        // Best effort: a copy the profile no longer asks for is only taking up
+        // disk.
+        let _ = signed_copy::remove(&profile.id);
+        None
+    };
     if bundle.exists() {
         fs::remove_dir_all(bundle).map_err(|err| {
             AppError::Io(std::io::Error::new(
@@ -75,15 +89,28 @@ fn build_script_launcher(
     let plist_bytes = plist::info_plist(profile, version)?;
     fs::write(contents.join("Info.plist"), plist_bytes)?;
 
-    let script_text =
-        script::launcher_script(&profile.id, spec, &app.bundle_path.display().to_string());
+    // Where the launcher sends a copy it can't open as it is, recorded for the
+    // same reason a wrapper records it.
+    let host_binary = std::env::current_exe()
+        .map_err(AppError::Io)?
+        .display()
+        .to_string();
+    let signed = copy.as_ref().map(|_| script::SignedCopy {
+        color: &profile.color,
+        host_binary: &host_binary,
+    });
+    let script_text = script::launcher_script(
+        &profile.id,
+        spec,
+        &app.bundle_path.display().to_string(),
+        signed.as_ref(),
+    );
     let launcher_path = macos.join("launcher");
     fs::write(&launcher_path, script_text)?;
     let mut perms = fs::metadata(&launcher_path)?.permissions();
     perms.set_mode(0o755);
     fs::set_permissions(&launcher_path, perms)?;
 
-    let icns_bytes = icons::render_icns(&profile.color, &app.bundle_path)?;
     fs::write(resources.join("AppIcon.icns"), icns_bytes)?;
     Ok(())
 }
@@ -446,8 +473,106 @@ mod tests {
         assert_eq!(hidden_leftovers(dir.path()), Vec::<String>::new());
     }
 
+    /// Opt-in: builds a real signed copy of the installed Claude and checks
+    /// that it keeps Anthropic's signature, carries the profile's icon, is what
+    /// the launcher opens, and goes away when the setting is turned off. Gated
+    /// behind AI_PROFILES_E2E=1 because it writes to /Applications.
+    #[test]
+    fn a_claude_profiles_dock_icon_is_a_signed_copy_that_goes_when_turned_off() {
+        if std::env::var("AI_PROFILES_E2E").is_err() {
+            eprintln!("skipping; set AI_PROFILES_E2E=1 to run");
+            return;
+        }
+        let mut profile = fixture();
+        profile.name = "SignedCopyTest".into();
+        let spec = profile.app.spec();
+        if resolve_gui_app(spec).is_none() {
+            eprintln!("Claude not installed; skipping");
+            return;
+        }
+        let launcher = |bundle: &Path| fs::read_to_string(bundle.join("Contents/MacOS/launcher"));
+
+        profile.distinct_dock_icon = true;
+        let bundle = generate(&profile, "0.1.0").unwrap();
+        let script = launcher(&bundle).unwrap();
+        assert!(script.contains("app.noindex"), "opens the copy: {script}");
+        let copy = signed_copy::path(&profile).unwrap();
+        assert!(copy.join("Icon\r").exists(), "carries the profile's icon");
+        let verified = std::process::Command::new("codesign")
+            .args([
+                "-v",
+                "-R=anchor apple generic and certificate leaf[subject.OU] = \"Q6L2SF6YDW\"",
+            ])
+            .arg(&copy)
+            .status()
+            .unwrap();
+        assert!(verified.success(), "still signed by Anthropic");
+
+        // Building again keeps the copy rather than cloning it afresh.
+        let inode = |path: &Path| std::os::unix::fs::MetadataExt::ino(&fs::metadata(path).unwrap());
+        let before = inode(&copy.join("Contents/Info.plist"));
+        generate(&profile, "0.1.0").unwrap();
+        assert_eq!(inode(&copy.join("Contents/Info.plist")), before);
+
+        // A new color can't be painted onto the copy, so it is replaced.
+        profile.color = "#16A34A".into();
+        generate(&profile, "0.1.0").unwrap();
+        assert_ne!(
+            inode(&copy.join("Contents/Info.plist")),
+            before,
+            "a fresh clone"
+        );
+        let key = signed_copy::dir(&profile.id)
+            .unwrap()
+            .join(signed_copy::ICON_KEY_FILE);
+        assert_eq!(fs::read_to_string(key).unwrap(), "#16A34A");
+        assert!(copy.join("Icon\r").exists());
+        let script = launcher(&bundle).unwrap();
+        assert!(
+            script.contains("#16A34A"),
+            "the launcher expects the new color"
+        );
+
+        // An update of the copy that the stock app hasn't had: a newer version,
+        // and no icon. The fresh clone is of the copy, so the update stays.
+        fs::remove_file(copy.join("Icon\r")).unwrap();
+        let info_path = copy.join("Contents/Info.plist");
+        let mut info = ::plist::Value::from_file(&info_path)
+            .unwrap()
+            .into_dictionary()
+            .unwrap();
+        info.insert("CFBundleVersion".into(), "999.0".into());
+        ::plist::Value::Dictionary(info)
+            .to_file_xml(&info_path)
+            .unwrap();
+        generate(&profile, "0.1.0").unwrap();
+        assert!(copy.join("Icon\r").exists(), "the icon is back");
+        assert_eq!(wrapper::bundle_version(&copy).as_deref(), Some("999.0"));
+
+        let syntax = std::process::Command::new("bash")
+            .arg("-n")
+            .arg(bundle.join("Contents/MacOS/launcher"))
+            .status()
+            .unwrap();
+        assert!(syntax.success(), "{script}");
+
+        profile.distinct_dock_icon = false;
+        generate(&profile, "0.1.0").unwrap();
+        assert!(
+            !launcher(&bundle).unwrap().contains("COPY"),
+            "the stock app again"
+        );
+        assert!(
+            !signed_copy::dir(&profile.id).unwrap().exists(),
+            "copy removed"
+        );
+
+        remove(&profile.name, spec).unwrap();
+        assert!(!bundle.exists());
+    }
+
     /// Opt-in: builds real wrappers under /Applications from the installed
-    /// Claude and checks that toggling swaps the launcher's shape and that a
+    /// ChatGPT and checks that toggling swaps the launcher's shape and that a
     /// rebuild brings a wrapper from an older vendor version up to date. Gated
     /// behind AI_PROFILES_E2E=1 because it writes to /Applications and signs a
     /// gigabyte or so.
@@ -459,17 +584,19 @@ mod tests {
             return;
         }
         let mut profile = fixture();
+        profile.app = crate::app_kind::AppKind::Codex;
         profile.name = "PhaseFiveTest".into();
         let spec = profile.app.spec();
         let Some(vendor) = resolve_gui_app(spec) else {
-            eprintln!("Claude not installed; skipping");
+            eprintln!("ChatGPT not installed; skipping");
             return;
         };
+        let exec = format!("{}.bin", vendor.macos_exec);
         let macos = |bundle: &Path, file: &str| bundle.join("Contents/MacOS").join(file);
 
         profile.distinct_dock_icon = true;
         let bundle = generate(&profile, "0.1.0").unwrap();
-        assert!(macos(&bundle, "Claude.bin").is_file(), "a wrapper");
+        assert!(macos(&bundle, &exec).is_file(), "a wrapper");
         assert!(!macos(&bundle, "launcher").exists());
         assert_eq!(
             wrapper::built_from_version(&bundle),
@@ -481,11 +608,11 @@ mod tests {
         profile.distinct_dock_icon = false;
         generate(&profile, "0.1.0").unwrap();
         assert!(macos(&bundle, "launcher").is_file(), "back to the script");
-        assert!(!macos(&bundle, "Claude.bin").exists());
+        assert!(!macos(&bundle, &exec).exists());
 
         profile.distinct_dock_icon = true;
         generate(&profile, "0.1.0").unwrap();
-        assert!(macos(&bundle, "Claude.bin").is_file(), "a wrapper again");
+        assert!(macos(&bundle, &exec).is_file(), "a wrapper again");
 
         // Pretend the vendor updated since: the wrapper claims an older build.
         let info_path = bundle.join("Contents/Info.plist");

@@ -4,6 +4,7 @@ pub mod icons;
 pub mod plist;
 pub mod script;
 pub mod shim;
+pub mod signed_copy;
 #[cfg(target_os = "macos")]
 mod system_icon;
 pub mod wrapper;

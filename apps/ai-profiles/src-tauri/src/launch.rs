@@ -23,8 +23,8 @@ use profile_shim::VENDOR_BINARY_SUFFIX;
 
 use crate::app_kind::AppSpec;
 use crate::error::{AppError, AppResult};
-use crate::launchers::gui;
 use crate::launchers::wrapper::{self, WrapperState};
+use crate::launchers::{gui, signed_copy};
 use crate::paths::{
     cli_config_dir, gui_launcher_path, profile_dir, resolve_gui_app, ResolvedGuiApp,
 };
@@ -92,7 +92,7 @@ fn first_pid_ending_with(ps_output: &str, suffixes: &[String]) -> Option<i32> {
 }
 
 /// Every running process, one `pid command` line each.
-fn process_list() -> AppResult<String> {
+pub(crate) fn process_list() -> AppResult<String> {
     let output = Command::new("ps")
         .args(["-ax", "-o", "pid=,command="])
         .output()
@@ -219,11 +219,20 @@ pub fn open_new_instance(
 ) -> AppResult<()> {
     let resolved = crate::paths::resolve_gui_app(spec)
         .ok_or_else(|| AppError::Validation(format!("{} isn't installed", spec.display_name)))?;
+    open_instance_of(&resolved.bundle_path, data_dir, config_env)
+}
+
+/// As [`open_new_instance`], of the app at `bundle` rather than the stock one.
+fn open_instance_of(
+    bundle: &Path,
+    data_dir: &str,
+    config_env: Option<(&str, &Path)>,
+) -> AppResult<()> {
     let mut command = Command::new("open");
     command
         .arg("-n")
         .arg("-a")
-        .arg(&resolved.bundle_path)
+        .arg(bundle)
         .arg("--args")
         .arg(format!("--user-data-dir={data_dir}"));
     if let Some((name, value)) = config_env {
@@ -233,7 +242,7 @@ pub fn open_new_instance(
     if !status.success() {
         return Err(AppError::Validation(format!(
             "`open -n -a {} --args --user-data-dir={data_dir}` exited with status {status}",
-            resolved.bundle_path.display()
+            bundle.display()
         )));
     }
     Ok(())
@@ -270,10 +279,10 @@ pub enum Route {
     RebuildWrapper,
 }
 
-/// Pure: the launcher to start `distinct_dock_icon`'s profile with, given where
-/// its wrapper stands.
-pub fn route(distinct_dock_icon: bool, wrapper: WrapperState) -> Route {
-    match (distinct_dock_icon, wrapper) {
+/// Pure: the launcher to start a profile with, given whether it has a wrapper
+/// (`uses_wrapper`) and where that stands.
+pub fn route(uses_wrapper: bool, wrapper: WrapperState) -> Route {
+    match (uses_wrapper, wrapper) {
         (false, _) => Route::ScriptLauncher,
         (true, WrapperState::Current) => Route::Wrapper,
         (true, WrapperState::Missing | WrapperState::Stale) => Route::RebuildWrapper,
@@ -520,8 +529,8 @@ fn rebuild_did_not_take(state: WrapperState) -> Option<&'static str> {
 /// Start a profile's app: through its wrapper if it has one, through the stock
 /// app if that does not work out. Returns why the wrapper was bypassed, if it
 /// was. Fails only if the stock app cannot be started either.
-fn launch_with<E: Effects>(distinct_dock_icon: bool, effects: &mut E) -> AppResult<Option<Bypass>> {
-    let wrapped = match route(distinct_dock_icon, effects.wrapper_state()) {
+fn launch_with<E: Effects>(uses_wrapper: bool, effects: &mut E) -> AppResult<Option<Bypass>> {
+    let wrapped = match route(uses_wrapper, effects.wrapper_state()) {
         Route::ScriptLauncher => return effects.open_script_launcher().map(|()| None),
         Route::Wrapper => effects.open_wrapper(),
         Route::RebuildWrapper => match effects.rebuild_wrapper() {
@@ -567,7 +576,25 @@ impl Effects for ProfileLaunch<'_> {
     }
 
     fn open_script_launcher(&mut self) -> AppResult<()> {
-        open_bundle(&self.launcher)?;
+        // A signed copy is opened here rather than through the launcher: the
+        // launcher hands a copy it finds stale back to ai-profiles, and one that
+        // couldn't be replaced just now would come straight back.
+        let copy = self
+            .profile
+            .uses_signed_copy()
+            .then(|| signed_copy::find(&self.profile.id))
+            .flatten();
+        match copy {
+            Some(copy) => {
+                let config_home = cli_config_dir(&self.profile.id)?;
+                open_instance_of(
+                    &copy,
+                    self.data_dir,
+                    Some((self.spec.cli_config_env, config_home.as_path())),
+                )?;
+            }
+            None => open_bundle(&self.launcher)?,
+        }
         // The launcher only shells out again, so `open` returning says nothing
         // about the app being up. Without this the caller is told the launch is
         // over before there is a window, and a profile with a script launcher
@@ -635,7 +662,12 @@ pub fn open_profile(
     };
     let mut bypass = None;
     focus_or_launch(&data_dir, spec, focus, || {
-        bypass = launch_with(profile.distinct_dock_icon, &mut effects)?;
+        // A copy whose icon an update took, or that has the icon of an old
+        // color, is replaced before it is opened, now that it isn't running.
+        if profile.uses_signed_copy() && signed_copy::wanting(profile) {
+            gui::generate(profile, version)?;
+        }
+        bypass = launch_with(profile.uses_wrapper(), &mut effects)?;
         Ok(())
     })?;
     Ok(bypass)
