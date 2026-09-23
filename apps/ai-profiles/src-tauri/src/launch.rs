@@ -203,10 +203,12 @@ where
 /// directly. Used by the default entry, which has no launcher bundle of its
 /// own, and as the stock way of starting a profile whose wrapper cannot be used.
 ///
-/// `config_env` is an env var to start the app with, for apps that read their
-/// account from one rather than from `--user-data-dir` (Codex: `CODEX_HOME`);
-/// without it such a profile would open the stock account. `open` hands its
-/// environment on to the app it starts.
+/// `config_env` is the profile's config home to start the app with
+/// ([`AppSpec::cli_config_env`] at its `cli-config` dir): Codex reads its
+/// account from it and Claude's Code tab its config and history, so without it
+/// a profile would open on the stock ones. `None` for the default entry, which
+/// is the stock app on its own home. `open` hands its environment on to the app
+/// it starts.
 ///
 /// Launches by resolved absolute bundle path rather than a registered app
 /// name, so it keeps working across a bundle rename (as happened when OpenAI
@@ -597,11 +599,11 @@ impl Effects for ProfileLaunch<'_> {
 
     fn open_stock(&mut self) -> AppResult<()> {
         let config_home = cli_config_dir(&self.profile.id)?;
-        let config_env = self
-            .spec
-            .gui_auth_via_config_env
-            .then_some((self.spec.cli_config_env, config_home.as_path()));
-        open_new_instance(self.data_dir, self.spec, config_env)
+        open_new_instance(
+            self.data_dir,
+            self.spec,
+            Some((self.spec.cli_config_env, config_home.as_path())),
+        )
     }
 }
 

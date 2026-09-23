@@ -1,6 +1,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 
 use crate::app_kind::AppSpec;
 use crate::error::{AppError, AppResult};
@@ -8,9 +9,16 @@ use crate::launchers::wrapper::{self, WrapperRequest};
 use crate::launchers::{icons, plist, script};
 use crate::paths::{
     cli_config_dir, gui_launcher_path, gui_launcher_path_with_prefix, profile_dir, resolve_gui_app,
-    ResolvedGuiApp,
+    stock_cli_config_dir, ResolvedGuiApp,
 };
 use crate::profiles::Profile;
+use crate::shared_config::link_shared_surfaces;
+
+/// Launchers are built one at a time in this process. The refresh at startup
+/// ([`refresh_outdated`]) runs beside the window, and opening or editing a
+/// profile can ask for the same launcher meanwhile: two builds of one bundle
+/// would trip over each other's staging and parking.
+static BUILDING: Mutex<()> = Mutex::new(());
 
 /// Build the launcher .app bundle for `profile` at
 /// `/Applications/<App> (<Name>).app/`, in the shape the profile asks for: a
@@ -19,6 +27,7 @@ use crate::profiles::Profile;
 /// Idempotent: if the bundle already exists it's torn down and rebuilt.
 /// Returns the path to the generated .app.
 pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
+    let _building = BUILDING.lock().unwrap_or_else(PoisonError::into_inner);
     let spec = profile.app.spec();
     let resolved_gui_app = resolve_gui_app(spec)
         .ok_or_else(|| AppError::Validation(format!("{} isn't installed", spec.display_name)))?;
@@ -29,6 +38,15 @@ pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
     } else {
         build_script_launcher(profile, version, &resolved_gui_app, &bundle)?;
     }
+
+    // The desktop app's agent reads the profile's config home, so give it the
+    // same inherited skills, agents and instructions the CLI wrapper gets.
+    // Best-effort, like the wrapper's own linking.
+    link_shared_surfaces(
+        &stock_cli_config_dir(spec)?,
+        &cli_config_dir(&profile.id)?,
+        spec,
+    );
 
     // Best-effort: clean up a bundle generated under a prefix this app used
     // before a rename (e.g. Codex's launcher_prefix moving from "Codex" to
@@ -43,6 +61,76 @@ pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
     }
 
     Ok(bundle)
+}
+
+/// Whether the launcher at `bundle` needs building again for ai-profiles
+/// `version`: another version of this app built it, or it is not the shape the
+/// profile asks for. A script launcher records the version that built it as its
+/// `CFBundleVersion`, a wrapper under its own key (its `CFBundleVersion` is the
+/// vendor's). A missing bundle, or one that is not ours, is left alone: there is
+/// nothing of ours there to bring up to date.
+pub fn outdated(profile: &Profile, bundle: &Path, version: &str) -> bool {
+    if !bundle.exists() || !is_ours(bundle) {
+        return false;
+    }
+    let Some(info) = ::plist::Value::from_file(bundle.join("Contents/Info.plist"))
+        .ok()
+        .and_then(::plist::Value::into_dictionary)
+    else {
+        // Ours but without a readable Info.plist: an interrupted build.
+        return true;
+    };
+    let text = |key: &str| info.get(key).and_then(::plist::Value::as_string);
+    let script = text("CFBundleExecutable") == Some("launcher");
+    if script == profile.distinct_dock_icon {
+        return true;
+    }
+    let built_by = if script {
+        text("CFBundleVersion")
+    } else {
+        text(wrapper::BUILT_BY_KEY)
+    };
+    built_by != Some(version)
+}
+
+/// Build again, once, every desktop launcher another ai-profiles version built.
+/// Called when the app starts; returns each profile rebuilt or skipped, by id,
+/// with how it went.
+///
+/// What a launcher does is this app's to decide (which config home it exports,
+/// what its shim does), and a launcher only takes that on when it is built.
+/// Left to themselves, profiles would switch whenever each next happened to be
+/// rebuilt: on an edit, on a vendor update, or not at all. Doing it here puts
+/// every profile on the new behaviour at the same point, the first start after
+/// an upgrade, which a release note can name.
+///
+/// A wrapper that is running is skipped: replacing the bundle a running app is
+/// using breaks it. It stays outdated, so the next start tries again, and
+/// opening the profile from ai-profiles rebuilds it first (see
+/// [`wrapper::state`]).
+pub fn refresh_outdated(profiles: &[Profile], version: &str) -> Vec<(String, AppResult<()>)> {
+    profiles
+        .iter()
+        .filter(|profile| profile.surfaces.gui)
+        .filter(|profile| {
+            outdated(
+                profile,
+                &gui_launcher_path(&profile.name, profile.app.spec()),
+                version,
+            )
+        })
+        .map(|profile| {
+            let result = match crate::launch::running_wrapper(profile) {
+                Ok(Some(_)) => Err(AppError::Validation(format!(
+                    "{} is running, so its launcher is left until it is next opened",
+                    profile.name
+                ))),
+                Ok(None) => generate(profile, version).map(|_| ()),
+                Err(err) => Err(err),
+            };
+            (profile.id.clone(), result)
+        })
+        .collect()
 }
 
 /// The shape every profile has had until now: a tiny bundle whose executable
@@ -119,9 +207,7 @@ fn build_wrapper(
         profile_id: &profile.id,
         host_binary: &host_binary,
         built_by: version,
-        config_env: spec
-            .gui_auth_via_config_env
-            .then_some((spec.cli_config_env, config_home.as_path())),
+        config_env: (spec.cli_config_env, config_home.as_path()),
     });
 
     match (built, parked) {
@@ -255,6 +341,178 @@ mod tests {
         assert_eq!(mode & 0o111, 0o111);
 
         remove(&profile.name, profile.app.spec()).unwrap();
+    }
+
+    /// Opt-in, like the test above. A Claude profile with only the desktop app
+    /// (no CLI wrapper to link them) still gets the stock config's shared
+    /// surfaces in its config home, since its Code tab reads that home now.
+    #[test]
+    fn generate_links_the_shared_surfaces_for_a_desktop_only_claude_profile() {
+        if std::env::var("AI_PROFILES_E2E").is_err() {
+            eprintln!("skipping; set AI_PROFILES_E2E=1 to run");
+            return;
+        }
+        let _guard = crate::test_support::APP_DIR_TEST_LOCK.lock().unwrap();
+        let profile = Profile {
+            id: "deadbeef-0000-0000-0000-000000000002".into(),
+            name: "SharedSurfacesTest".into(),
+            slug: "sharedsurfacestest".into(),
+            ..fixture()
+        };
+        assert!(profile.surfaces.gui && !profile.surfaces.cli);
+        let spec = profile.app.spec();
+        let stock = stock_cli_config_dir(spec).unwrap();
+        let config = cli_config_dir(&profile.id).unwrap();
+        let _ = fs::remove_dir_all(&config);
+
+        generate(&profile, "0.1.0").unwrap();
+
+        let mut linked = 0;
+        for surface in spec.shared_surfaces {
+            if !stock.join(surface).exists() {
+                continue;
+            }
+            let link = config.join(surface);
+            assert_eq!(
+                fs::read_link(&link).ok().as_deref(),
+                Some(stock.join(surface).as_path()),
+                "{surface} is linked to the stock config"
+            );
+            linked += 1;
+        }
+        eprintln!("{linked} shared surfaces linked");
+        remove(&profile.name, spec).unwrap();
+        let _ = fs::remove_dir_all(&config);
+    }
+
+    /// Opt-in, like the tests above: an upgrade rebuilds a launcher an earlier
+    /// version built, once.
+    #[test]
+    fn refresh_rebuilds_a_launcher_an_earlier_version_built_once() {
+        if std::env::var("AI_PROFILES_E2E").is_err() {
+            eprintln!("skipping; set AI_PROFILES_E2E=1 to run");
+            return;
+        }
+        let profile = Profile {
+            id: "deadbeef-0000-0000-0000-000000000003".into(),
+            name: "RefreshTest".into(),
+            slug: "refreshtest".into(),
+            ..fixture()
+        };
+        let bundle = generate(&profile, "0.1.0").unwrap();
+        let refreshed = refresh_outdated(std::slice::from_ref(&profile), "0.2.0");
+        assert_eq!(refreshed.len(), 1);
+        assert!(refreshed[0].1.is_ok(), "{:?}", refreshed[0].1);
+        assert!(!outdated(&profile, &bundle, "0.2.0"));
+        assert!(refresh_outdated(std::slice::from_ref(&profile), "0.2.0").is_empty());
+        remove(&profile.name, profile.app.spec()).unwrap();
+    }
+
+    /// A launcher-shaped bundle at `dir/name`, its Info.plist holding `keys`.
+    fn launcher_bundle(dir: &Path, name: &str, keys: &[(&str, &str)]) -> PathBuf {
+        let bundle = dir.join(name);
+        fs::create_dir_all(bundle.join("Contents")).unwrap();
+        let info: ::plist::Dictionary = keys
+            .iter()
+            .map(|(key, value)| {
+                (
+                    (*key).to_owned(),
+                    ::plist::Value::String((*value).to_owned()),
+                )
+            })
+            .collect();
+        ::plist::Value::Dictionary(info)
+            .to_file_xml(bundle.join("Contents/Info.plist"))
+            .unwrap();
+        bundle
+    }
+
+    #[test]
+    fn a_launcher_another_version_built_is_outdated() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = fixture();
+        let ours = plist::bundle_identifier(&profile);
+        let script = launcher_bundle(
+            dir.path(),
+            "Script.app",
+            &[
+                ("CFBundleIdentifier", &ours),
+                ("CFBundleExecutable", "launcher"),
+                ("CFBundleVersion", "1.3.0"),
+            ],
+        );
+        assert!(!outdated(&profile, &script, "1.3.0"));
+        assert!(outdated(&profile, &script, "1.4.0"));
+
+        let wrapped = Profile {
+            distinct_dock_icon: true,
+            ..fixture()
+        };
+        let wrapper = launcher_bundle(
+            dir.path(),
+            "Wrapper.app",
+            &[
+                ("CFBundleIdentifier", &ours),
+                ("CFBundleExecutable", "Claude"),
+                // The vendor's version: not what decides it.
+                ("CFBundleVersion", "2.2553.13"),
+                (wrapper::BUILT_BY_KEY, "1.3.0"),
+            ],
+        );
+        assert!(!outdated(&wrapped, &wrapper, "1.3.0"));
+        assert!(outdated(&wrapped, &wrapper, "1.4.0"));
+        let unrecorded = launcher_bundle(
+            dir.path(),
+            "Old wrapper.app",
+            &[
+                ("CFBundleIdentifier", &ours),
+                ("CFBundleExecutable", "Claude"),
+            ],
+        );
+        assert!(
+            outdated(&wrapped, &unrecorded, "1.3.0"),
+            "built before it was recorded"
+        );
+    }
+
+    #[test]
+    fn a_launcher_of_the_other_shape_is_outdated_and_others_are_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = fixture();
+        let ours = plist::bundle_identifier(&profile);
+        let script = launcher_bundle(
+            dir.path(),
+            "Script.app",
+            &[
+                ("CFBundleIdentifier", &ours),
+                ("CFBundleExecutable", "launcher"),
+                ("CFBundleVersion", "1.3.0"),
+            ],
+        );
+        let wants_wrapper = Profile {
+            distinct_dock_icon: true,
+            ..fixture()
+        };
+        assert!(outdated(&wants_wrapper, &script, "1.3.0"));
+
+        assert!(!outdated(
+            &profile,
+            &dir.path().join("Missing.app"),
+            "1.3.0"
+        ));
+        let foreign = launcher_bundle(
+            dir.path(),
+            "Foreign.app",
+            &[
+                ("CFBundleIdentifier", "com.example.claude"),
+                ("CFBundleExecutable", "launcher"),
+                ("CFBundleVersion", "0.0.1"),
+            ],
+        );
+        assert!(
+            !outdated(&profile, &foreign, "1.3.0"),
+            "not ours to rebuild"
+        );
     }
 
     /// Opt-in: requires ChatGPT.app installed (so `generate` resolves a GUI

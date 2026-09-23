@@ -47,7 +47,7 @@ pub struct Patch<'a> {
     /// what a wrapper contains reaches the ones already on disk.
     pub built_by: &'a str,
     /// `(name, value)` env var the shim sets before starting the vendor binary.
-    pub config_env: Option<(&'a str, &'a str)>,
+    pub config_env: (&'a str, &'a str),
 }
 
 /// The vendor's `Info.plist` turned into the wrapper's.
@@ -75,10 +75,9 @@ pub fn patch(vendor: &Dictionary, patch: &Patch<'_>) -> AppResult<Dictionary> {
     info.insert("CFBundleIconFile".into(), string(patch.icon_file));
 
     info.insert(USER_DATA_DIR_KEY.into(), string(patch.user_data_dir));
-    if let Some((name, value)) = patch.config_env {
-        info.insert(CONFIG_ENV_NAME_KEY.into(), string(name));
-        info.insert(CONFIG_ENV_VALUE_KEY.into(), string(value));
-    }
+    let (name, value) = patch.config_env;
+    info.insert(CONFIG_ENV_NAME_KEY.into(), string(name));
+    info.insert(CONFIG_ENV_VALUE_KEY.into(), string(value));
     info.insert(VENDOR_VERSION_KEY.into(), Value::String(vendor_version));
 
     // What the shim needs to have this wrapper rebuilt when the version above
@@ -174,7 +173,7 @@ mod tests {
             vendor_bundle: "/Applications/Claude.app",
             host_binary: "/Applications/ai-profiles.app/Contents/MacOS/ai-profiles",
             built_by: "1.3.0",
-            config_env: None,
+            config_env: ("CLAUDE_CONFIG_DIR", "/data/cli-config"),
         }
     }
 
@@ -241,16 +240,10 @@ mod tests {
         let info = patch(&vendor(), &request()).unwrap();
 
         assert_eq!(info.get(USER_DATA_DIR_KEY), Some(&string("/data/gui-data")));
-        assert!(!info.contains_key(CONFIG_ENV_NAME_KEY));
-        assert!(!info.contains_key(CONFIG_ENV_VALUE_KEY));
-
-        let with_env = Patch {
-            config_env: Some(("CODEX_HOME", "/data/cli-config")),
-            ..request()
-        };
-        let info = patch(&vendor(), &with_env).unwrap();
-
-        assert_eq!(info.get(CONFIG_ENV_NAME_KEY), Some(&string("CODEX_HOME")));
+        assert_eq!(
+            info.get(CONFIG_ENV_NAME_KEY),
+            Some(&string("CLAUDE_CONFIG_DIR"))
+        );
         assert_eq!(
             info.get(CONFIG_ENV_VALUE_KEY),
             Some(&string("/data/cli-config"))
