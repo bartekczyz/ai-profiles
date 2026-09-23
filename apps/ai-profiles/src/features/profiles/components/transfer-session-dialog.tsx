@@ -321,12 +321,12 @@ function AfterwardsChoice({
   const options: Array<{ value: Afterwards; label: string; hint: string }> = [
     {
       value: 'archive',
-      label: size === null ? 'Archive it' : `Archive it, keeping ${size}`,
+      label: size === null ? 'Archive it' : `Archive it (${size})`,
       hint: 'Only one profile lists it. Its transcript is kept in session-transfer-backups, and can be restored.',
     },
     {
       value: 'delete',
-      label: size === null ? 'Delete it' : `Delete it, freeing ${size}`,
+      label: 'Delete it',
       hint: "Only once the moved copy is checked to be identical. Can't be undone. Plan files and project memory stay.",
     },
     { value: 'keep', label: 'Keep it', hint: 'Both profiles list it.' },
@@ -376,9 +376,7 @@ function ReportBody({ report, destinationLabel }: { report: TransferReport; dest
           The original went to <code className="font-mono text-mono">{shortenHomePath(report.archivedTo)}</code>.
         </p>
       ) : null}
-      {report.freedBytes !== null ? (
-        <p className="text-meta text-muted">The original was deleted, freeing {formatBytes(report.freedBytes)}.</p>
-      ) : null}
+      {report.freedBytes !== null ? <p className="text-meta text-muted">The original was deleted.</p> : null}
       {report.deleteError ? (
         <p role="alert" className="text-meta text-amber">
           {report.deleteError}

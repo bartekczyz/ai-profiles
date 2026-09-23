@@ -181,8 +181,8 @@ describe('ProfileDetailSessions', () => {
 
     await user.selectOptions(within(dialog).getByRole('combobox'), 'personal')
     const afterwards = within(dialog).getByRole('group', { name: /The copy in Work/ })
-    // Archiving stays the default: it can be undone, and keeps what deleting frees.
-    expect(await within(afterwards).findByRole('radio', { name: /Archive it, keeping 2.0 KB/ })).toBeChecked()
+    // Archiving stays the default: it can be undone, and says what it keeps.
+    expect(await within(afterwards).findByRole('radio', { name: /Archive it \(2.0 KB\)/ })).toBeChecked()
     expect(within(dialog).queryByRole('checkbox', { name: /desktop app/ })).toBeNull()
     expect(await within(dialog).findByText("Personal's desktop app will list it too.")).toBeInTheDocument()
     await user.click(within(afterwards).getByRole('radio', { name: /Keep it/ }))
@@ -226,7 +226,7 @@ describe('ProfileDetailSessions', () => {
 
     await user.selectOptions(within(dialog).getByRole('combobox'), 'personal')
     const afterwards = within(dialog).getByRole('group', { name: /The copy in Work/ })
-    await user.click(await within(afterwards).findByRole('radio', { name: /Delete it, freeing 166 MB/ }))
+    await user.click(await within(afterwards).findByRole('radio', { name: /^Delete it/ }))
     await within(dialog).findByText('Files: 2 to copy.')
     await user.click(within(dialog).getByRole('button', { name: /^Move/ }))
 
@@ -236,7 +236,7 @@ describe('ProfileDetailSessions', () => {
       ),
     )
     const done = await screen.findByRole('dialog', { name: 'Session moved' })
-    expect(within(done).getByText(/The original was deleted, freeing 166 MB/)).toBeInTheDocument()
+    expect(within(done).getByText('The original was deleted.')).toBeInTheDocument()
   })
 
   it('brings a session left in the Default folder into the profile, with nothing to choose', async () => {
