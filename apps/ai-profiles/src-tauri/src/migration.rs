@@ -118,9 +118,7 @@ pub fn import(params: ImportParams) -> AppResult<ImportOutcome> {
     }
 
     let trimmed = params.name.trim();
-    if trimmed.is_empty() {
-        return Err(AppError::Validation("name must not be empty".to_string()));
-    }
+    crate::profiles::validate_name(trimmed)?;
     let slug = slugify(trimmed);
     if slug.is_empty() {
         return Err(AppError::Validation(
@@ -406,6 +404,20 @@ pub fn list_backups(app_data_dir: &Path) -> AppResult<Vec<MigrationBackupInfo>> 
 }
 
 pub fn delete_backup(backup_path: &Path) -> AppResult<()> {
+    delete_backup_under(&crate::paths::app_data_dir()?, backup_path)
+}
+
+/// Delete `backup_path`, but only if it is a `migration-backup-*` directory
+/// sitting directly inside `app_data`. The path comes from the webview, so a
+/// matching file name alone isn't enough.
+fn delete_backup_under(app_data: &Path, backup_path: &Path) -> AppResult<()> {
+    if backup_path.parent() != Some(app_data) {
+        return Err(AppError::Validation(format!(
+            "{} is not inside {}; refusing to delete",
+            backup_path.display(),
+            app_data.display()
+        )));
+    }
     let name = backup_path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -864,7 +876,7 @@ mod tests {
         let scratch = tempdir().unwrap();
         let foreign = scratch.path().join("not-a-backup");
         fs::create_dir_all(&foreign).unwrap();
-        let err = delete_backup(&foreign).unwrap_err();
+        let err = delete_backup_under(scratch.path(), &foreign).unwrap_err();
         match err {
             AppError::Validation(msg) => assert!(msg.contains("refusing to delete")),
             other => panic!("expected Validation, got {other:?}"),
@@ -877,7 +889,7 @@ mod tests {
         let scratch = tempdir().unwrap();
         let target = scratch.path().join("migration-backup-9999");
         // Doesn't exist yet — should still return Ok.
-        delete_backup(&target).unwrap();
+        delete_backup_under(scratch.path(), &target).unwrap();
     }
 
     #[test]
@@ -886,7 +898,21 @@ mod tests {
         let target = scratch.path().join("migration-backup-9999");
         fs::create_dir_all(&target).unwrap();
         fs::write(target.join("a.txt"), b"data").unwrap();
-        delete_backup(&target).unwrap();
+        delete_backup_under(scratch.path(), &target).unwrap();
         assert!(!target.exists());
+    }
+
+    #[test]
+    fn delete_backup_refuses_backups_outside_app_data() {
+        let app_data = tempdir().unwrap();
+        let elsewhere = tempdir().unwrap();
+        let target = elsewhere.path().join("migration-backup-9999");
+        fs::create_dir_all(&target).unwrap();
+        let err = delete_backup_under(app_data.path(), &target).unwrap_err();
+        match err {
+            AppError::Validation(msg) => assert!(msg.contains("refusing to delete")),
+            other => panic!("expected Validation, got {other:?}"),
+        }
+        assert!(target.exists());
     }
 }

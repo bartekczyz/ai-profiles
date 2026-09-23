@@ -1,5 +1,6 @@
 import type { AppState, DefaultEntry, ProfilePaths } from '@/lib/types'
 
+import { QueryClient } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -13,6 +14,7 @@ import {
   profilePaths,
   updateAppState,
 } from '@/lib/commands'
+import { queryKeys } from '@/lib/query/keys'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import { DefaultProfileDetail } from './profile-detail-default'
@@ -89,10 +91,16 @@ type RenderOverrides = {
 
 function renderDefault(overrides: RenderOverrides = {}) {
   const { entry: value = entry(), onMigrate = vi.fn() } = overrides
+  // The app shell loads app state before any pane mounts, so the pane never
+  // suspends on it. Seed it the same way, or the whole pane suspends and the
+  // early-click desktop test runs away.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } } })
+  client.setQueryData(queryKeys.appState, appState)
   return renderWithQuery(
     <ToastProvider>
       <DefaultProfileDetail entry={value} onMigrate={onMigrate} />
     </ToastProvider>,
+    { client },
   )
 }
 

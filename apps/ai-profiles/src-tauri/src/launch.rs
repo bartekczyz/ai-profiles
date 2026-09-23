@@ -203,10 +203,12 @@ where
 /// directly. Used by the default entry, which has no launcher bundle of its
 /// own, and as the stock way of starting a profile whose wrapper cannot be used.
 ///
-/// `config_env` is an env var to start the app with, for apps that read their
-/// account from one rather than from `--user-data-dir` (Codex: `CODEX_HOME`);
-/// without it such a profile would open the stock account. `open` hands its
-/// environment on to the app it starts.
+/// `config_env` is the profile's config home to start the app with
+/// ([`AppSpec::cli_config_env`] at its `cli-config` dir): Codex reads its
+/// account from it and Claude's Code tab its config and history, so without it
+/// a profile would open on the stock ones. `None` for the default entry, which
+/// is the stock app on its own home. `open` hands its environment on to the app
+/// it starts.
 ///
 /// Launches by resolved absolute bundle path rather than a registered app
 /// name, so it keeps working across a bundle rename (as happened when OpenAI
@@ -350,6 +352,50 @@ const LAUNCH_LOOKS: usize = 600;
 /// running before it counts as started.
 const STEADY_LOOKS: usize = 15;
 
+/// How many looks (about twenty seconds) a launch with no wrapper of its own is
+/// given to show up. Long enough for a cold start of an Electron app, short
+/// enough that a launch which never happens stops being reported as under way.
+const SETTLE_LOOKS: usize = 200;
+
+/// Whether a GUI instance bound to `data_dir` is running — or cannot be told
+/// apart from one, because the process list would not read. As in [`sighting`],
+/// no telling counts as running: waiting forever would be worse.
+fn seems_up(data_dir: &str, gui_macos_exec: &str) -> bool {
+    !matches!(running_pid(data_dir, gui_macos_exec), Ok(None))
+}
+
+/// Keep looking, `pause` apart, until `up` says the app is there or `looks`
+/// looks have gone by.
+///
+/// Unlike [`watch_start`] this has no verdict to give: `open` has already
+/// accepted the launch, and an app that is slow to appear is no reason to start
+/// a second one. All it decides is how long the caller goes on treating the
+/// launch as under way — which is what keeps "Opening" on the button until
+/// there is something to open.
+fn wait_until_up(pause: Duration, looks: usize, mut up: impl FnMut() -> bool) {
+    for _ in 0..looks {
+        thread::sleep(pause);
+        if up() {
+            return;
+        }
+    }
+}
+
+/// Wait for a launch of `spec`'s stock app on `data_dir` to show up.
+///
+/// The counterpart of [`open_new_instance`], which returns as soon as `open`
+/// has handed the request to LaunchServices — several seconds before any window
+/// exists. Best effort: nothing here fails, and the app is on its way either
+/// way.
+pub fn wait_for_new_instance(data_dir: &str, spec: &AppSpec) {
+    let Some(resolved) = resolve_gui_app(spec) else {
+        return;
+    };
+    wait_until_up(LOOK_INTERVAL, SETTLE_LOOKS, || {
+        seems_up(data_dir, resolved.macos_exec)
+    });
+}
+
 /// What one look at the running processes turned up for a wrapper that was just
 /// opened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -458,6 +504,21 @@ trait Effects {
     fn open_stock(&mut self) -> AppResult<()>;
 }
 
+/// Pure: what is still wrong with a wrapper that has just been rebuilt, or
+/// `None` if the rebuild produced what it was supposed to.
+///
+/// A rebuild that reports success without leaving a current wrapper must not be
+/// opened anyway. The wrapper itself asks for the rebuild when it finds it has
+/// fallen behind the vendor app, so opening one that is still behind would have
+/// it ask again, and again.
+fn rebuild_did_not_take(state: WrapperState) -> Option<&'static str> {
+    match state {
+        WrapperState::Current => None,
+        WrapperState::Missing => Some("it is not there afterwards"),
+        WrapperState::Stale => Some("it still does not match the installed app"),
+    }
+}
+
 /// Start a profile's app: through its wrapper if it has one, through the stock
 /// app if that does not work out. Returns why the wrapper was bypassed, if it
 /// was. Fails only if the stock app cannot be started either.
@@ -466,7 +527,12 @@ fn launch_with<E: Effects>(distinct_dock_icon: bool, effects: &mut E) -> AppResu
         Route::ScriptLauncher => return effects.open_script_launcher().map(|()| None),
         Route::Wrapper => effects.open_wrapper(),
         Route::RebuildWrapper => match effects.rebuild_wrapper() {
-            Ok(()) => effects.open_wrapper(),
+            Ok(()) => match rebuild_did_not_take(effects.wrapper_state()) {
+                None => effects.open_wrapper(),
+                Some(problem) => Err(Bypass::RebuildFailed(format!(
+                    "the wrapper was rebuilt but {problem}"
+                ))),
+            },
             Err(err) => Err(Bypass::RebuildFailed(err.to_string())),
         },
     };
@@ -499,11 +565,21 @@ impl Effects for ProfileLaunch<'_> {
             .vendor
             .as_ref()
             .map(|vendor| vendor.bundle_path.as_path());
-        wrapper::state(vendor, &self.launcher)
+        wrapper::state(vendor, &self.launcher, self.version)
     }
 
     fn open_script_launcher(&mut self) -> AppResult<()> {
-        open_bundle(&self.launcher)
+        open_bundle(&self.launcher)?;
+        // The launcher only shells out again, so `open` returning says nothing
+        // about the app being up. Without this the caller is told the launch is
+        // over before there is a window, and a profile with a script launcher
+        // would flicker where one with a wrapper reports honestly.
+        let Some(vendor) = &self.vendor else {
+            return Ok(());
+        };
+        let (data_dir, exec) = (self.data_dir, vendor.macos_exec);
+        wait_until_up(LOOK_INTERVAL, SETTLE_LOOKS, || seems_up(data_dir, exec));
+        Ok(())
     }
 
     fn rebuild_wrapper(&mut self) -> AppResult<()> {
@@ -523,11 +599,11 @@ impl Effects for ProfileLaunch<'_> {
 
     fn open_stock(&mut self) -> AppResult<()> {
         let config_home = cli_config_dir(&self.profile.id)?;
-        let config_env = self
-            .spec
-            .gui_auth_via_config_env
-            .then_some((self.spec.cli_config_env, config_home.as_path()));
-        open_new_instance(self.data_dir, self.spec, config_env)
+        open_new_instance(
+            self.data_dir,
+            self.spec,
+            Some((self.spec.cli_config_env, config_home.as_path())),
+        )
     }
 }
 
@@ -900,6 +976,9 @@ mod tests {
     /// Records what a launch asks for and answers from a script.
     struct Fake {
         state: WrapperState,
+        /// Where a successful rebuild leaves the wrapper. `Current`, as a real
+        /// one does, unless a test is about a rebuild that did not take.
+        after_rebuild: WrapperState,
         rebuild_error: Option<AppError>,
         wrapper: Result<(), Bypass>,
         stock_error: Option<AppError>,
@@ -910,6 +989,7 @@ mod tests {
         fn new(state: WrapperState) -> Self {
             Fake {
                 state,
+                after_rebuild: WrapperState::Current,
                 rebuild_error: None,
                 wrapper: Ok(()),
                 stock_error: None,
@@ -930,7 +1010,11 @@ mod tests {
 
         fn rebuild_wrapper(&mut self) -> AppResult<()> {
             self.calls.push("rebuild");
-            self.rebuild_error.take().map_or(Ok(()), Err)
+            if let Some(err) = self.rebuild_error.take() {
+                return Err(err);
+            }
+            self.state = self.after_rebuild;
+            Ok(())
         }
 
         fn open_wrapper(&mut self) -> Result<(), Bypass> {
@@ -981,6 +1065,62 @@ mod tests {
             panic!("expected a failed rebuild, got {bypass:?}");
         };
         assert!(detail.contains("disk is full"), "{detail}");
+    }
+
+    #[test]
+    fn waiting_stops_as_soon_as_the_app_is_there() {
+        let mut looks = 0;
+        wait_until_up(Duration::ZERO, 100, || {
+            looks += 1;
+            looks == 3
+        });
+
+        assert_eq!(looks, 3);
+    }
+
+    #[test]
+    fn waiting_gives_up_rather_than_holding_the_caller_for_ever() {
+        let mut looks = 0;
+        wait_until_up(Duration::ZERO, 5, || {
+            looks += 1;
+            false
+        });
+
+        assert_eq!(looks, 5);
+    }
+
+    #[test]
+    fn nothing_is_waited_for_when_no_looks_are_allowed() {
+        let mut looked = false;
+        wait_until_up(Duration::ZERO, 0, || {
+            looked = true;
+            true
+        });
+
+        assert!(!looked);
+    }
+
+    #[test]
+    fn only_a_current_wrapper_counts_as_a_rebuild_that_took() {
+        assert_eq!(rebuild_did_not_take(WrapperState::Current), None);
+        assert!(rebuild_did_not_take(WrapperState::Missing).is_some());
+        assert!(rebuild_did_not_take(WrapperState::Stale).is_some());
+    }
+
+    #[test]
+    fn a_rebuild_that_reports_success_but_leaves_the_wrapper_behind_is_not_opened() {
+        for left in [WrapperState::Stale, WrapperState::Missing] {
+            let mut fake = Fake::new(WrapperState::Stale);
+            fake.after_rebuild = left;
+
+            let bypass = launch_with(true, &mut fake).unwrap();
+
+            assert_eq!(fake.calls, ["rebuild", "stock"], "{left:?}");
+            let Some(Bypass::RebuildFailed(detail)) = bypass else {
+                panic!("expected a failed rebuild, got {bypass:?}");
+            };
+            assert!(detail.contains("rebuilt but"), "{detail}");
+        }
     }
 
     #[test]

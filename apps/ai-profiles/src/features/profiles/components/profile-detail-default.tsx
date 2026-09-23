@@ -1,4 +1,5 @@
 import type { DefaultEntry, ProfilePaths } from '@/lib/types'
+import type { GuiLaunch } from './use-gui-launch'
 
 import { Suspense, useState } from 'react'
 
@@ -15,6 +16,7 @@ import { ProfileDetailShell } from './profile-detail-shell'
 import { ProfileDetailSurfacesPanel } from './profile-detail-surfaces-panel'
 import { ProfileDetailUsageCard } from './profile-detail-usage-card'
 import { RenameDefaultProfileDialog } from './rename-default-profile-dialog'
+import { useGuiLaunch } from './use-gui-launch'
 
 type Props = {
   entry: DefaultEntry
@@ -42,6 +44,9 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
   const [renaming, setRenaming] = useState(false)
   const appState = useAppState()
   const displayName = appSpecs[entry.app].displayName
+  // Above the boundary below, which swaps one surfaces panel for another as
+  // soon as the paths land.
+  const launch = useGuiLaunch()
   return (
     <ProfileDetailShell>
       <ProfileDetailHeader
@@ -68,8 +73,8 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
       <ProfileDetailUsageCard app={entry.app} profileId={entry.id} cliEnabled={entry.surfaces.cli} />
 
       <div className="mb-6">
-        <Suspense key={entry.id} fallback={<DefaultSurfaces entry={entry} onError={setActionError} />}>
-          <ResolvedDefaultSurfaces entry={entry} onError={setActionError} />
+        <Suspense key={entry.id} fallback={<DefaultSurfaces entry={entry} launch={launch} onError={setActionError} />}>
+          <ResolvedDefaultSurfaces entry={entry} launch={launch} onError={setActionError} />
         </Suspense>
       </div>
 
@@ -94,6 +99,11 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
 type DefaultSurfacesProps = {
   entry: DefaultEntry
   /**
+   * The pane's desktop launch, held above the `Suspense` boundary so it
+   * survives this panel being swapped for the resolved one.
+   */
+  launch: GuiLaunch
+  /**
    * Absent while the stock install's paths are still resolving.
    */
   paths?: ProfilePaths
@@ -109,7 +119,7 @@ type DefaultSurfacesProps = {
  * `shortcutsEnabled` is false because the app shell has never bound ⏎ / ⌘C
  * here — both are gated on a managed profile being selected.
  */
-function DefaultSurfaces({ entry, paths, onError }: DefaultSurfacesProps) {
+function DefaultSurfaces({ entry, launch, paths, onError }: DefaultSurfacesProps) {
   const spec = appSpecs[entry.app]
   return (
     <ProfileDetailSurfacesPanel
@@ -117,22 +127,25 @@ function DefaultSurfaces({ entry, paths, onError }: DefaultSurfacesProps) {
       guiEnabled={entry.surfaces.gui}
       cliEnabled={entry.surfaces.cli}
       shortcutsEnabled={false}
+      opening={launch.opening}
       guiDescription={paths === undefined ? undefined : guiDescription(paths, spec.guiBundleName)}
       cliDescription={paths === undefined ? undefined : `Stock ${spec.cliBinary} — no wrapper`}
-      onLaunchGui={async () => {
-        // Open is live from the first paint, but launching needs the stock
-        // data directory, which arrives with the paths. Resolving it on
-        // demand — rather than withholding the control, which would make the
-        // row claim the surface was off — means an early click launches
-        // instead of quietly doing nothing. The extra fetch only ever
-        // happens inside that window; once the query has landed, `paths` is
-        // already here.
-        const resolved = paths ?? (await profilePaths(entry.id))
-        if (resolved.guiLauncherPath === null) {
-          throw new Error(`${spec.guiBundleName} isn't installed`)
-        }
-        await openDefaultGui(entry.app, resolved.guiDataDir)
-      }}
+      onLaunchGui={() =>
+        launch.run(async () => {
+          // Open is live from the first paint, but launching needs the stock
+          // data directory, which arrives with the paths. Resolving it on
+          // demand — rather than withholding the control, which would make the
+          // row claim the surface was off — means an early click launches
+          // instead of quietly doing nothing. The extra fetch only ever
+          // happens inside that window; once the query has landed, `paths` is
+          // already here.
+          const resolved = paths ?? (await profilePaths(entry.id))
+          if (resolved.guiLauncherPath === null) {
+            throw new Error(`${spec.guiBundleName} isn't installed`)
+          }
+          await openDefaultGui(entry.app, resolved.guiDataDir)
+        })
+      }
       onCopyCli={async () => {
         await copyToClipboard(spec.cliBinary)
       }}
@@ -142,9 +155,9 @@ function DefaultSurfaces({ entry, paths, onError }: DefaultSurfacesProps) {
 }
 
 /** Suspends on the stock install's paths, which the launch and both descriptions need. */
-function ResolvedDefaultSurfaces({ entry, onError }: Omit<DefaultSurfacesProps, 'paths'>) {
+function ResolvedDefaultSurfaces({ entry, launch, onError }: Omit<DefaultSurfacesProps, 'paths'>) {
   const paths = useProfilePaths(entry.id)
-  return <DefaultSurfaces entry={entry} paths={paths} onError={onError} />
+  return <DefaultSurfaces entry={entry} launch={launch} paths={paths} onError={onError} />
 }
 
 function guiDescription(paths: ProfilePaths, guiBundleName: string): string {
