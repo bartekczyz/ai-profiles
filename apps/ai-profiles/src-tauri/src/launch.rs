@@ -92,7 +92,7 @@ fn first_pid_ending_with(ps_output: &str, suffixes: &[String]) -> Option<i32> {
 }
 
 /// Every running process, one `pid command` line each.
-fn process_list() -> AppResult<String> {
+pub(crate) fn process_list() -> AppResult<String> {
     let output = Command::new("ps")
         .args(["-ax", "-o", "pid=,command="])
         .output()
