@@ -181,6 +181,15 @@ export function checkSessionRestore(input: {
   return invoke<RestoreCheck>('check_session_restore', input)
 }
 
+/** Delete an archived session for good. Resolves to what it freed, in bytes. */
+export function deleteArchivedSession(input: {
+  profileId: string
+  sessionId: string
+  archive: string
+}): Promise<number> {
+  return invoke<number>('delete_archived_session', input)
+}
+
 export function restoreSession(input: {
   profileId: string
   sessionId: string

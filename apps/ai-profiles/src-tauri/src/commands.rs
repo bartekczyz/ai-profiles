@@ -292,6 +292,16 @@ pub fn check_session_restore(
     sessions::check_restore(&profile_id, &session_id, &archive)
 }
 
+/// Delete an archived session for good. Returns what it freed, in bytes.
+#[tauri::command(async)]
+pub fn delete_archived_session(
+    profile_id: String,
+    session_id: String,
+    archive: String,
+) -> AppResult<u64> {
+    sessions::delete_archived(&profile_id, &session_id, &archive)
+}
+
 /// Put an archived session back. With `quit_app`, quits the profile's desktop
 /// app first when its record goes back into that app's list.
 #[tauri::command(async)]

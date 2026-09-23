@@ -317,15 +317,16 @@ function AfterwardsChoice({
   value: Afterwards
   onChange: (value: Afterwards) => void
 }) {
+  const size = sourceBytes === null ? null : formatBytes(sourceBytes)
   const options: Array<{ value: Afterwards; label: string; hint: string }> = [
     {
       value: 'archive',
-      label: 'Archive it',
+      label: size === null ? 'Archive it' : `Archive it, keeping ${size}`,
       hint: 'Only one profile lists it. Its transcript is kept in session-transfer-backups, and can be restored.',
     },
     {
       value: 'delete',
-      label: sourceBytes === null ? 'Delete it' : `Delete it, freeing ${formatBytes(sourceBytes)}`,
+      label: size === null ? 'Delete it' : `Delete it, freeing ${size}`,
       hint: "Only once the moved copy is checked to be identical. Can't be undone. Plan files and project memory stay.",
     },
     { value: 'keep', label: 'Keep it', hint: 'Both profiles list it.' },
@@ -349,6 +350,16 @@ function AfterwardsChoice({
           </span>
         </label>
       ))}
+      {value === 'keep' ? (
+        <p
+          role="note"
+          className="rounded-md border border-amber/40 bg-amber/[0.08] px-2.5 py-2 text-meta text-ink-soft"
+        >
+          This forks the session: two copies that go their own ways from here. Moving it back later doesn't merge them.
+          If the copy it lands on has changed since, the move asks before replacing it, and backs it up in
+          session-transfer-backups first.
+        </p>
+      ) : null}
     </fieldset>
   )
 }

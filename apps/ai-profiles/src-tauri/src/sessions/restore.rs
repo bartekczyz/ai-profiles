@@ -214,6 +214,26 @@ pub fn check_restore(profile_id: &str, session_id: &str, archive: &str) -> AppRe
 /// Refuses while the profile has a live copy of the session. The profile's
 /// desktop app, when a record goes back into its list, is quit first if
 /// `quit_app` is set and refused otherwise.
+/// Delete archive `archive` of session `session_id` in profile `profile_id`
+/// (or `default:claude`) for good: the folder the archive made in its backups,
+/// its desktop record included, and the session's backups folder once nothing
+/// else is left in it. The archive isn't in any app's list, so nothing has to
+/// quit. Returns what it freed.
+pub fn delete_archived(profile_id: &str, session_id: &str, archive: &str) -> AppResult<u64> {
+    delete_archive_in(&home(profile_id)?, session_id, archive)
+}
+
+fn delete_archive_in(home: &Home, session_id: &str, archive: &str) -> AppResult<u64> {
+    let found = read_archive(home, session_id, archive)?;
+    let freed = super::transfer::size_of(&found.root);
+    fs::remove_dir_all(&found.root)?;
+    // Only goes when empty: other archives and backups stay.
+    if let Some(session_backups) = found.root.parent() {
+        let _ = fs::remove_dir(session_backups);
+    }
+    Ok(freed)
+}
+
 pub fn restore(
     profile_id: &str,
     session_id: &str,
@@ -365,6 +385,39 @@ mod tests {
         let contents = read_archive(&home, "s", "20260102-120000-archived").unwrap();
         restore_files(&home, "s", &contents).unwrap();
         assert_eq!(list_archived(&home).len(), 1);
+    }
+
+    #[test]
+    fn deletes_an_archive_for_good_and_only_that() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = home(dir.path());
+        seed(&home);
+        let records = desktop::records(&home.gui_data_dir);
+        archive_files(&home, "s", "-w", &records, "20260101-120000").unwrap();
+        write(&home.config_dir.join("projects/-w/s.jsonl"), "{}\n");
+        archive_files(&home, "s", "-w", &[], "20260102-120000").unwrap();
+        let size = list_archived(&home)
+            .iter()
+            .find(|archived| archived.archive == "20260101-120000-archived")
+            .unwrap()
+            .size_bytes;
+        assert!(size > 0);
+
+        assert_eq!(
+            delete_archive_in(&home, "s", "20260101-120000-archived").unwrap(),
+            size
+        );
+        let left = list_archived(&home);
+        assert_eq!(left.len(), 1, "the other archive of the session stays");
+        assert_eq!(left[0].archive, "20260102-120000-archived");
+        assert!(
+            home.config_dir.join("projects/-w/s").is_dir(),
+            "the session's folders stay"
+        );
+
+        delete_archive_in(&home, "s", "20260102-120000-archived").unwrap();
+        assert!(!home.config_dir.join(BACKUPS_DIR).join("s").exists());
+        assert!(delete_archive_in(&home, "s", "../../projects-archived").is_err());
     }
 
     #[test]

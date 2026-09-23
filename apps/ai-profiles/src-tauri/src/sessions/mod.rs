@@ -31,7 +31,8 @@ use crate::profiles;
 
 pub use archive::{archive, check_archive, ArchiveCheck, ArchiveReport};
 pub use restore::{
-    check_restore, list_archived, restore, ArchivedSession, RestoreCheck, RestoreReport,
+    check_restore, delete_archived, list_archived, restore, ArchivedSession, RestoreCheck,
+    RestoreReport,
 };
 pub use scan::{list, SessionSummary};
 pub use transfer::{plan, transfer, TransferPlan, TransferReport, TransferRequest};

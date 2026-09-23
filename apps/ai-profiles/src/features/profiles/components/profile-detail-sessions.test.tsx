@@ -4,10 +4,12 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { ToastProvider } from '@/design'
 import {
   archiveSession,
   checkSessionArchive,
   checkSessionRestore,
+  deleteArchivedSession,
   listArchivedSessions,
   listProfiles,
   listSessions,
@@ -30,6 +32,7 @@ vi.mock('@/lib/commands', async () => {
     listArchivedSessions: vi.fn(),
     checkSessionRestore: vi.fn(),
     restoreSession: vi.fn(),
+    deleteArchivedSession: vi.fn(),
     planSessionTransfer: vi.fn(),
     transferSession: vi.fn(),
   }
@@ -178,11 +181,13 @@ describe('ProfileDetailSessions', () => {
 
     await user.selectOptions(within(dialog).getByRole('combobox'), 'personal')
     const afterwards = within(dialog).getByRole('group', { name: /The copy in Work/ })
-    // Archiving stays the default: it can be undone.
-    expect(within(afterwards).getByRole('radio', { name: /Archive it/ })).toBeChecked()
+    // Archiving stays the default: it can be undone, and keeps what deleting frees.
+    expect(await within(afterwards).findByRole('radio', { name: /Archive it, keeping 2.0 KB/ })).toBeChecked()
     expect(within(dialog).queryByRole('checkbox', { name: /desktop app/ })).toBeNull()
     expect(await within(dialog).findByText("Personal's desktop app will list it too.")).toBeInTheDocument()
     await user.click(within(afterwards).getByRole('radio', { name: /Keep it/ }))
+    // Keeping both forks the session, and moving it back doesn't merge them.
+    expect(within(afterwards).getByRole('note')).toHaveTextContent(/forks the session/)
     await within(dialog).findByText('Files: 2 to copy.')
     await user.click(within(dialog).getByRole('button', { name: /^Move/ }))
 
@@ -405,6 +410,36 @@ describe('ProfileDetailSessions — restore', () => {
         quitApp: true,
       }),
     )
+  })
+
+  it('deletes an archive for good once asked, saying what that frees', async () => {
+    vi.mocked(listSessions).mockResolvedValue([])
+    vi.mocked(listArchivedSessions).mockResolvedValue([archivedOne])
+    vi.mocked(deleteArchivedSession).mockResolvedValue(3 * 1024 * 1024)
+    renderWithQuery(
+      <ToastProvider>
+        <ProfileDetailSessions profileId="work" />
+      </ToastProvider>,
+    )
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Archived 1 · 3.0 MB' }))
+    await user.click(
+      within(screen.getByRole('list', { name: 'Archived sessions' })).getByRole('button', { name: 'Delete' }),
+    )
+    const dialog = await screen.findByRole('dialog', { name: 'Delete this archive?' })
+    expect(within(dialog).getByText(/can't be restored/)).toBeInTheDocument()
+    expect(deleteArchivedSession).not.toHaveBeenCalled()
+    await user.click(within(dialog).getByRole('button', { name: /Delete, freeing 3.0 MB/ }))
+
+    await waitFor(() =>
+      expect(deleteArchivedSession).toHaveBeenCalledWith({
+        profileId: 'work',
+        sessionId: 'old',
+        archive: '20260101-120000-archived',
+      }),
+    )
+    expect((await screen.findAllByText('Deleted, freeing 3.0 MB')).length).toBeGreaterThan(0)
   })
 
   it('holds a restore while a live copy is back in place', async () => {

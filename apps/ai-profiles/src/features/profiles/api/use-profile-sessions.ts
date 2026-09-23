@@ -6,6 +6,7 @@ import {
   archiveSession,
   checkSessionArchive,
   checkSessionRestore,
+  deleteArchivedSession,
   listArchivedSessions,
   listSessions,
   planSessionTransfer,
@@ -106,6 +107,14 @@ export function useRestoreCheck(profileId: string, sessionId: string, archive: s
 /**
  * Puts an archived session back, then refreshes the session lists.
  */
+export function useDeleteArchivedSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { profileId: string; sessionId: string; archive: string }) => deleteArchivedSession(input),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all }),
+  })
+}
+
 export function useRestoreSession() {
   const queryClient = useQueryClient()
   return useMutation({

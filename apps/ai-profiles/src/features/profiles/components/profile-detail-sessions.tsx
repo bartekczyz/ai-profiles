@@ -3,13 +3,14 @@ import type { ArchivedSession, SessionSummary } from '@/lib/types'
 import { useState } from 'react'
 
 import { formatDistanceToNow } from 'date-fns'
-import { Archive, ArchiveRestore, ArrowDownToLine, ArrowRightLeft, Monitor, Terminal } from 'lucide-react'
+import { Archive, ArchiveRestore, ArrowDownToLine, ArrowRightLeft, Monitor, Terminal, Trash2 } from 'lucide-react'
 
 import { Button, Skeleton, StatusDot } from '@/design'
 import { formatBytes } from '@/lib/format-bytes'
 
 import { useArchivedSessions, useProfileSessions } from '../api/use-profile-sessions'
 import { ArchiveSessionDialog } from './archive-session-dialog'
+import { DeleteArchiveDialog } from './delete-archive-dialog'
 import { RestoreSessionDialog } from './restore-session-dialog'
 import { sessionErrorMessage } from './session-error-message'
 import { shortenHomePath } from './shorten-home-path'
@@ -46,6 +47,7 @@ export function ProfileDetailSessions({ profileId }: Props) {
   const archived = useArchivedSessions(profileId).data ?? []
   const [showArchived, setShowArchived] = useState(false)
   const [restoring, setRestoring] = useState<ArchivedSession | null>(null)
+  const [deleting, setDeleting] = useState<ArchivedSession | null>(null)
 
   const sessions = data ?? []
   const visible = expanded ? sessions : sessions.slice(0, collapsedCount)
@@ -114,6 +116,7 @@ export function ProfileDetailSessions({ profileId }: Props) {
                 key={`${session.id}/${session.archive}`}
                 session={session}
                 onRestore={() => setRestoring(session)}
+                onDelete={() => setDeleting(session)}
               />
             ))}
           </ul>
@@ -138,6 +141,9 @@ export function ProfileDetailSessions({ profileId }: Props) {
       ) : null}
       {restoring ? (
         <RestoreSessionDialog open profileId={profileId} session={restoring} onClose={() => setRestoring(null)} />
+      ) : null}
+      {deleting ? (
+        <DeleteArchiveDialog profileId={profileId} session={deleting} onClose={() => setDeleting(null)} />
       ) : null}
     </section>
   )
@@ -242,7 +248,15 @@ function SessionRow({ session, onMove, onArchive }: SessionRowProps) {
   )
 }
 
-function ArchivedRow({ session, onRestore }: { session: ArchivedSession; onRestore: () => void }) {
+function ArchivedRow({
+  session,
+  onRestore,
+  onDelete,
+}: {
+  session: ArchivedSession
+  onRestore: () => void
+  onDelete: () => void
+}) {
   const title = session.title ?? session.id
   return (
     <li className={rowClasses}>
@@ -269,9 +283,20 @@ function ArchivedRow({ session, onRestore }: { session: ArchivedSession; onResto
           </span>
         </div>
       </div>
-      <Button variant="ghost" size="sm" leadingIcon={<ArchiveRestore />} onClick={onRestore}>
-        Restore
-      </Button>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button variant="ghost" size="sm" leadingIcon={<ArchiveRestore />} onClick={onRestore}>
+          Restore
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Delete"
+          title={`Delete this archive for good, freeing ${formatBytes(session.sizeBytes)}`}
+          onClick={onDelete}
+        >
+          <Trash2 aria-hidden className="h-3.5 w-3.5" />
+        </Button>
+      </div>
     </li>
   )
 }
