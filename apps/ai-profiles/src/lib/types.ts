@@ -272,3 +272,13 @@ export type ProfileAccount = {
   /** The subscription, e.g. "Max" or "Pro". */
   plan: string | null
 }
+
+/**
+ * Whether a profile is signed in, and as whom. `unknown` is signed in, or may
+ * be, as an account nothing on disk names: a Claude desktop app signed in as
+ * someone its `.claude.json` doesn't mention.
+ */
+export type AccountStatus =
+  | { status: 'signedIn'; account: ProfileAccount }
+  | { status: 'signedOut' }
+  | { status: 'unknown' }

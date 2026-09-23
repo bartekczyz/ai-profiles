@@ -11,14 +11,13 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::app_kind::AppKind;
 use crate::error::AppResult;
-use crate::paths::{cli_config_dir, stock_cli_config_dir, stock_gui_support_dir};
+use crate::paths::{cli_config_dir, stock_cli_config_dir};
 use crate::profiles;
 
 /// The account a profile is signed in under. Every field is optional: the
@@ -41,13 +40,29 @@ impl ProfileAccount {
     }
 }
 
-/// The account profile `id` (or `default:<app>`) is signed in under, or `None`
-/// when nothing on disk names one reliably.
+/// Whether a profile is signed in, and as whom, as far as its files say.
 ///
-/// Claude's stock install is `None` unless its desktop app confirms the
-/// account: see [`stock_claude_account`].
-pub fn read(id: &str) -> AppResult<Option<ProfileAccount>> {
-    let (kind, config_dir) = match AppKind::from_default_id(id) {
+/// Not knowing is a state of its own: a Claude desktop app signed in as an
+/// account no `.claude.json` names is signed in, but not as anyone this can
+/// name, and saying "not signed in" there would be wrong.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum AccountStatus {
+    SignedIn { account: ProfileAccount },
+    SignedOut,
+    Unknown,
+}
+
+impl AccountStatus {
+    fn from_account(account: Option<ProfileAccount>, otherwise: AccountStatus) -> AccountStatus {
+        account.map_or(otherwise, |account| AccountStatus::SignedIn { account })
+    }
+}
+
+/// Whether profile `id` (or `default:<app>`) is signed in, and as whom.
+pub fn read(id: &str) -> AppResult<AccountStatus> {
+    let stock = AppKind::from_default_id(id);
+    let (kind, config_dir) = match stock {
         Some(kind) => (kind, stock_cli_config_dir(kind.spec())?),
         None => {
             let profile = profiles::load()?
@@ -59,87 +74,129 @@ pub fn read(id: &str) -> AppResult<Option<ProfileAccount>> {
             (profile.app, cli_config_dir(&profile.id)?)
         }
     };
-    let stock = AppKind::from_default_id(id).is_some();
+    let gui_data = PathBuf::from(profiles::paths(id)?.gui_data_dir);
     Ok(match kind {
-        AppKind::Claude if stock => stock_claude_account(
+        AppKind::Claude if stock.is_some() => stock_claude_status(
+            // The stock CLI, run without `CLAUDE_CONFIG_DIR`, keeps its
+            // sign-in in `$HOME/.claude.json`; `~/.claude/.claude.json` only
+            // exists if something ran it with `CLAUDE_CONFIG_DIR=~/.claude`.
             &[
-                config_dir.join(".claude.json"),
                 dirs::home_dir().unwrap_or_default().join(".claude.json"),
+                config_dir.join(".claude.json"),
             ],
-            &stock_gui_support_dir(kind.spec())?,
+            &gui_data,
         ),
-        AppKind::Claude => claude_account(&config_dir),
-        AppKind::Codex => codex_account(&config_dir),
+        AppKind::Claude => claude_status(&config_dir, &gui_data),
+        AppKind::Codex => {
+            // Codex's desktop app and CLI both sign in through `auth.json`.
+            AccountStatus::from_account(codex_account(&config_dir), AccountStatus::SignedOut)
+        }
     })
 }
 
-/// The account of Claude's stock install, from the first of `claude_jsons` that
-/// names one, but only if the stock desktop app, whose data is at `gui_data`,
-/// last used its Code tab under that same account and organization.
+/// What a Claude desktop app's data says about its sign-in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Desktop {
+    /// No data: the app has never run with this data dir.
+    Absent,
+    SignedOut,
+    /// Signed in as the account with this id.
+    SignedIn(String),
+    /// There is data, but it doesn't say.
+    Unsure,
+}
+
+/// The two keys of the desktop app's `config.json` that say who is signed
+/// in. The rest of the file, its encrypted token caches included, isn't
+/// kept.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopConfig {
+    /// The account the app last signed in as. Kept after signing out, so it
+    /// says who, not whether.
+    last_known_account_uuid: Option<String>,
+    /// Whether the window was last laid out signed in; `false` once the app
+    /// signs out.
+    window_size_was_signed_in: Option<bool>,
+}
+
+/// Whether the Claude desktop app with data at `gui_data` is signed in, and
+/// as which account.
+fn desktop_sign_in(gui_data: &Path) -> Desktop {
+    let Ok(text) = fs::read_to_string(gui_data.join("config.json")) else {
+        return if gui_data.exists() {
+            Desktop::Unsure
+        } else {
+            Desktop::Absent
+        };
+    };
+    let Ok(config) = serde_json::from_str::<DesktopConfig>(&text) else {
+        return Desktop::Unsure;
+    };
+    match (
+        config.window_size_was_signed_in,
+        config
+            .last_known_account_uuid
+            .filter(|id| !id.trim().is_empty()),
+    ) {
+        (Some(false), _) => Desktop::SignedOut,
+        (Some(true), Some(id)) => Desktop::SignedIn(id),
+        _ => Desktop::Unsure,
+    }
+}
+
+/// Claude's stock install: its desktop app, whose data is at `gui_data`,
+/// says whether it is signed in and as which account; the first of
+/// `claude_jsons` naming that account says who that is.
 ///
-/// The desktop app doesn't keep its sign-in in any `.claude.json`, and
-/// `$HOME/.claude.json` goes on naming the account of a stock install that has
-/// since been imported into a profile: the import moves `~/.claude` and the
-/// desktop data, not that file. What the desktop app does keep is a folder of
-/// Code tab sessions per account and organization, named by their ids, so a
-/// match there says the name is still the stock app's. Without one, no name is
-/// shown: a missing name is better than a wrong one.
-fn stock_claude_account(claude_jsons: &[PathBuf], gui_data: &Path) -> Option<ProfileAccount> {
-    let (account, organization) = desktop_account(gui_data)?;
-    let document = claude_jsons
+/// `$HOME/.claude.json` goes on naming the account of a stock install that
+/// has since been imported into a profile (the import moves `~/.claude` and
+/// the desktop data, not that file), so it names the stock account only when
+/// the desktop app agrees. Without a desktop app, it is the stock CLI's
+/// sign-in, and names it.
+fn stock_claude_status(claude_jsons: &[PathBuf], gui_data: &Path) -> AccountStatus {
+    let documents: Vec<Value> = claude_jsons
         .iter()
         .filter_map(|path| read_json(path))
-        .find(|document| document.get("oauthAccount").is_some())?;
-    let oauth = document.get("oauthAccount")?;
-    let id = |key: &str| oauth.get(key).and_then(Value::as_str);
-    if id("accountUuid") != Some(account.as_str())
-        || id("organizationUuid") != Some(organization.as_str())
-    {
-        return None;
+        .collect();
+    let cli_account = || documents.iter().find_map(account_from_claude_json);
+    match desktop_sign_in(gui_data) {
+        Desktop::SignedIn(id) => AccountStatus::from_account(
+            documents
+                .iter()
+                .filter(|document| {
+                    document
+                        .pointer("/oauthAccount/accountUuid")
+                        .and_then(Value::as_str)
+                        == Some(id.as_str())
+                })
+                .find_map(account_from_claude_json),
+            AccountStatus::Unknown,
+        ),
+        // The CLI may still be signed in, as whoever the file names, or that
+        // may be the file an import left behind: it can't be told which.
+        Desktop::SignedOut if cli_account().is_some() => AccountStatus::Unknown,
+        Desktop::SignedOut => AccountStatus::SignedOut,
+        Desktop::Unsure => AccountStatus::Unknown,
+        Desktop::Absent => AccountStatus::from_account(cli_account(), AccountStatus::SignedOut),
     }
-    account_from_claude_json(&document)
 }
 
-/// The `(account, organization)` ids the desktop app with data at `gui_data`
-/// last wrote a Code tab session under: the most recently changed
-/// `claude-code-sessions/<account>/<organization>` folder.
-fn desktop_account(gui_data: &Path) -> Option<(String, String)> {
-    let mut latest: Option<(SystemTime, String, String)> = None;
-    for account in fs::read_dir(gui_data.join("claude-code-sessions"))
-        .ok()?
-        .flatten()
+/// A managed Claude profile keeps its CLI's account in the `.claude.json`
+/// inside its config dir, which is what `CLAUDE_CONFIG_DIR` points at. Until
+/// its CLI signs in, that file names no one, though its desktop app may be
+/// signed in: then who is unknown, not signed out.
+fn claude_status(config_dir: &Path, gui_data: &Path) -> AccountStatus {
+    if let Some(account) = read_json(&config_dir.join(".claude.json"))
+        .as_ref()
+        .and_then(account_from_claude_json)
     {
-        let Ok(organizations) = fs::read_dir(account.path()) else {
-            continue;
-        };
-        for organization in organizations.flatten() {
-            let Ok(metadata) = organization.metadata() else {
-                continue;
-            };
-            let Ok(modified) = metadata.modified() else {
-                continue;
-            };
-            if !metadata.is_dir()
-                || latest
-                    .as_ref()
-                    .is_some_and(|(when, _, _)| *when >= modified)
-            {
-                continue;
-            }
-            latest = Some((
-                modified,
-                account.file_name().to_string_lossy().into_owned(),
-                organization.file_name().to_string_lossy().into_owned(),
-            ));
-        }
+        return AccountStatus::SignedIn { account };
     }
-    latest.map(|(_, account, organization)| (account, organization))
-}
-
-/// A Claude profile keeps the account in the `.claude.json` inside its config
-/// dir, which is what `CLAUDE_CONFIG_DIR` points at.
-fn claude_account(config_dir: &Path) -> Option<ProfileAccount> {
-    account_from_claude_json(&read_json(&config_dir.join(".claude.json"))?)
+    match desktop_sign_in(gui_data) {
+        Desktop::SignedIn(_) | Desktop::Unsure => AccountStatus::Unknown,
+        Desktop::SignedOut | Desktop::Absent => AccountStatus::SignedOut,
+    }
 }
 
 /// Pure: the account in a parsed `.claude.json`, if it names one.
@@ -313,77 +370,226 @@ mod tests {
         )
     }
 
-    /// A stock install under `root`: `$HOME/.claude.json` naming `account` in
-    /// `organization`, and the desktop app's Code tab folders, oldest first.
-    fn stock_install(
-        root: &Path,
-        account: &str,
-        organization: &str,
-        folders: &[(&str, &str)],
-    ) -> PathBuf {
-        let claude_json = root.join(".claude.json");
-        fs::write(
-            &claude_json,
-            json!({"oauthAccount": {
-                "accountUuid": account,
-                "organizationUuid": organization,
-                "emailAddress": "ada@example.com",
-            }})
-            .to_string(),
-        )
-        .unwrap();
-        for (folder_account, folder_organization) in folders {
-            let folder = root
-                .join("gui-data/claude-code-sessions")
-                .join(folder_account)
-                .join(folder_organization);
-            fs::create_dir_all(&folder).unwrap();
-            // Distinct modification times, in the order given.
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            fs::write(folder.join("touch"), b"").unwrap();
+    /// A `.claude.json` at `path` signed in as account `id`, or signed out
+    /// when `id` is `None`.
+    fn claude_json(path: &Path, id: Option<&str>, email: &str) -> PathBuf {
+        let document = match id {
+            Some(id) => json!({"oauthAccount": {"accountUuid": id, "emailAddress": email}}),
+            None => json!({"projects": {}}),
+        };
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, document.to_string()).unwrap();
+        path.to_path_buf()
+    }
+
+    /// A desktop app's data at `gui_data`: its `config.json` with these two
+    /// keys (left out when `None`), and a token cache that must never matter.
+    fn desktop(gui_data: &Path, last_known: Option<&str>, signed_in: Option<bool>) -> PathBuf {
+        fs::create_dir_all(gui_data).unwrap();
+        let mut config = json!({"oauth:tokenCache": "not-for-reading", "locale": "en-US"});
+        if let Some(id) = last_known {
+            config["lastKnownAccountUuid"] = json!(id);
         }
-        claude_json
+        if let Some(signed_in) = signed_in {
+            config["windowSizeWasSignedIn"] = json!(signed_in);
+        }
+        fs::write(gui_data.join("config.json"), config.to_string()).unwrap();
+        gui_data.to_path_buf()
+    }
+
+    fn signed_in_as(status: AccountStatus) -> Option<String> {
+        match status {
+            AccountStatus::SignedIn { account } => account.email,
+            _ => None,
+        }
     }
 
     #[test]
-    fn the_stock_claude_account_shows_when_the_desktop_app_last_used_it() {
+    fn the_desktop_app_says_whether_it_is_signed_in_and_as_whom() {
         let dir = tempfile::tempdir().unwrap();
-        let claude_json = stock_install(dir.path(), "acct", "org", &[("acct", "org")]);
-        let account = stock_claude_account(&[claude_json], &dir.path().join("gui-data")).unwrap();
-        assert_eq!(account.email.as_deref(), Some("ada@example.com"));
-    }
-
-    #[test]
-    fn the_stock_claude_account_is_hidden_when_the_desktop_app_is_under_another() {
-        // `$HOME/.claude.json` left naming an account imported into a profile,
-        // while the stock app has since signed in as someone else.
-        let dir = tempfile::tempdir().unwrap();
-        let claude_json = stock_install(
-            dir.path(),
-            "moved",
-            "org",
-            &[("moved", "org"), ("now", "org")],
+        let gui = |name: &str| dir.path().join(name);
+        assert_eq!(desktop_sign_in(&gui("none")), Desktop::Absent);
+        assert_eq!(
+            desktop_sign_in(&desktop(&gui("in"), Some("a"), Some(true))),
+            Desktop::SignedIn("a".into())
+        );
+        // Signing out keeps the last account's id: it says who, not whether.
+        assert_eq!(
+            desktop_sign_in(&desktop(&gui("out"), Some("a"), Some(false))),
+            Desktop::SignedOut
         );
         assert_eq!(
-            stock_claude_account(&[claude_json], &dir.path().join("gui-data")),
-            None
+            desktop_sign_in(&desktop(&gui("no-flag"), Some("a"), None)),
+            Desktop::Unsure
+        );
+        fs::create_dir_all(gui("no-config")).unwrap();
+        assert_eq!(desktop_sign_in(&gui("no-config")), Desktop::Unsure);
+    }
+
+    #[test]
+    fn stock_names_the_account_the_desktop_app_is_signed_in_as() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = claude_json(
+            &dir.path().join(".claude.json"),
+            Some("a"),
+            "ada@example.com",
+        );
+        let gui = desktop(&dir.path().join("gui"), Some("a"), Some(true));
+        assert_eq!(
+            signed_in_as(stock_claude_status(&[home], &gui)).as_deref(),
+            Some("ada@example.com")
         );
     }
 
     #[test]
-    fn the_stock_claude_account_is_hidden_for_another_organization_or_no_desktop_sessions() {
+    fn stock_is_unknown_when_the_desktop_app_is_signed_in_as_an_account_no_file_names() {
+        // `$HOME/.claude.json` left naming an account imported into a
+        // profile, while the stock app is signed in as someone else.
         let dir = tempfile::tempdir().unwrap();
-        let claude_json = stock_install(dir.path(), "acct", "org", &[("acct", "other-org")]);
+        let home = claude_json(
+            &dir.path().join(".claude.json"),
+            Some("moved"),
+            "old@example.com",
+        );
+        let gui = desktop(&dir.path().join("gui"), Some("now"), Some(true));
+        assert_eq!(stock_claude_status(&[home], &gui), AccountStatus::Unknown);
+    }
+
+    #[test]
+    fn stock_is_signed_out_only_when_nothing_is_signed_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = claude_json(&dir.path().join(".claude.json"), None, "");
+        let gui = desktop(&dir.path().join("gui"), Some("a"), Some(false));
         assert_eq!(
-            stock_claude_account(
-                std::slice::from_ref(&claude_json),
-                &dir.path().join("gui-data")
+            stock_claude_status(std::slice::from_ref(&home), &gui),
+            AccountStatus::SignedOut
+        );
+        // Nor anything at all on disk.
+        assert_eq!(
+            stock_claude_status(
+                &[dir.path().join("missing.json")],
+                &dir.path().join("no-gui")
             ),
-            None
+            AccountStatus::SignedOut
+        );
+    }
+
+    #[test]
+    fn stock_is_unknown_when_the_desktop_app_signed_out_but_a_file_still_names_someone() {
+        // The CLI may still be signed in as them, or the file may be what an
+        // import left behind: not "signed out", and not a name.
+        let dir = tempfile::tempdir().unwrap();
+        let home = claude_json(
+            &dir.path().join(".claude.json"),
+            Some("a"),
+            "ada@example.com",
+        );
+        let gui = desktop(&dir.path().join("gui"), Some("a"), Some(false));
+        assert_eq!(stock_claude_status(&[home], &gui), AccountStatus::Unknown);
+    }
+
+    #[test]
+    fn a_stock_cli_only_install_names_its_cli_account() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = claude_json(
+            &dir.path().join(".claude.json"),
+            Some("a"),
+            "ada@example.com",
         );
         assert_eq!(
-            stock_claude_account(&[claude_json], &dir.path().join("no-gui-data")),
-            None
+            signed_in_as(stock_claude_status(&[home], &dir.path().join("no-gui"))).as_deref(),
+            Some("ada@example.com")
+        );
+    }
+
+    #[test]
+    fn stock_goes_by_the_desktop_apps_current_account_not_its_code_tab_folders() {
+        // Signed in as A, then B, then A again, with B's Code tab folder the
+        // newest, and stray files about: only config.json counts.
+        let dir = tempfile::tempdir().unwrap();
+        let gui = desktop(&dir.path().join("gui"), Some("a"), Some(true));
+        for account in ["a", "b"] {
+            fs::create_dir_all(gui.join("claude-code-sessions").join(account).join("org")).unwrap();
+        }
+        fs::write(gui.join("claude-code-sessions/.DS_Store"), b"").unwrap();
+        fs::write(gui.join("claude-code-sessions/b/.DS_Store"), b"").unwrap();
+        let home = claude_json(&dir.path().join("home.json"), Some("b"), "bea@example.com");
+        let config = claude_json(
+            &dir.path().join("config.json"),
+            Some("a"),
+            "ada@example.com",
+        );
+        assert_eq!(
+            signed_in_as(stock_claude_status(&[home, config], &gui)).as_deref(),
+            Some("ada@example.com"),
+            "the file naming the desktop app's account, wherever it is in the list"
+        );
+    }
+
+    #[test]
+    fn a_stock_cli_only_install_takes_home_claude_json_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = claude_json(&dir.path().join("home.json"), Some("h"), "home@example.com");
+        let config = claude_json(
+            &dir.path().join("config.json"),
+            Some("c"),
+            "config@example.com",
+        );
+        assert_eq!(
+            signed_in_as(stock_claude_status(
+                &[home, config],
+                &dir.path().join("no-gui")
+            ))
+            .as_deref(),
+            Some("home@example.com")
+        );
+    }
+
+    #[test]
+    fn a_profile_signed_in_only_through_its_desktop_app_is_unknown_not_signed_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().join("cli-config");
+        claude_json(&config_dir.join(".claude.json"), None, "");
+        let gui = desktop(&dir.path().join("gui"), Some("a"), Some(true));
+        assert_eq!(claude_status(&config_dir, &gui), AccountStatus::Unknown);
+
+        let signed_out = desktop(&dir.path().join("gui-out"), Some("a"), Some(false));
+        assert_eq!(
+            claude_status(&config_dir, &signed_out),
+            AccountStatus::SignedOut
+        );
+    }
+
+    #[test]
+    fn a_profile_names_its_cli_account() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().join("cli-config");
+        claude_json(
+            &config_dir.join(".claude.json"),
+            Some("a"),
+            "ada@example.com",
+        );
+        assert_eq!(
+            signed_in_as(claude_status(&config_dir, &dir.path().join("no-gui"))).as_deref(),
+            Some("ada@example.com")
+        );
+    }
+
+    #[test]
+    fn the_status_reads_as_a_tagged_object() {
+        assert_eq!(
+            serde_json::to_value(AccountStatus::Unknown).unwrap(),
+            json!({"status": "unknown"})
+        );
+        assert_eq!(
+            serde_json::to_value(AccountStatus::SignedIn {
+                account: ProfileAccount {
+                    email: Some("ada@example.com".into()),
+                    ..ProfileAccount::default()
+                }
+            })
+            .unwrap(),
+            json!({"status": "signedIn", "account": {"email": "ada@example.com", "name": null, "organization": null, "plan": null}})
         );
     }
 

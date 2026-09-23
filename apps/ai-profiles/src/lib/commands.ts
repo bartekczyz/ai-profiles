@@ -1,5 +1,6 @@
 import type { AppId } from './app-registry'
 import type {
+  AccountStatus,
   AppMetadata,
   AppState,
   AppStatePatch,
@@ -11,7 +12,6 @@ import type {
   MigrationBackupInfo,
   PathHookOutcome,
   Profile,
-  ProfileAccount,
   ProfilePatch,
   ProfilePaths,
   ProfileUsage,
@@ -76,8 +76,8 @@ export function profilePaths(id: string): Promise<ProfilePaths> {
   return invoke<ProfilePaths>('profile_paths', { id })
 }
 
-export function profileAccount(id: string): Promise<ProfileAccount | null> {
-  return invoke<ProfileAccount | null>('profile_account', { id })
+export function profileAccount(id: string): Promise<AccountStatus> {
+  return invoke<AccountStatus>('profile_account', { id })
 }
 
 export function copyToClipboard(text: string): Promise<void> {

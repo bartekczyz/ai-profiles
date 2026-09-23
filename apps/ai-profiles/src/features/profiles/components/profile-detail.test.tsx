@@ -474,10 +474,8 @@ describe('ProfileDetail — profile explainer', () => {
 describe('ProfileDetail — account', () => {
   it('names the account the profile is signed in under', async () => {
     vi.mocked(profileAccount).mockResolvedValue({
-      email: 'ada@example.com',
-      name: 'Ada',
-      organization: 'Ada Ltd',
-      plan: 'Max',
+      status: 'signedIn',
+      account: { email: 'ada@example.com', name: 'Ada', organization: 'Ada Ltd', plan: 'Max' },
     })
     renderDetail()
     const line = await screen.findByText('ada@example.com · Max')
@@ -486,8 +484,15 @@ describe('ProfileDetail — account', () => {
   })
 
   it('says so when the profile has not been signed in', async () => {
-    vi.mocked(profileAccount).mockResolvedValue(null)
+    vi.mocked(profileAccount).mockResolvedValue({ status: 'signedOut' })
     renderDetail()
     expect(await screen.findByText('Not signed in')).toBeInTheDocument()
+  })
+
+  it("says nothing of a sign-in its desktop app has but can't name", async () => {
+    vi.mocked(profileAccount).mockResolvedValue({ status: 'unknown' })
+    renderDetail()
+    await waitFor(() => expect(profileAccount).toHaveBeenCalledWith('p1'))
+    expect(screen.queryByText('Not signed in')).toBeNull()
   })
 })

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 
-use crate::accounts::{self, ProfileAccount};
+use crate::accounts::{self, AccountStatus};
 use crate::app_kind::{spec, AppKind};
 use crate::app_state::{self, AppState, AppStatePatch};
 use crate::deps::{self, Dependencies};
@@ -236,10 +236,10 @@ pub fn profile_paths(id: String) -> AppResult<ProfilePaths> {
     profiles::paths(&id)
 }
 
-/// The account profile `id` is signed in under, read from what its CLI keeps
-/// on disk. `None` when nothing there names one.
+/// Whether profile `id` is signed in, and as whom, read from what its apps
+/// keep on disk.
 #[tauri::command(async)]
-pub fn profile_account(id: String) -> AppResult<Option<ProfileAccount>> {
+pub fn profile_account(id: String) -> AppResult<AccountStatus> {
     accounts::read(&id)
 }
 
