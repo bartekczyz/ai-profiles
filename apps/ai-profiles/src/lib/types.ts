@@ -340,6 +340,14 @@ export type TransferPlan = {
   sourceBytes: number
 }
 
+/** How far a move has got, as it runs: its steps in order, and the one it's on. */
+export type TransferProgress = {
+  sessionId: string
+  steps: Array<string>
+  /** An index into `steps`. */
+  current: number
+}
+
 export type TransferReport = {
   destinationTranscript: string
   backupDir: string | null

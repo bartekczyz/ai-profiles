@@ -1,6 +1,6 @@
-import type { AppState, Profile, SessionSummary, TransferPlan } from '@/lib/types'
+import type { AppState, Profile, SessionSummary, TransferPlan, TransferReport } from '@/lib/types'
 
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -21,6 +21,22 @@ import {
 import { renderWithQuery } from '@/test/render-with-query'
 
 import { ProfileDetailSessions } from './profile-detail-sessions'
+
+/** The backend's progress events: a test sends one with `hear`. */
+const progressListeners: Array<(event: { payload: unknown }) => void> = []
+function hear(payload: unknown) {
+  for (const listener of progressListeners) {
+    listener({ payload })
+  }
+}
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async (_event: string, handler: (event: { payload: unknown }) => void) => {
+    progressListeners.push(handler)
+    return () => {
+      progressListeners.splice(progressListeners.indexOf(handler), 1)
+    }
+  }),
+}))
 
 vi.mock('@/lib/commands', async () => {
   const actual = await vi.importActual<typeof import('@/lib/commands')>('@/lib/commands')
@@ -234,6 +250,51 @@ describe('ProfileDetailSessions', () => {
     const done = await screen.findByRole('dialog', { name: 'Session moved' })
     expect(within(done).getByText(/and its desktop app lists it/)).toBeInTheDocument()
     expect(within(done).getByText(/notes\.md/)).toBeInTheDocument()
+  })
+
+  it('shows each step of the move as it runs', async () => {
+    vi.mocked(listSessions).mockResolvedValue([session()])
+    vi.mocked(planSessionTransfer).mockResolvedValue(plan())
+    let finish: (report: TransferReport) => void = () => {}
+    vi.mocked(transferSession).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
+    renderWithQuery(<ProfileDetailSessions profileId="work" />)
+    const { user, dialog } = await openMoveDialog()
+    await user.selectOptions(within(dialog).getByRole('combobox'), 'personal')
+    await within(dialog).findByText('Files: 2 to copy.')
+    await user.click(within(dialog).getByRole('button', { name: /^Move/ }))
+
+    const progress = await within(dialog).findByRole('status', { name: 'Move progress' })
+    act(() =>
+      hear({
+        sessionId: 's1',
+        steps: ['Copying it to Personal', "Adding it to Personal's desktop app", 'Archiving the copy in Work'],
+        current: 1,
+      }),
+    )
+    expect(await within(progress).findByText("Adding it to Personal's desktop app")).toHaveAttribute(
+      'aria-current',
+      'step',
+    )
+    expect(within(progress).getByLabelText('Done')).toBeInTheDocument()
+    // Another session's move isn't this one's.
+    act(() => hear({ sessionId: 'other', steps: ['Copying it to Personal'], current: 0 }))
+    expect(within(progress).getByText('Archiving the copy in Work')).toBeInTheDocument()
+
+    finish({
+      destinationTranscript: '/t',
+      backupDir: null,
+      desktopRecord: '/r',
+      archivedTo: '/a',
+      freedBytes: null,
+      deleteError: null,
+      memoryCopied: [],
+      memoryConflicts: [],
+    })
+    expect(await screen.findByRole('dialog', { name: 'Session moved' })).toBeInTheDocument()
   })
 
   it('deletes the original once moved when asked to, saying what that freed', async () => {

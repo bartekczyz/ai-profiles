@@ -1,8 +1,11 @@
-import type { SessionSummary, TransferPlan, TransferReport, TransferRequest } from '@/lib/types'
+import type { SessionSummary, TransferPlan, TransferProgress, TransferReport, TransferRequest } from '@/lib/types'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { Button, Dialog, Kbd } from '@/design'
+import { listen } from '@tauri-apps/api/event'
+import { Check, LoaderCircle } from 'lucide-react'
+
+import { Button, cn, Dialog, Kbd } from '@/design'
 import { useAppState } from '@/lib/app-state/use-app-state'
 import { formatBytes } from '@/lib/format-bytes'
 
@@ -55,6 +58,7 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
   const [replaceNewer, setReplaceNewer] = useState(false)
   const [report, setReport] = useState<TransferReport | null>(null)
   const [moveError, setMoveError] = useState<string | null>(null)
+  const [progress, resetProgress] = useTransferProgress(session.id)
 
   const request: TransferRequest | null = destinationId
     ? {
@@ -85,6 +89,7 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
       return
     }
     setMoveError(null)
+    resetProgress()
     try {
       setReport(await move.mutateAsync({ ...request, replaceNewer, quitApps: appsToQuit.length > 0 }))
     } catch (caught) {
@@ -138,7 +143,9 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
         </>
       }
     >
-      {fixedDestinationId ? (
+      {move.isPending ? (
+        <MoveProgressSteps progress={progress} />
+      ) : fixedDestinationId ? (
         <div className="space-y-3">
           {session.cwd ? <p className="font-mono text-mono text-muted-strong">{shortenHomePath(session.cwd)}</p> : null}
           <p className="text-body text-ink-soft">
@@ -285,6 +292,76 @@ function PlanBody({
           {note}
         </p>
       ))}
+    </div>
+  )
+}
+
+/** The event a move's progress comes on, from the backend. */
+const progressEvent = 'session-transfer-progress'
+
+/**
+ * The progress the backend reports for moves of session `sessionId`, heard
+ * from the moment the dialog opens so a first quick step isn't missed.
+ * `reset` clears it for a new move.
+ */
+function useTransferProgress(sessionId: string): [TransferProgress | null, () => void] {
+  const [progress, setProgress] = useState<TransferProgress | null>(null)
+  useEffect(() => {
+    const unlisten = listen<TransferProgress>(progressEvent, (event) => {
+      if (event.payload.sessionId === sessionId) {
+        setProgress(event.payload)
+      }
+    }).catch(() => undefined)
+    return () => {
+      void unlisten.then((stop) => stop?.())
+    }
+  }, [sessionId])
+  return [progress, () => setProgress(null)]
+}
+
+/**
+ * What a running move is doing, step by step, as the backend says, with how
+ * long it has taken so far: quitting an app and copying a long conversation
+ * take a while.
+ */
+function MoveProgressSteps({ progress }: { progress: TransferProgress | null }) {
+  const [seconds, setSeconds] = useState(0)
+  useEffect(() => {
+    const started = Date.now()
+    const timer = window.setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  return (
+    <div role="status" aria-label="Move progress" className="space-y-2 text-body text-ink-soft">
+      {progress ? (
+        <ol className="space-y-1.5">
+          {progress.steps.map((step, index) => (
+            <li
+              key={step}
+              className={cn('flex items-center gap-2', index > progress.current && 'text-muted')}
+              aria-current={index === progress.current ? 'step' : undefined}
+            >
+              {index < progress.current ? (
+                <Check aria-label="Done" className="h-3.5 w-3.5 text-green" />
+              ) : index === progress.current ? (
+                <LoaderCircle aria-hidden className="h-3.5 w-3.5 animate-spin text-muted-strong" />
+              ) : (
+                <span aria-hidden className="h-3.5 w-3.5" />
+              )}
+              {step}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="flex items-center gap-2">
+          <LoaderCircle aria-hidden className="h-3.5 w-3.5 animate-spin text-muted-strong" />
+          Starting the move…
+        </p>
+      )}
+      <p className="text-meta text-muted">
+        {seconds < 5 ? ' ' : `${seconds} s so far. A long conversation takes a while to copy.`}
+      </p>
     </div>
   )
 }

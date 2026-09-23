@@ -155,17 +155,29 @@ pub fn plan(request: &TransferRequest) -> AppResult<TransferPlan> {
 /// Move the session. Refuses whatever [`plan`] lists as a blocker, and a
 /// newer destination copy unless `replace_newer` is set. Apps the plan lists
 /// to quit are quit first when `quit_apps` is set, and refused otherwise.
-pub fn transfer(request: &TransferRequest) -> AppResult<TransferReport> {
+pub fn transfer(
+    request: &TransferRequest,
+    progress: &dyn Fn(&TransferProgress),
+) -> AppResult<TransferReport> {
     if request.archive_source && request.delete_source {
         return Err(AppError::Validation(
             "Archive the copy left behind, or delete it: not both.".into(),
         ));
     }
+    let afterwards = if request.delete_source {
+        Afterwards::Delete
+    } else if request.archive_source {
+        Afterwards::Archive
+    } else {
+        Afterwards::Keep
+    };
     let mut prepared = prepare(request)?;
-    if prepared.plan.blockers.is_empty()
+    let quitting = prepared.plan.blockers.is_empty()
         && !prepared.plan.apps_to_quit.is_empty()
-        && request.quit_apps
-    {
+        && request.quit_apps;
+    let steps = Steps::of(&prepared.plan, quitting, afterwards, progress);
+    if quitting {
+        steps.at(Step::Quit);
         quit_apps(&prepared.plan.apps_to_quit)?;
         prepared = prepare(request)?;
     }
@@ -182,14 +194,93 @@ pub fn transfer(request: &TransferRequest) -> AppResult<TransferReport> {
             plan.destination_label
         )));
     }
-    let afterwards = if request.delete_source {
-        Afterwards::Delete
-    } else if request.archive_source {
-        Afterwards::Archive
-    } else {
-        Afterwards::Keep
-    };
-    execute(&prepared, afterwards)
+    execute(&prepared, afterwards, &steps)
+}
+
+/// How far a move has got, as the dialog shows it while it runs: its steps,
+/// in order, and the one it's on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferProgress {
+    pub session_id: String,
+    pub steps: Vec<String>,
+    /// An index into `steps`.
+    pub current: usize,
+}
+
+/// One step of a move that the dialog names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Quit,
+    Copy,
+    Desktop,
+    Afterwards,
+}
+
+/// A move's steps, said as each one starts.
+struct Steps<'a> {
+    session_id: String,
+    named: Vec<(Step, String)>,
+    report: &'a dyn Fn(&TransferProgress),
+}
+
+impl<'a> Steps<'a> {
+    /// The steps moving by `plan` takes: quitting apps first when it does,
+    /// adding a desktop record when there's one to add, and what becomes of
+    /// the source's copy unless it's kept.
+    fn of(
+        plan: &TransferPlan,
+        quitting: bool,
+        afterwards: Afterwards,
+        report: &'a dyn Fn(&TransferProgress),
+    ) -> Steps<'a> {
+        let mut named = Vec::new();
+        if quitting {
+            let apps: Vec<String> = plan
+                .apps_to_quit
+                .iter()
+                .map(|app| format!("Claude ({})", app.label))
+                .collect();
+            named.push((Step::Quit, format!("Quitting {}", apps.join(" and "))));
+        }
+        named.push((
+            Step::Copy,
+            format!("Copying it to {}", plan.destination_label),
+        ));
+        if plan.desktop == DesktopAction::Add {
+            named.push((
+                Step::Desktop,
+                format!("Adding it to {}'s desktop app", plan.destination_label),
+            ));
+        }
+        match afterwards {
+            Afterwards::Archive => named.push((
+                Step::Afterwards,
+                format!("Archiving the copy in {}", plan.source_label),
+            )),
+            Afterwards::Delete => named.push((
+                Step::Afterwards,
+                format!("Deleting the copy in {}", plan.source_label),
+            )),
+            Afterwards::Keep => {}
+        }
+        Steps {
+            session_id: plan.session_id.clone(),
+            named,
+            report,
+        }
+    }
+
+    /// Say that `step` has started. One the move doesn't take says nothing.
+    fn at(&self, step: Step) {
+        if let Some(current) = self.named.iter().position(|(named, _)| *named == step) {
+            (self.report)(&TransferProgress {
+                session_id: self.session_id.clone(),
+                steps: self.named.iter().map(|(_, name)| name.clone()).collect(),
+                current,
+            });
+        }
+    }
 }
 
 /// What becomes of the source's copy once the session has moved.
@@ -498,7 +589,11 @@ fn item(from: PathBuf, destination: &Home, rel: PathBuf) -> AppResult<Item> {
     })
 }
 
-fn execute(prepared: &Prepared, afterwards: Afterwards) -> AppResult<TransferReport> {
+fn execute(
+    prepared: &Prepared,
+    afterwards: Afterwards,
+    steps: &Steps,
+) -> AppResult<TransferReport> {
     let id = &prepared.plan.session_id;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
     let backup_root = prepared
@@ -509,6 +604,7 @@ fn execute(prepared: &Prepared, afterwards: Afterwards) -> AppResult<TransferRep
         .join(&stamp);
     let mut backed_up = false;
 
+    steps.at(Step::Copy);
     for item in &prepared.items {
         match item.action {
             ItemAction::Same => continue,
@@ -541,6 +637,7 @@ fn execute(prepared: &Prepared, afterwards: Afterwards) -> AppResult<TransferRep
     )?;
     backed_up |= memory.backed_up;
 
+    steps.at(Step::Desktop);
     let desktop_record = match (&prepared.plan.desktop, &prepared.destination_records_dir) {
         (DesktopAction::Add, Some(dir)) => {
             let source_mtime = modified(&prepared.source_transcript);
@@ -575,6 +672,7 @@ fn execute(prepared: &Prepared, afterwards: Afterwards) -> AppResult<TransferRep
         _ => None,
     };
 
+    steps.at(Step::Afterwards);
     let archived_to = if afterwards == Afterwards::Archive {
         let root = archive_files(
             &prepared.source,
@@ -899,6 +997,58 @@ mod tests {
         );
     }
 
+    /// Steps that say nothing, for moves whose progress no one watches.
+    fn quiet() -> Steps<'static> {
+        Steps {
+            session_id: String::new(),
+            named: Vec::new(),
+            report: &|_| {},
+        }
+    }
+
+    #[test]
+    fn a_move_says_each_step_as_it_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        let prepared = prepared(dir.path());
+        let said = std::cell::RefCell::new(Vec::new());
+        let report = |progress: &TransferProgress| said.borrow_mut().push(progress.clone());
+        let mut plan = prepared.plan.clone();
+        plan.apps_to_quit = vec![AppToQuit {
+            profile_id: "b".into(),
+            label: "b".into(),
+        }];
+        let steps = Steps::of(&plan, true, Afterwards::Delete, &report);
+        assert_eq!(
+            steps
+                .named
+                .iter()
+                .map(|(_, name)| name.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "Quitting Claude (b)",
+                "Copying it to b",
+                "Adding it to b's desktop app",
+                "Deleting the copy in a",
+            ]
+        );
+
+        let steps = Steps::of(&prepared.plan, false, Afterwards::Keep, &report);
+        execute(&prepared, Afterwards::Keep, &steps).unwrap();
+        let said = said.borrow();
+        assert_eq!(
+            said.iter()
+                .map(|progress| progress.current)
+                .collect::<Vec<_>>(),
+            vec![0, 1],
+            "copying, then the desktop record; keeping the copy is no step"
+        );
+        assert_eq!(
+            said[0].steps,
+            vec!["Copying it to b", "Adding it to b's desktop app"]
+        );
+        assert_eq!(said[0].session_id, ID);
+    }
+
     fn prepared(dir: &Path) -> Prepared {
         let (source, destination) = (home(dir, "a"), home(dir, "b"));
         seed_source(&source);
@@ -951,7 +1101,7 @@ mod tests {
             ),
         );
         let prepared = prepared(dir.path());
-        let report = execute(&prepared, Afterwards::Archive).unwrap();
+        let report = execute(&prepared, Afterwards::Archive, &quiet()).unwrap();
 
         let destination = &prepared.destination.config_dir;
         assert_eq!(
@@ -1013,7 +1163,7 @@ mod tests {
             "stale copy",
         );
         let prepared = prepared(dir.path());
-        let report = execute(&prepared, Afterwards::Keep).unwrap();
+        let report = execute(&prepared, Afterwards::Keep, &quiet()).unwrap();
         let backup = PathBuf::from(report.backup_dir.unwrap());
         assert_eq!(
             fs::read_to_string(backup.join(format!("projects/-work/{ID}.jsonl"))).unwrap(),
@@ -1032,7 +1182,7 @@ mod tests {
             &format!(r#"{{"sessionId":"local_old","cliSessionId":"{ID}","title":"Audit"}}"#),
         );
         let prepared = prepared(dir.path());
-        let report = execute(&prepared, Afterwards::Delete).unwrap();
+        let report = execute(&prepared, Afterwards::Delete, &quiet()).unwrap();
 
         let source = &prepared.source.config_dir;
         assert_eq!(report.delete_error, None);

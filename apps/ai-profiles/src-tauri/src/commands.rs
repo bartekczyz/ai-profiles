@@ -254,9 +254,19 @@ pub fn plan_session_transfer(request: TransferRequest) -> AppResult<TransferPlan
 
 /// Move a session to another profile. See [`sessions::transfer`].
 #[tauri::command(async)]
-pub fn transfer_session(request: TransferRequest) -> AppResult<TransferReport> {
-    sessions::transfer(&request)
+pub fn transfer_session(
+    app: tauri::AppHandle,
+    request: TransferRequest,
+) -> AppResult<TransferReport> {
+    use tauri::Emitter;
+    // Each step as it starts, for the dialog to show while the move runs.
+    sessions::transfer(&request, &|progress| {
+        let _ = app.emit(TRANSFER_PROGRESS_EVENT, progress);
+    })
 }
+
+/// The event a move's progress goes out on.
+const TRANSFER_PROGRESS_EVENT: &str = "session-transfer-progress";
 
 /// What archiving a session would need: a terminal to close, or the
 /// profile's desktop app to quit.
