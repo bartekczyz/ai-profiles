@@ -6,6 +6,7 @@ import { Suspense, useState } from 'react'
 
 import { PaneLayout } from '@/components/pane-layout'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
+import { SessionsPanel } from '@/features/sessions/components/sessions-panel'
 import { appSpecs, wrapperCommand } from '@/lib/app-registry'
 
 import { useProfileLastUsed } from '../api/use-profile-last-used'
@@ -38,6 +39,7 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
 
   return (
     <PaneLayout
+      aside={<SessionsPanel key={profile.id} profileId={profile.id} app={profile.app} />}
       header={
         <ProfileDetailHeader
           name={profile.name}

@@ -18,6 +18,7 @@ vi.mock('@/lib/commands', async () => {
   const actual = await vi.importActual<typeof import('@/lib/commands')>('@/lib/commands')
   return {
     ...actual,
+    listSessions: vi.fn(async () => ({ sessions: [], repairCount: 0 })),
     profilePaths: vi.fn(),
     openInFinder: vi.fn(async () => {}),
     openProfileInApp: vi.fn(async () => {}),

@@ -23,6 +23,7 @@ vi.mock('@/lib/commands', async () => {
   const actual = await vi.importActual<typeof import('@/lib/commands')>('@/lib/commands')
   return {
     ...actual,
+    listSessions: vi.fn(async () => ({ sessions: [], repairCount: 0 })),
     profilePaths: vi.fn(),
     getProfileUsage: vi.fn(async () => ({
       quota: {

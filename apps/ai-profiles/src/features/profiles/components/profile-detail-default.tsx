@@ -4,6 +4,7 @@ import type { GuiLaunch } from './use-gui-launch'
 import { Suspense, useState } from 'react'
 
 import { PaneLayout } from '@/components/pane-layout'
+import { SessionsPanel } from '@/features/sessions/components/sessions-panel'
 import { appSpecs } from '@/lib/app-registry'
 import { useAppState } from '@/lib/app-state/use-app-state'
 import { copyToClipboard, openDefaultGui, profilePaths } from '@/lib/commands'
@@ -49,6 +50,7 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
   const launch = useGuiLaunch()
   return (
     <PaneLayout
+      aside={<SessionsPanel key={entry.id} profileId={entry.id} app={entry.app} />}
       header={
         <ProfileDetailHeader
           name={entry.customName ?? displayName}
