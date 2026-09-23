@@ -51,7 +51,7 @@ export function SettingsFooterRow({ onOpenAbout }: Props) {
 
   return (
     <>
-      <div className="mt-9 flex items-center justify-between gap-4 border-t border-border-soft pt-4">
+      <div className="mt-9 mb-6 flex items-center justify-between gap-4 border-t border-border-soft pt-4">
         <button
           type="button"
           onClick={onOpenAbout}
