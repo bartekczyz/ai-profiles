@@ -3,6 +3,7 @@ import type { SessionSummary, TransferPlan, TransferReport, TransferRequest } fr
 import { useMemo, useState } from 'react'
 
 import { Button, Dialog, Kbd } from '@/design'
+import { useAppState } from '@/lib/app-state/use-app-state'
 import { formatBytes } from '@/lib/format-bytes'
 
 import { useTransferPlan, useTransferSession } from '../api/use-profile-sessions'
@@ -36,12 +37,15 @@ type Props = {
  */
 export function TransferSessionDialog({ open, sourceId, session, destinationId: fixedDestinationId, onClose }: Props) {
   const { profiles } = useProfiles()
+  const defaultNames = useAppState().state.defaultProfileNames
   const destinations = useMemo(() => {
     const managed = profiles
       .filter((profile) => profile.app === 'claude' && profile.id !== sourceId)
       .map((profile) => ({ id: profile.id, label: profile.name }))
-    return sourceId === stockId ? managed : [{ id: stockId, label: 'Default (stock install)' }, ...managed]
-  }, [profiles, sourceId])
+    // The stock entry by the name the user gave it, as the sidebar shows it.
+    const stockLabel = defaultNames?.claude ?? 'Default (stock install)'
+    return sourceId === stockId ? managed : [{ id: stockId, label: stockLabel }, ...managed]
+  }, [profiles, sourceId, defaultNames])
 
   const [destinationId, setDestinationId] = useState(fixedDestinationId ?? destinations[0]?.id ?? '')
   const fixedLabel = fixedDestinationId

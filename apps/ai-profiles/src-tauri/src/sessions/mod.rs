@@ -76,7 +76,11 @@ pub fn home(id: &str) -> AppResult<Home> {
         Some(kind) => {
             ensure_claude(kind)?;
             (
-                "Default".to_string(),
+                // The name the user gave the stock entry, as the sidebar shows it.
+                crate::app_state::load()
+                    .ok()
+                    .and_then(|state| state.default_profile_names.get(&kind).cloned())
+                    .unwrap_or_else(|| "Default".to_string()),
                 true,
                 resolve_gui_app(spec(kind)).is_some(),
             )

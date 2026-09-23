@@ -1,4 +1,4 @@
-import type { Profile, SessionSummary, TransferPlan } from '@/lib/types'
+import type { AppState, Profile, SessionSummary, TransferPlan } from '@/lib/types'
 
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -13,6 +13,7 @@ import {
   listArchivedSessions,
   listProfiles,
   listSessions,
+  loadAppState,
   planSessionTransfer,
   restoreSession,
   transferSession,
@@ -26,6 +27,7 @@ vi.mock('@/lib/commands', async () => {
   return {
     ...actual,
     listProfiles: vi.fn(),
+    loadAppState: vi.fn(),
     listSessions: vi.fn(),
     archiveSession: vi.fn(),
     checkSessionArchive: vi.fn(),
@@ -91,7 +93,20 @@ function plan(overrides: Partial<TransferPlan> = {}): TransferPlan {
   }
 }
 
+function appState(defaultProfileNames: AppState['defaultProfileNames'] = {}): AppState {
+  return {
+    welcomeShown: true,
+    migrationDismissedAt: null,
+    pathBannerDismissedAt: null,
+    themeMode: 'system',
+    selectedEntryId: null,
+    dockIconAcknowledgedAt: null,
+    defaultProfileNames,
+  }
+}
+
 beforeEach(() => {
+  vi.mocked(loadAppState).mockResolvedValue(appState())
   vi.mocked(listProfiles).mockResolvedValue([
     profile('work', 'Work'),
     profile('personal', 'Personal'),
@@ -148,6 +163,19 @@ describe('ProfileDetailSessions', () => {
       .getAllByRole('option')
       .map((option) => option.textContent)
     expect(options).toEqual(['Default (stock install)', 'Personal'])
+  })
+
+  it('offers the stock install by the name it was given', async () => {
+    vi.mocked(loadAppState).mockResolvedValue(appState({ claude: 'Home' }))
+    vi.mocked(listSessions).mockResolvedValue([session()])
+    vi.mocked(planSessionTransfer).mockResolvedValue(plan())
+    renderWithQuery(<ProfileDetailSessions profileId="work" />)
+    const { dialog } = await openMoveDialog()
+
+    const options = within(dialog)
+      .getAllByRole('option')
+      .map((option) => option.textContent)
+    expect(options).toEqual(['Home', 'Personal'])
   })
 
   it('holds the move while something blocks it', async () => {
