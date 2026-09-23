@@ -14,6 +14,7 @@ import type {
   ProfilePatch,
   ProfilePaths,
   ProfileUsage,
+  SessionList,
   Shell,
   Surface,
   Surfaces,
@@ -133,4 +134,11 @@ export function openCliLogin(id: string): Promise<void> {
 
 export function getProfileUsage(profileId: string): Promise<ProfileUsage> {
   return invoke<ProfileUsage>('get_profile_usage', { profileId })
+}
+
+/**
+ * The sessions profile `profileId` (or `default:<app>`) owns, active and archived.
+ */
+export function listSessions(profileId: string): Promise<SessionList> {
+  return invoke<SessionList>('list_sessions', { profileId })
 }

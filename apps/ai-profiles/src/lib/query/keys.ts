@@ -22,6 +22,12 @@ export const queryKeys = {
     sizes: ['migration', 'sizes'] as const,
     backups: ['migration', 'backups'] as const,
   },
+  // Outside the `profiles` subtree: moving a session changes two profiles'
+  // lists at once, so every mutation invalidates the whole `sessions` prefix.
+  sessions: {
+    all: ['sessions'] as const,
+    list: (profileId: string) => ['sessions', profileId] as const,
+  },
   appState: ['app-state'] as const,
   shell: ['shell'] as const,
 } as const

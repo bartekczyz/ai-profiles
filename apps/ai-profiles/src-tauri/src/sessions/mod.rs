@@ -8,13 +8,14 @@
 
 mod claude;
 mod home;
+mod list;
 
 use std::path::PathBuf;
 
 use crate::app_kind::AppKind;
 
-#[allow(unused_imports)] // Consumed by the sessions commands.
-pub use home::{home_for, homes_of};
+pub use home::home_for;
+pub use list::{list_sessions, SessionList};
 
 /// Where one profile, or one app's stock install, keeps its sessions.
 #[derive(Debug, Clone, PartialEq, Eq)]

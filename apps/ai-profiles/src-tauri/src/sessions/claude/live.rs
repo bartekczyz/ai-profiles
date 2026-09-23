@@ -35,7 +35,6 @@ struct RegistryEntry {
 /// only entries whose pid `ps_output` lists count. Files that aren't a readable
 /// entry are skipped. A session open in a terminal and the desktop app at once
 /// is held by the terminal, the holder that only the user can close.
-#[allow(dead_code)] // Consumed by the sessions commands.
 pub fn live_sessions(config_dir: &Path, ps_output: &str) -> HashMap<String, LiveHolder> {
     let running = running_pids(ps_output);
     let Ok(files) = fs::read_dir(config_dir.join("sessions")) else {

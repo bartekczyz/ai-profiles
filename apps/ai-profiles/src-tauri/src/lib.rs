@@ -133,6 +133,7 @@ pub fn run() {
             commands::get_profile_usage,
             commands::open_external_url,
             commands::open_cli_login,
+            commands::list_sessions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -143,7 +143,6 @@ struct TitleFile {
 /// files, one level down only, as subagent transcripts sit deeper, in
 /// `<slug>/<id>/subagents/`. Transcripts of subagent records only are left
 /// out, as is anything that can't be read.
-#[allow(dead_code)] // Consumed by the sessions commands.
 pub fn scan_projects(config_dir: &Path) -> Vec<TranscriptSummary> {
     let projects = config_dir.join("projects");
     let Ok(slugs) = fs::read_dir(&projects) else {

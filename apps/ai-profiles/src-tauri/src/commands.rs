@@ -15,6 +15,7 @@ use crate::paths::{
     stock_gui_support_dir,
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
+use crate::sessions::{self, SessionList};
 use crate::usage::{
     self,
     codex::CodexQuotaProvider,
@@ -573,6 +574,14 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
             Ok(usage::build(&config_dir, &provider).await)
         }
     }
+}
+
+/// The sessions profile `profile_id` (or `default:<app>`) owns. Reading them
+/// walks every transcript of every profile of the app, so it runs off the main
+/// thread.
+#[tauri::command(async)]
+pub fn list_sessions(profile_id: String) -> AppResult<SessionList> {
+    sessions::list_sessions(&sessions::home_for(&profile_id)?)
 }
 
 fn resolve_app(profile_id: &str) -> AppResult<AppKind> {

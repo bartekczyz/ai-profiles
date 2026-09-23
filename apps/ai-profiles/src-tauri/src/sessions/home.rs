@@ -12,7 +12,6 @@ use crate::profiles::{self, Profile};
 const STOCK_LABEL: &str = "Default";
 
 /// The home of profile `id`, or of an app's stock install for `default:<app>`.
-#[allow(dead_code)] // Consumed by the sessions commands.
 pub fn home_for(id: &str) -> AppResult<Home> {
     if let Some(kind) = AppKind::from_default_id(id) {
         return stock_home(kind);
@@ -26,7 +25,6 @@ pub fn home_for(id: &str) -> AppResult<Home> {
 
 /// Every home of `kind`: the stock install first, then the managed profiles in
 /// their saved order.
-#[allow(dead_code)] // Consumed by the sessions commands.
 pub fn homes_of(kind: AppKind) -> AppResult<Vec<Home>> {
     let mut homes = vec![stock_home(kind)?];
     for profile in profiles::load()?

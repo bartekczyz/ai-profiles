@@ -262,3 +262,74 @@ export type ProfileUsage = {
   quotaError: QuotaError | null
   fetchedAt: string
 }
+
+/**
+ * Where a session was started: the desktop app (Claude's Code tab, Codex
+ * desktop) or the CLI (including IDE extensions).
+ */
+export type SessionKind = 'desktop' | 'cli'
+
+/**
+ * What a session's files are doing right now. `transcriptMissing` is a
+ * desktop record whose transcript was cleaned up.
+ */
+export type SessionState = 'idle' | 'openInTerminal' | 'openInDesktop' | 'transcriptMissing'
+
+export type Session = {
+  /**
+   * Claude: the id of the transcript shown, which for a desktop session is its
+   * record's `cliSessionId`, else the last used of its `priorCliSessionIds`. A
+   * desktop session whose transcripts are all gone keeps its `cliSessionId`,
+   * else its record's `local_<uuid>`. Codex: the thread id.
+   */
+  id: string
+  /**
+   * Where the session was started.
+   */
+  kind: SessionKind
+  /**
+   * The desktop title, else the `/rename` name, else the generated title,
+   * else the first prompt. Null when none of those says anything.
+   */
+  title: string | null
+  /**
+   * The folder the session works in.
+   */
+  cwd: string | null
+  /**
+   * The last thing typed into the session.
+   */
+  lastPrompt: string | null
+  /**
+   * When the session was last used, ISO 8601.
+   */
+  lastUsedAt: string
+  /**
+   * The session is archived.
+   */
+  archived: boolean
+  /**
+   * What the session's files are doing right now.
+   */
+  state: SessionState
+  /**
+   * One of the session's transcripts sits in another profile's config dir and
+   * should be moved into this one's.
+   */
+  needsRepair: boolean
+  /**
+   * Why the session can't be moved to another profile, if it can't.
+   */
+  unmovableReason: string | null
+}
+
+export type SessionList = {
+  /**
+   * Active and archived, most recently used first.
+   */
+  sessions: Array<Session>
+  /**
+   * How many of the sessions need repair.
+   */
+  repairCount: number
+}
