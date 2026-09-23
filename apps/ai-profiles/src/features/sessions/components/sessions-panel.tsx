@@ -96,7 +96,6 @@ export function SessionsPanel({ profileId, app }: Props) {
       errorMessage={errorMessage}
       tabTotal={inTab.length}
       sessions={visible}
-      app={app}
       emptyTitle={tab === 'active' ? 'No sessions yet' : 'No archived sessions'}
       emptyHint={
         tab === 'active' ? `${appSpecs[app].cliDisplayName} sessions this profile starts show up here.` : undefined

@@ -24,31 +24,22 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 }
 
 describe('rowActions', () => {
-  it('offers an active Claude session archiving', () => {
-    expect(rowActions(makeSession(), 'claude')).toEqual([{ action: 'archive' }])
+  it('offers an active session archiving', () => {
+    expect(rowActions(makeSession())).toEqual([{ action: 'archive' }])
   })
 
-  it('offers an archived Claude session restoring', () => {
-    expect(rowActions(makeSession({ archived: true }), 'claude')).toEqual([{ action: 'restore' }])
+  it('offers an archived session restoring', () => {
+    expect(rowActions(makeSession({ archived: true }))).toEqual([{ action: 'restore' }])
   })
 
   it('holds archiving back while a terminal has the session open', () => {
-    expect(rowActions(makeSession({ state: 'openInTerminal' }), 'claude')).toEqual([
+    expect(rowActions(makeSession({ state: 'openInTerminal' }))).toEqual([
       { action: 'archive', disabledReason: closeInTerminalReason },
     ])
   })
 
   it('lets a session whose transcript is gone, or that a desktop app has open, be archived', () => {
-    expect(rowActions(makeSession({ kind: 'desktop', state: 'transcriptMissing' }), 'claude')).toEqual([
-      { action: 'archive' },
-    ])
-    expect(rowActions(makeSession({ kind: 'desktop', state: 'openInDesktop' }), 'claude')).toEqual([
-      { action: 'archive' },
-    ])
-  })
-
-  it('offers Codex sessions nothing yet', () => {
-    expect(rowActions(makeSession(), 'codex')).toEqual([])
-    expect(rowActions(makeSession({ archived: true }), 'codex')).toEqual([])
+    expect(rowActions(makeSession({ kind: 'desktop', state: 'transcriptMissing' }))).toEqual([{ action: 'archive' }])
+    expect(rowActions(makeSession({ kind: 'desktop', state: 'openInDesktop' }))).toEqual([{ action: 'archive' }])
   })
 })

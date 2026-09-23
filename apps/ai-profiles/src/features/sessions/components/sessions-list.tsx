@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import type { AppId } from '@/lib/app-registry'
 import type { Session, SessionAction } from '@/lib/types'
 
 import { cn } from '@/design'
@@ -30,10 +29,6 @@ type Props = {
    * The rows to show, filtered and ordered.
    */
   sessions: Array<Session>
-  /**
-   * The app the sessions belong to, which decides what their rows offer.
-   */
-  app: AppId
   /**
    * What an empty tab says.
    */
@@ -99,7 +94,6 @@ export function SessionsList({
   errorMessage,
   tabTotal,
   sessions,
-  app,
   emptyTitle,
   emptyHint,
   onRetry,
@@ -136,7 +130,7 @@ export function SessionsList({
         <SessionRow
           key={session.id}
           session={session}
-          actions={rowActions(session, app).map((item) => ({
+          actions={rowActions(session).map((item) => ({
             id: item.action,
             label: actionLabels[item.action],
             disabledReason: item.disabledReason,

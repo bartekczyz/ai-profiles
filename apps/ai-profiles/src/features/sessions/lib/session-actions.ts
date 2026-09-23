@@ -1,4 +1,3 @@
-import type { AppId } from '@/lib/app-registry'
 import type { Session, SessionAction } from '@/lib/types'
 
 /**
@@ -22,14 +21,11 @@ export type RowAction = {
 
 /**
  * The actions `session`'s row offers: Archive on the Active tab, Restore on
- * the Archived one. Archiving waits for a terminal that has the session open
- * to close it; a desktop app in the way is quit from the confirm dialog
- * instead. Codex sessions offer none yet.
+ * the Archived one, for Claude and Codex sessions alike. Archiving waits for
+ * a terminal that has the session open to close it; a desktop app in the way
+ * is quit from the confirm dialog instead.
  */
-export function rowActions(session: Session, app: AppId): Array<RowAction> {
-  if (app !== 'claude') {
-    return []
-  }
+export function rowActions(session: Session): Array<RowAction> {
   if (session.archived) {
     return [{ action: 'restore' }]
   }

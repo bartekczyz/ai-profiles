@@ -176,6 +176,22 @@ describe('SessionsPanel', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
+  it('archives a Codex session from its row, the same as a Claude one', async () => {
+    mockSessions([makeSession({ id: 'c1', title: 'Fix the flaky test' })])
+    const user = userEvent.setup()
+    renderWithQuery(
+      <ToastProvider>
+        <SessionsPanel profileId="default:codex" app="codex" />
+      </ToastProvider>,
+    )
+    await screen.findByRole('list', { name: 'Sessions' })
+
+    await user.click(within(row('Fix the flaky test')).getByRole('button', { name: 'Archive' }))
+
+    await screen.findByRole('dialog', { name: /Fix the flaky test/ })
+    expect(checkSessionAction).toHaveBeenCalledWith('default:codex', 'c1', 'archive')
+  })
+
   it('offers restoring on the Archived tab', async () => {
     mockSessions(mixed)
     const { user } = await renderPanel()

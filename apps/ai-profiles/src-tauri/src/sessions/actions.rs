@@ -7,11 +7,13 @@
 //! since, quits the app if the user agreed to, and checks once more that it
 //! is gone before anything is written.
 
+use std::future::Future;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use super::claude::archive as claude_archive;
+use super::codex;
 use super::home::{home_for, homes_of};
 use super::instance::{desktop_label, quit_desktop, QUIT_TIMEOUT};
 use super::Home;
@@ -71,7 +73,11 @@ pub struct Checked<T> {
 
 /// What stands between session `session_id` of profile `profile_id` (or
 /// `default:<app>`) and `action`.
-pub fn check(profile_id: &str, session_id: &str, action: SessionAction) -> AppResult<ActionCheck> {
+pub async fn check(
+    profile_id: &str,
+    session_id: &str,
+    action: SessionAction,
+) -> AppResult<ActionCheck> {
     let home = home_for(profile_id)?;
     match home.app {
         AppKind::Claude => {
@@ -80,44 +86,46 @@ pub fn check(profile_id: &str, session_id: &str, action: SessionAction) -> AppRe
                 claude_archive::check(&home, &homes, session_id, action, &process_list()?)?;
             Ok(checked.check)
         }
-        AppKind::Codex => Err(codex_unsupported()),
+        AppKind::Codex => Ok(codex::check(&home, session_id, action).await?.check),
     }
 }
 
 /// Archive session `session_id` of profile `profile_id` (or `default:<app>`),
 /// quitting the desktop app in the way if `quit_app`.
-pub fn archive(profile_id: &str, session_id: &str, quit_app: bool) -> AppResult<()> {
-    run(profile_id, session_id, SessionAction::Archive, quit_app)
+pub async fn archive(profile_id: &str, session_id: &str, quit_app: bool) -> AppResult<()> {
+    run(profile_id, session_id, SessionAction::Archive, quit_app).await
 }
 
 /// Restore archived session `session_id` of profile `profile_id` (or
 /// `default:<app>`), quitting the desktop app in the way if `quit_app`.
-pub fn restore(profile_id: &str, session_id: &str, quit_app: bool) -> AppResult<()> {
-    run(profile_id, session_id, SessionAction::Restore, quit_app)
+pub async fn restore(profile_id: &str, session_id: &str, quit_app: bool) -> AppResult<()> {
+    run(profile_id, session_id, SessionAction::Restore, quit_app).await
 }
 
 /// Do `action` to session `session_id` of profile `profile_id` (or
 /// `default:<app>`), quitting the desktop app in its way if `quit_app`, and
 /// refusing if it is in the way otherwise.
-fn run(profile_id: &str, session_id: &str, action: SessionAction, quit_app: bool) -> AppResult<()> {
+async fn run(
+    profile_id: &str,
+    session_id: &str,
+    action: SessionAction,
+    quit_app: bool,
+) -> AppResult<()> {
     let home = home_for(profile_id)?;
     match home.app {
         AppKind::Claude => {
             let homes = homes_of(AppKind::Claude)?;
-            run_claude(&home, &homes, session_id, action, quit_app, QUIT_TIMEOUT)
+            run_claude(&home, &homes, session_id, action, quit_app, QUIT_TIMEOUT).await
         }
-        AppKind::Codex => Err(codex_unsupported()),
+        AppKind::Codex => run_codex(&home, session_id, action, quit_app, QUIT_TIMEOUT).await,
     }
 }
 
-/// The error for an action on a Codex session, which isn't offered yet.
-fn codex_unsupported() -> AppError {
-    AppError::Validation("Codex sessions can't be archived or restored yet".to_string())
-}
-
 /// [`run`] for a Claude session of `home`, one of `homes`, giving its
-/// desktop app `quit_timeout` to quit.
-fn run_claude(
+/// desktop app `quit_timeout` to quit. The check and the write are plain
+/// synchronous filesystem work; wrapping them in `async` blocks is only so
+/// [`run_checked`] can drive both apps' actions through the same sequence.
+async fn run_claude(
     home: &Home,
     homes: &[Home],
     session_id: &str,
@@ -127,30 +135,54 @@ fn run_claude(
 ) -> AppResult<()> {
     run_checked(
         quit_app,
-        || claude_archive::check(home, homes, session_id, action, &process_list()?),
-        || quit_desktop(home, quit_timeout),
-        |target| claude_archive::apply(home, target, action),
+        || async { claude_archive::check(home, homes, session_id, action, &process_list()?) },
+        || async { quit_desktop(home, quit_timeout) },
+        |target| async move { claude_archive::apply(home, target, action) },
     )
+    .await
+}
+
+/// [`run`] for a Codex session of `home`, giving its desktop app
+/// `quit_timeout` to quit.
+async fn run_codex(
+    home: &Home,
+    session_id: &str,
+    action: SessionAction,
+    quit_app: bool,
+    quit_timeout: Duration,
+) -> AppResult<()> {
+    run_checked(
+        quit_app,
+        || codex::check(home, session_id, action),
+        || async { quit_desktop(home, quit_timeout) },
+        |target| codex::apply(home, target, action),
+    )
+    .await
 }
 
 /// Do an action once `check` allows it: refuse a blocked one; when a desktop
 /// app is in the way, refuse unless `quit_app`, else `quit` it and check
 /// again, refusing if it still runs; then `apply` the action to what the last
 /// check found.
-fn run_checked<T>(
+async fn run_checked<T, CheckFut, QuitFut, ApplyFut>(
     quit_app: bool,
-    mut check: impl FnMut() -> AppResult<Checked<T>>,
-    quit: impl FnOnce() -> AppResult<()>,
-    apply: impl FnOnce(T) -> AppResult<()>,
-) -> AppResult<()> {
-    let mut checked = check()?;
+    mut check: impl FnMut() -> CheckFut,
+    quit: impl FnOnce() -> QuitFut,
+    apply: impl FnOnce(T) -> ApplyFut,
+) -> AppResult<()>
+where
+    CheckFut: Future<Output = AppResult<Checked<T>>>,
+    QuitFut: Future<Output = AppResult<()>>,
+    ApplyFut: Future<Output = AppResult<()>>,
+{
+    let mut checked = check().await?;
     refuse_blocked(&checked.check)?;
     if let Some(app) = &checked.check.app_to_quit {
         if !quit_app {
             return Err(AppError::Validation(format!("Quit {} first", app.label)));
         }
-        quit()?;
-        checked = check()?;
+        quit().await?;
+        checked = check().await?;
         refuse_blocked(&checked.check)?;
         if let Some(app) = &checked.check.app_to_quit {
             return Err(AppError::Validation(format!(
@@ -159,7 +191,7 @@ fn run_checked<T>(
             )));
         }
     }
-    apply(checked.target)
+    apply(checked.target).await
 }
 
 /// The blocker `check` names, as an error.
@@ -202,37 +234,39 @@ mod tests {
 
     /// Runs an action whose checks return `checks` in turn, logging each
     /// step taken.
-    fn run_logged(quit_app: bool, checks: Vec<Checked<u8>>) -> (AppResult<()>, Vec<String>) {
+    async fn run_logged(quit_app: bool, checks: Vec<Checked<u8>>) -> (AppResult<()>, Vec<String>) {
         let log = RefCell::new(Vec::new());
         let mut checks = checks.into_iter();
         let result = run_checked(
             quit_app,
             || {
                 log.borrow_mut().push("check".to_string());
-                Ok(checks.next().unwrap())
+                let next = checks.next().unwrap();
+                async move { Ok(next) }
             },
             || {
                 log.borrow_mut().push("quit".to_string());
-                Ok(())
+                async { Ok(()) }
             },
             |target| {
                 log.borrow_mut().push(format!("apply {target}"));
-                Ok(())
+                async { Ok(()) }
             },
-        );
+        )
+        .await;
         (result, log.into_inner())
     }
 
-    #[test]
-    fn an_action_nothing_stands_in_the_way_of_is_applied_to_what_was_checked() {
-        let (result, log) = run_logged(false, vec![checked(None, None, 1)]);
+    #[tokio::test]
+    async fn an_action_nothing_stands_in_the_way_of_is_applied_to_what_was_checked() {
+        let (result, log) = run_logged(false, vec![checked(None, None, 1)]).await;
 
         result.unwrap();
         assert_eq!(log, ["check", "apply 1"]);
     }
 
-    #[test]
-    fn a_blocked_action_is_refused_with_its_reason() {
+    #[tokio::test]
+    async fn a_blocked_action_is_refused_with_its_reason() {
         let (result, log) = run_logged(
             true,
             vec![checked(
@@ -240,7 +274,8 @@ mod tests {
                 Some("Claude (Work)"),
                 1,
             )],
-        );
+        )
+        .await;
 
         assert!(
             matches!(&result, Err(AppError::Validation(message)) if message == "Close it in the terminal first")
@@ -248,9 +283,9 @@ mod tests {
         assert_eq!(log, ["check"]);
     }
 
-    #[test]
-    fn a_desktop_app_in_the_way_is_only_quit_when_the_user_agreed() {
-        let (result, log) = run_logged(false, vec![checked(None, Some("Claude (Work)"), 1)]);
+    #[tokio::test]
+    async fn a_desktop_app_in_the_way_is_only_quit_when_the_user_agreed() {
+        let (result, log) = run_logged(false, vec![checked(None, Some("Claude (Work)"), 1)]).await;
 
         assert!(
             matches!(&result, Err(AppError::Validation(message)) if message == "Quit Claude (Work) first")
@@ -263,21 +298,23 @@ mod tests {
                 checked(None, Some("Claude (Work)"), 1),
                 checked(None, None, 2),
             ],
-        );
+        )
+        .await;
 
         result.unwrap();
         assert_eq!(log, ["check", "quit", "check", "apply 2"]);
     }
 
-    #[test]
-    fn nothing_is_applied_while_the_desktop_app_still_runs_after_quitting() {
+    #[tokio::test]
+    async fn nothing_is_applied_while_the_desktop_app_still_runs_after_quitting() {
         let (result, log) = run_logged(
             true,
             vec![
                 checked(None, Some("Claude (Work)"), 1),
                 checked(None, Some("Claude (Work)"), 1),
             ],
-        );
+        )
+        .await;
 
         assert!(
             matches!(&result, Err(AppError::Validation(message)) if message == "Claude (Work) is still running")
@@ -356,8 +393,8 @@ mod tests {
         (thread::spawn(move || child.wait().is_ok()), stdin)
     }
 
-    #[test]
-    fn archiving_a_desktop_session_quits_its_desktop_app_first() {
+    #[tokio::test]
+    async fn archiving_a_desktop_session_quits_its_desktop_app_first() {
         let root = tempdir().unwrap();
         let work = claude_home(root.path(), "Work");
         let record = desktop_session(&work);
@@ -374,7 +411,8 @@ mod tests {
             SessionAction::Archive,
             false,
             QUIT_TIMEOUT,
-        );
+        )
+        .await;
         let untouched = read_value(&record);
         let archived = run_claude(
             &work,
@@ -383,7 +421,8 @@ mod tests {
             SessionAction::Archive,
             true,
             QUIT_TIMEOUT,
-        );
+        )
+        .await;
         let quit = running_desktop_pid(&work).unwrap().is_none();
         // Closing its stdin ends the stand-in whatever happened, so the test
         // never waits on it.
@@ -403,8 +442,8 @@ mod tests {
         assert!(work.config_dir.join("projects/-work-app/s.jsonl").exists());
     }
 
-    #[test]
-    fn nothing_is_written_when_the_desktop_app_wont_quit() {
+    #[tokio::test]
+    async fn nothing_is_written_when_the_desktop_app_wont_quit() {
         let root = tempdir().unwrap();
         let work = claude_home(root.path(), "Work");
         let record = desktop_session(&work);
@@ -417,7 +456,8 @@ mod tests {
             SessionAction::Archive,
             true,
             Duration::from_millis(600),
-        );
+        )
+        .await;
 
         stubborn.kill().unwrap();
         stubborn.wait().unwrap();
