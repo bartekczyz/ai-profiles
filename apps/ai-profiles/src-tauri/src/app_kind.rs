@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// `AppId` union and the `default:<app>` synthetic-id convention. Defaults to
 /// [`AppKind::Claude`] so `profiles.json` documents predating the field
 /// deserialise as Claude.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AppKind {
     #[default]

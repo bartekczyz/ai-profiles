@@ -2,6 +2,7 @@ import type { AppId } from '@/lib/app-registry'
 import type { DefaultEntry, ExistingInstallInfo, SidebarEntry } from '@/lib/types'
 
 import { appIds, appSpecs } from '@/lib/app-registry'
+import { useAppState } from '@/lib/app-state/use-app-state'
 
 import { useMigration } from '../../migration/api/use-migration'
 import { useProfiles } from './use-profiles'
@@ -17,13 +18,14 @@ export function useSidebarEntries(): Array<SidebarEntry> {
   const { profiles } = useProfiles()
   const claudeMigration = useMigration('claude')
   const codexMigration = useMigration('codex')
+  const { state: appState } = useAppState()
 
   const existingByApp: Record<AppId, ExistingInstallInfo> = {
     claude: claudeMigration.existing,
     codex: codexMigration.existing,
   }
 
-  const defaults = makeDefaultEntries(existingByApp)
+  const defaults = makeDefaultEntries(existingByApp, appState.defaultProfileNames)
   const managed: Array<SidebarEntry> = profiles.map((profile) => ({ kind: 'managed', profile }))
   const defaultEntries: Array<SidebarEntry> = defaults.map((entry) => ({ kind: 'default', entry }))
   return [...defaultEntries, ...managed]
@@ -82,9 +84,13 @@ export function groupEntriesByApp(entries: Array<SidebarEntry>): Array<SidebarGr
 /**
  * Pure: builds one synthetic default entry per app that has a detected
  * stock install. Returns entries in `appIds` order (Claude before ChatGPT).
+ * `customNames` carries the names the user gave those entries, if any.
  * Exposed for unit-testing in isolation.
  */
-export function makeDefaultEntries(existingByApp: Record<AppId, ExistingInstallInfo>): Array<DefaultEntry> {
+export function makeDefaultEntries(
+  existingByApp: Record<AppId, ExistingInstallInfo>,
+  customNames: Partial<Record<AppId, string>> = {},
+): Array<DefaultEntry> {
   const entries: Array<DefaultEntry> = []
   for (const appId of appIds) {
     const existing = existingByApp[appId]
@@ -93,10 +99,12 @@ export function makeDefaultEntries(existingByApp: Record<AppId, ExistingInstallI
     if (!gui && !cli) {
       continue
     }
+    const customName = customNames[appId] ?? null
     entries.push({
       id: `default:${appId}`,
       app: appId,
-      name: appSpecs[appId].displayName,
+      name: customName ?? appSpecs[appId].displayName,
+      customName,
       surfaces: { gui, cli },
     })
   }

@@ -4,6 +4,7 @@ import type { GuiLaunch } from './use-gui-launch'
 import { Suspense, useState } from 'react'
 
 import { appSpecs } from '@/lib/app-registry'
+import { useAppState } from '@/lib/app-state/use-app-state'
 import { copyToClipboard, openDefaultGui, profilePaths } from '@/lib/commands'
 
 import { useProfilePaths } from '../api/use-profile-paths'
@@ -14,6 +15,7 @@ import { ProfileDetailOverflowMenu, ProfileDetailOverflowMenuFallback } from './
 import { ProfileDetailShell } from './profile-detail-shell'
 import { ProfileDetailSurfacesPanel } from './profile-detail-surfaces-panel'
 import { ProfileDetailUsageCard } from './profile-detail-usage-card'
+import { RenameDefaultProfileDialog } from './rename-default-profile-dialog'
 import { useGuiLaunch } from './use-gui-launch'
 
 type Props = {
@@ -27,7 +29,8 @@ type Props = {
  * by which slots get filled:
  *
  * - no Edit and no Delete, because nothing about a stock install is ours to
- *   change or remove. They are absent, not disabled;
+ *   change or remove. They are absent, not disabled. Only its label can be
+ *   changed, via Rename in the overflow menu;
  * - Import leads the header action group in Edit's seat, since bringing the
  *   install under management is this entry's one unique action;
  * - the terminal row carries the plain CLI binary, not a `claude-<slug>`
@@ -38,16 +41,19 @@ type Props = {
  */
 export function DefaultProfileDetail({ entry, onMigrate }: Props) {
   const [actionError, setActionError] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState(false)
+  const appState = useAppState()
+  const displayName = appSpecs[entry.app].displayName
   // Above the boundary below, which swaps one surfaces panel for another as
   // soon as the paths land.
   const launch = useGuiLaunch()
   return (
     <ProfileDetailShell>
       <ProfileDetailHeader
-        name={appSpecs[entry.app].displayName}
+        name={entry.customName ?? displayName}
         swatch={<BrandSwatch app={entry.app} />}
         action={<ProfileDetailMigrateAction onMigrate={onMigrate} />}
-        subline="stock install"
+        subline={entry.customName === null ? 'stock install' : `${displayName} · stock install`}
         info={<ProfileDetailInfo app={entry.app} />}
         menu={
           // Its own boundary, as on the managed pane: the identity block and
@@ -55,7 +61,11 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
           // destinations wait. No `onDelete` — a stock install is not ours to
           // remove, so the menu is reveal-only.
           <Suspense key={entry.id} fallback={<ProfileDetailOverflowMenuFallback />}>
-            <ProfileDetailOverflowMenu profileId={entry.id} onError={setActionError} />
+            <ProfileDetailOverflowMenu
+              profileId={entry.id}
+              onError={setActionError}
+              onRename={() => setRenaming(true)}
+            />
           </Suspense>
         }
       />
@@ -73,6 +83,15 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
           {actionError}
         </p>
       ) : null}
+
+      <RenameDefaultProfileDialog
+        open={renaming}
+        entry={entry}
+        onClose={() => setRenaming(false)}
+        onSave={async (name) => {
+          await appState.update({ defaultProfileName: { app: entry.app, name } })
+        }}
+      />
     </ProfileDetailShell>
   )
 }

@@ -40,6 +40,13 @@ describe('makeDefaultEntries', () => {
     expect(entries[0].name).toBe('Claude')
   })
 
+  it('uses a custom name when one was given, and records it', () => {
+    const detected = byApp(existing({ cliPath: '/Users/me/.claude' }), existing({ cliPath: '/Users/me/.codex' }))
+    const entries = makeDefaultEntries(detected, { claude: 'Personal' })
+    expect(entries[0]).toMatchObject({ name: 'Personal', customName: 'Personal' })
+    expect(entries[1]).toMatchObject({ name: 'ChatGPT', customName: null })
+  })
+
   it('emits only claude when codex is absent', () => {
     const entries = makeDefaultEntries(byApp(existing({ guiPath: '/Applications/Claude.app' }), existing()))
     expect(entries.map((entry) => entry.id)).toEqual(['default:claude'])
@@ -64,7 +71,10 @@ function managed(id: string, app: AppId): SidebarEntry {
 }
 
 function defaultFor(app: AppId): SidebarEntry {
-  return { kind: 'default', entry: { id: `default:${app}`, app, name: app, surfaces: { gui: true, cli: true } } }
+  return {
+    kind: 'default',
+    entry: { id: `default:${app}`, app, name: app, customName: null, surfaces: { gui: true, cli: true } },
+  }
 }
 
 describe('groupEntriesByApp', () => {

@@ -44,6 +44,7 @@ function defaultClaudeEntry(): SidebarEntry {
       id: 'default:claude',
       app: 'claude',
       name: 'Default',
+      customName: null,
       surfaces: { gui: true, cli: true },
     },
   }

@@ -31,7 +31,10 @@ export type Profile = {
 export type DefaultEntry = {
   id: string
   app: AppId
+  /** The custom name when the user gave one, else the app's display name. */
   name: string
+  /** The name the user gave this entry, or `null` for the stock label. */
+  customName: string | null
   surfaces: Surfaces
 }
 
@@ -149,6 +152,8 @@ export type AppState = {
    * Dock icon involves. `null` until then, which is when the explanation is shown.
    */
   dockIconAcknowledgedAt: string | null
+  /** Names the user gave the stock-install entries. Absent key → stock label. */
+  defaultProfileNames: Partial<Record<AppId, string>>
 }
 
 export type AppStatePatch = {
@@ -164,6 +169,10 @@ export type AppStatePatch = {
    * Records the acknowledgement. It cannot be taken back.
    */
   dockIconAcknowledgedAt?: string
+  /**
+   * Renames one app's stock-install entry. An empty name restores the stock label.
+   */
+  defaultProfileName?: { app: AppId; name: string }
 }
 
 /**
