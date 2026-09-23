@@ -10,14 +10,15 @@
 //! machine.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::app_kind::AppKind;
 use crate::error::AppResult;
-use crate::paths::{cli_config_dir, stock_cli_config_dir};
+use crate::paths::{cli_config_dir, stock_cli_config_dir, stock_gui_support_dir};
 use crate::profiles;
 
 /// The account a profile is signed in under. Every field is optional: the
@@ -43,10 +44,8 @@ impl ProfileAccount {
 /// The account profile `id` (or `default:<app>`) is signed in under, or `None`
 /// when nothing on disk names one reliably.
 ///
-/// Claude's stock install is always `None`. Its desktop app keeps its sign-in
-/// in its own data, not in any `.claude.json`, and `$HOME/.claude.json` still
-/// names the account of a stock install that has since been moved into a
-/// profile. Neither file can say who the stock entry is signed in as.
+/// Claude's stock install is `None` unless its desktop app confirms the
+/// account: see [`stock_claude_account`].
 pub fn read(id: &str) -> AppResult<Option<ProfileAccount>> {
     let (kind, config_dir) = match AppKind::from_default_id(id) {
         Some(kind) => (kind, stock_cli_config_dir(kind.spec())?),
@@ -62,10 +61,79 @@ pub fn read(id: &str) -> AppResult<Option<ProfileAccount>> {
     };
     let stock = AppKind::from_default_id(id).is_some();
     Ok(match kind {
-        AppKind::Claude if stock => None,
+        AppKind::Claude if stock => stock_claude_account(
+            &[
+                config_dir.join(".claude.json"),
+                dirs::home_dir().unwrap_or_default().join(".claude.json"),
+            ],
+            &stock_gui_support_dir(kind.spec())?,
+        ),
         AppKind::Claude => claude_account(&config_dir),
         AppKind::Codex => codex_account(&config_dir),
     })
+}
+
+/// The account of Claude's stock install, from the first of `claude_jsons` that
+/// names one, but only if the stock desktop app, whose data is at `gui_data`,
+/// last used its Code tab under that same account and organization.
+///
+/// The desktop app doesn't keep its sign-in in any `.claude.json`, and
+/// `$HOME/.claude.json` goes on naming the account of a stock install that has
+/// since been imported into a profile: the import moves `~/.claude` and the
+/// desktop data, not that file. What the desktop app does keep is a folder of
+/// Code tab sessions per account and organization, named by their ids, so a
+/// match there says the name is still the stock app's. Without one, no name is
+/// shown: a missing name is better than a wrong one.
+fn stock_claude_account(claude_jsons: &[PathBuf], gui_data: &Path) -> Option<ProfileAccount> {
+    let (account, organization) = desktop_account(gui_data)?;
+    let document = claude_jsons
+        .iter()
+        .filter_map(|path| read_json(path))
+        .find(|document| document.get("oauthAccount").is_some())?;
+    let oauth = document.get("oauthAccount")?;
+    let id = |key: &str| oauth.get(key).and_then(Value::as_str);
+    if id("accountUuid") != Some(account.as_str())
+        || id("organizationUuid") != Some(organization.as_str())
+    {
+        return None;
+    }
+    account_from_claude_json(&document)
+}
+
+/// The `(account, organization)` ids the desktop app with data at `gui_data`
+/// last wrote a Code tab session under: the most recently changed
+/// `claude-code-sessions/<account>/<organization>` folder.
+fn desktop_account(gui_data: &Path) -> Option<(String, String)> {
+    let mut latest: Option<(SystemTime, String, String)> = None;
+    for account in fs::read_dir(gui_data.join("claude-code-sessions"))
+        .ok()?
+        .flatten()
+    {
+        let Ok(organizations) = fs::read_dir(account.path()) else {
+            continue;
+        };
+        for organization in organizations.flatten() {
+            let Ok(metadata) = organization.metadata() else {
+                continue;
+            };
+            let Ok(modified) = metadata.modified() else {
+                continue;
+            };
+            if !metadata.is_dir()
+                || latest
+                    .as_ref()
+                    .is_some_and(|(when, _, _)| *when >= modified)
+            {
+                continue;
+            }
+            latest = Some((
+                modified,
+                account.file_name().to_string_lossy().into_owned(),
+                organization.file_name().to_string_lossy().into_owned(),
+            ));
+        }
+    }
+    latest.map(|(_, account, organization)| (account, organization))
 }
 
 /// A Claude profile keeps the account in the `.claude.json` inside its config
@@ -245,12 +313,78 @@ mod tests {
         )
     }
 
+    /// A stock install under `root`: `$HOME/.claude.json` naming `account` in
+    /// `organization`, and the desktop app's Code tab folders, oldest first.
+    fn stock_install(
+        root: &Path,
+        account: &str,
+        organization: &str,
+        folders: &[(&str, &str)],
+    ) -> PathBuf {
+        let claude_json = root.join(".claude.json");
+        fs::write(
+            &claude_json,
+            json!({"oauthAccount": {
+                "accountUuid": account,
+                "organizationUuid": organization,
+                "emailAddress": "ada@example.com",
+            }})
+            .to_string(),
+        )
+        .unwrap();
+        for (folder_account, folder_organization) in folders {
+            let folder = root
+                .join("gui-data/claude-code-sessions")
+                .join(folder_account)
+                .join(folder_organization);
+            fs::create_dir_all(&folder).unwrap();
+            // Distinct modification times, in the order given.
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            fs::write(folder.join("touch"), b"").unwrap();
+        }
+        claude_json
+    }
+
     #[test]
-    fn the_stock_claude_entry_never_names_an_account() {
-        // Whatever $HOME/.claude.json says: it may name an account long since
-        // moved into a profile, and the desktop app doesn't keep its sign-in
-        // there at all.
-        assert_eq!(read("default:claude").unwrap(), None);
+    fn the_stock_claude_account_shows_when_the_desktop_app_last_used_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let claude_json = stock_install(dir.path(), "acct", "org", &[("acct", "org")]);
+        let account = stock_claude_account(&[claude_json], &dir.path().join("gui-data")).unwrap();
+        assert_eq!(account.email.as_deref(), Some("ada@example.com"));
+    }
+
+    #[test]
+    fn the_stock_claude_account_is_hidden_when_the_desktop_app_is_under_another() {
+        // `$HOME/.claude.json` left naming an account imported into a profile,
+        // while the stock app has since signed in as someone else.
+        let dir = tempfile::tempdir().unwrap();
+        let claude_json = stock_install(
+            dir.path(),
+            "moved",
+            "org",
+            &[("moved", "org"), ("now", "org")],
+        );
+        assert_eq!(
+            stock_claude_account(&[claude_json], &dir.path().join("gui-data")),
+            None
+        );
+    }
+
+    #[test]
+    fn the_stock_claude_account_is_hidden_for_another_organization_or_no_desktop_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let claude_json = stock_install(dir.path(), "acct", "org", &[("acct", "other-org")]);
+        assert_eq!(
+            stock_claude_account(
+                std::slice::from_ref(&claude_json),
+                &dir.path().join("gui-data")
+            ),
+            None
+        );
+        assert_eq!(
+            stock_claude_account(&[claude_json], &dir.path().join("no-gui-data")),
+            None
+        );
     }
 
     #[test]
