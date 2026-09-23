@@ -1,3 +1,5 @@
+import type { SessionAction } from '@/lib/types'
+
 /**
  * Typed query-key factory.
  *
@@ -28,6 +30,10 @@ export const queryKeys = {
     all: ['sessions'] as const,
     list: (profileId: string) => ['sessions', profileId] as const,
   },
+  // Outside the `sessions` subtree: the lists refetching after an action must
+  // not refetch the check of the action that was just done.
+  sessionActionCheck: (profileId: string, sessionId: string, action: SessionAction) =>
+    ['session-action-check', profileId, sessionId, action] as const,
   appState: ['app-state'] as const,
   shell: ['shell'] as const,
 } as const

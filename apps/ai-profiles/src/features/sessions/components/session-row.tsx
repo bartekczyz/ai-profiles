@@ -34,7 +34,10 @@ type StateMarkerProps = {
   state: SessionState
 }
 
-const untitledLabel = 'Untitled session'
+/**
+ * What a session without a title is called.
+ */
+export const untitledSessionLabel = 'Untitled session'
 
 const kindLabels: Record<SessionKind, string> = {
   desktop: 'Desktop',
@@ -51,7 +54,7 @@ const kindLabels: Record<SessionKind, string> = {
  * sessions.
  */
 export function SessionRow({ session, actions = [] }: Props) {
-  const title = session.title ?? untitledLabel
+  const title = session.title ?? untitledSessionLabel
   const lastUsed = formatSessionLastUsed(session.lastUsedAt)
   return (
     <li

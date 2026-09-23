@@ -1,4 +1,5 @@
 import type { AppId } from '@/lib/app-registry'
+import type { Session, SessionAction } from '@/lib/types'
 import type { KindFilter, SessionsTab, SortDirection } from '../lib/session-filters'
 
 import { useState } from 'react'
@@ -9,6 +10,7 @@ import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { useSessions } from '../api/use-sessions'
 import { countByTab, filterSessions, hasBothKinds, sortSessions } from '../lib/session-filters'
+import { ConfirmSessionActionDialog } from './confirm-session-action-dialog'
 import { SessionsControls } from './sessions-controls'
 import { SessionsList } from './sessions-list'
 import { sessionsPanelClasses } from './sessions-panel-skeleton'
@@ -23,6 +25,20 @@ type Props = {
    * The app the profile runs.
    */
   app: AppId
+}
+
+/**
+ * An action the user asked for from a row, waiting on their confirmation.
+ */
+type PendingAction = {
+  /**
+   * The session to act on.
+   */
+  session: Session
+  /**
+   * What to do to it.
+   */
+  action: SessionAction
 }
 
 type TabLabelProps = {
@@ -60,6 +76,7 @@ export function SessionsPanel({ profileId, app }: Props) {
   const [kindChoice, setKindChoice] = useState<KindFilter>('all')
   const [query, setQuery] = useState('')
   const [direction, setDirection] = useState<SortDirection>('desc')
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
 
   const listed = sessionsQuery.data?.sessions
   const sessions = listed ?? []
@@ -79,6 +96,7 @@ export function SessionsPanel({ profileId, app }: Props) {
       errorMessage={errorMessage}
       tabTotal={inTab.length}
       sessions={visible}
+      app={app}
       emptyTitle={tab === 'active' ? 'No sessions yet' : 'No archived sessions'}
       emptyHint={
         tab === 'active' ? `${appSpecs[app].cliDisplayName} sessions this profile starts show up here.` : undefined
@@ -87,6 +105,7 @@ export function SessionsPanel({ profileId, app }: Props) {
         void sessionsQuery.refetch()
       }}
       onClearSearch={() => setQuery('')}
+      onAction={(session, action) => setPendingAction({ session, action })}
     />
   )
 
@@ -119,6 +138,14 @@ export function SessionsPanel({ profileId, app }: Props) {
       <TabsContent value="archived" className={tabContentClasses}>
         {list}
       </TabsContent>
+      {pendingAction === null ? null : (
+        <ConfirmSessionActionDialog
+          profileId={profileId}
+          session={pendingAction.session}
+          action={pendingAction.action}
+          onClose={() => setPendingAction(null)}
+        />
+      )}
     </Tabs>
   )
 }

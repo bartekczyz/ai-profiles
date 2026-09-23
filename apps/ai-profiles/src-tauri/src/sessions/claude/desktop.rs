@@ -12,9 +12,10 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::non_blank;
+use crate::error::{AppError, AppResult};
 use crate::sessions::Home;
 
 /// The folder under `<gui-data>` holding the records, by account and org.
@@ -128,6 +129,68 @@ pub fn read_records(gui_data_dir: &Path) -> Vec<DesktopRecord> {
         }
     }
     records
+}
+
+/// Archive `record`, or restore it, the way the desktop app does: its
+/// `isArchived` flag is set, and its id added to, or taken out of, its
+/// folder's `archived-sessions.idx`, made if missing. Both files are edited
+/// as JSON, so fields read nowhere here are kept, and each is replaced whole
+/// (written beside it, then renamed over it). Both are read before either is
+/// written, so one that can't be read leaves both as they were.
+///
+/// The desktop app keeps its records in memory and writes them back, so it
+/// must not be running.
+pub fn set_archived(record: &DesktopRecord, archived: bool) -> AppResult<()> {
+    let mut fields: Value = serde_json::from_str(&fs::read_to_string(&record.path)?)?;
+    fields
+        .as_object_mut()
+        .ok_or_else(|| unexpected(&record.path))?
+        .insert("isArchived".to_string(), Value::Bool(archived));
+    let index_path = record
+        .path
+        .parent()
+        .ok_or_else(|| unexpected(&record.path))?
+        .join(ARCHIVED_INDEX);
+    let mut index = match fs::read_to_string(&index_path) {
+        Ok(text) => serde_json::from_str(&text)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            json!({ "v": 1, "archived": [] })
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let ids = index
+        .as_object_mut()
+        .ok_or_else(|| unexpected(&index_path))?
+        .entry("archived")
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or_else(|| unexpected(&index_path))?;
+    let local_id = Value::String(record.local_id.clone());
+    if !archived {
+        ids.retain(|id| *id != local_id);
+    } else if !ids.contains(&local_id) {
+        ids.push(local_id);
+    }
+    replace_file(&record.path, &fields.to_string())?;
+    replace_file(&index_path, &index.to_string())
+}
+
+/// The error for a file at `path` that isn't shaped as expected.
+fn unexpected(path: &Path) -> AppError {
+    AppError::Validation(format!("{} isn't in the expected format", path.display()))
+}
+
+/// Replace the file at `path` with `contents` in one step: they are written
+/// to a hidden file beside it, which is then renamed over it, so the app
+/// never reads a half-written file.
+fn replace_file(path: &Path, contents: &str) -> AppResult<()> {
+    let name = path.file_name().ok_or_else(|| unexpected(path))?;
+    let temp = path.with_file_name(format!(".{}.ai-profiles-tmp", name.to_string_lossy()));
+    let written = fs::write(&temp, contents).and_then(|()| fs::rename(&temp, path));
+    if written.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    Ok(written?)
 }
 
 /// The folder `home`'s desktop app keeps its records in for the account it is
@@ -489,6 +552,98 @@ mod tests {
                 root.path().join("cli-config").join(".claude.json"),
                 dirs::home_dir().unwrap().join(".claude.json"),
             ]
+        );
+    }
+
+    /// The record at `path`, as JSON.
+    fn read_value(path: &Path) -> Value {
+        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    /// The names of the files in `dir`, sorted.
+    fn file_names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn archiving_and_restoring_a_record_keeps_what_isnt_read_here() {
+        let root = tempdir().unwrap();
+        let dir = org_dir(root.path(), ACCOUNT, ORG);
+        let original = json!({
+            "sessionId": "local_aaa",
+            "cliSessionId": "cli-a",
+            "isArchived": false,
+            "model": "claude-opus-5-5",
+            "remoteMcpServersConfig": { "servers": [1, 2] },
+        });
+        let path = write_record(&dir, "aaa", original.clone());
+        write_json(
+            &dir.join(ARCHIVED_INDEX),
+            &json!({ "v": 1, "archived": ["local_other"], "next": 7 }),
+        );
+        let record = read_records(root.path()).remove(0);
+
+        set_archived(&record, true).unwrap();
+
+        let mut archived = original.clone();
+        archived["isArchived"] = json!(true);
+        assert_eq!(read_value(&path), archived);
+        assert_eq!(
+            read_value(&dir.join(ARCHIVED_INDEX)),
+            json!({ "v": 1, "archived": ["local_other", "local_aaa"], "next": 7 })
+        );
+        assert!(read_records(root.path())[0].archived);
+
+        set_archived(&record, false).unwrap();
+
+        assert_eq!(read_value(&path), original);
+        assert_eq!(
+            read_value(&dir.join(ARCHIVED_INDEX)),
+            json!({ "v": 1, "archived": ["local_other"], "next": 7 })
+        );
+        assert!(!read_records(root.path())[0].archived);
+        assert_eq!(
+            file_names(&dir),
+            [ARCHIVED_INDEX.to_string(), "local_aaa.json".to_string()]
+        );
+    }
+
+    #[test]
+    fn archiving_a_record_makes_the_index_when_there_is_none() {
+        let root = tempdir().unwrap();
+        let dir = org_dir(root.path(), ACCOUNT, ORG);
+        write_record(&dir, "aaa", json!({ "cliSessionId": "cli-a" }));
+        let record = read_records(root.path()).remove(0);
+
+        set_archived(&record, true).unwrap();
+        set_archived(&record, true).unwrap();
+
+        assert_eq!(
+            read_value(&dir.join(ARCHIVED_INDEX)),
+            json!({ "v": 1, "archived": ["local_aaa"] })
+        );
+    }
+
+    #[test]
+    fn an_index_that_cant_be_read_leaves_the_record_as_it_was() {
+        let root = tempdir().unwrap();
+        let dir = org_dir(root.path(), ACCOUNT, ORG);
+        let path = write_record(&dir, "aaa", json!({ "cliSessionId": "cli-a" }));
+        fs::write(dir.join(ARCHIVED_INDEX), "not json").unwrap();
+        let record = read_records(root.path()).remove(0);
+
+        assert!(set_archived(&record, true).is_err());
+
+        assert_eq!(read_value(&path), json!({ "cliSessionId": "cli-a" }));
+        assert_eq!(
+            fs::read_to_string(dir.join(ARCHIVED_INDEX)).unwrap(),
+            "not json"
         );
     }
 }

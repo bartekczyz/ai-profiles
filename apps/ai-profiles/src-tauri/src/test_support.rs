@@ -9,6 +9,7 @@
 #![cfg(test)]
 
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -26,11 +27,34 @@ pub(crate) static APP_DIR_TEST_LOCK: Mutex<()> = Mutex::new(());
 /// A real wrapper needs the vendor app installed and a link step; this needs
 /// neither, and looks the same to the code that looks for it.
 pub(crate) fn fake_wrapper_process(root: &Path, data_dir: &Path) -> Child {
+    wrapper_stand_in(root, data_dir, "#!/bin/sh\nread _\n", Stdio::inherit())
+}
+
+/// As [`fake_wrapper_process`], but it ignores SIGTERM, like an app that
+/// won't quit when asked: only SIGKILL ends it. Returns once it ignores it.
+pub(crate) fn stubborn_wrapper_process(root: &Path, data_dir: &Path) -> Child {
+    let mut child = wrapper_stand_in(
+        root,
+        data_dir,
+        "#!/bin/sh\ntrap '' TERM\necho ready\nread _\n",
+        Stdio::piped(),
+    );
+    let mut ready = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut ready)
+        .unwrap();
+    assert_eq!(ready.trim(), "ready");
+    child
+}
+
+/// Starts `script` as `<root>/Claude (Fake).app/Contents/MacOS/Claude.bin
+/// --user-data-dir=<data_dir>`, its output going to `stdout`.
+fn wrapper_stand_in(root: &Path, data_dir: &Path, script: &str, stdout: Stdio) -> Child {
     let macos = root.join("Claude (Fake).app/Contents/MacOS");
     fs::create_dir_all(&macos).unwrap();
     let binary = macos.join("Claude.bin");
-    fs::write(&binary, "#!/bin/sh\nread _\n").unwrap();
-    fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+    write_executable(&binary, script);
+    let mut stdout = Some(stdout);
 
     // Running a file just written can meet "text file busy" while another test
     // thread is forking, which is over as soon as that fork has exec'd.
@@ -38,6 +62,7 @@ pub(crate) fn fake_wrapper_process(root: &Path, data_dir: &Path) -> Child {
         match Command::new(&binary)
             .arg(format!("--user-data-dir={}", data_dir.display()))
             .stdin(Stdio::piped())
+            .stdout(stdout.take().unwrap_or_else(Stdio::piped))
             .spawn()
         {
             Ok(child) => return child,

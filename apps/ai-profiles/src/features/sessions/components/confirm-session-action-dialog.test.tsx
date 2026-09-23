@@ -1,0 +1,118 @@
+import type { ReactNode } from 'react'
+import type { ActionCheck, Session } from '@/lib/types'
+
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { ToastProvider } from '@/design'
+import { archiveSession, checkSessionAction, restoreSession } from '@/lib/commands'
+import { queryKeys } from '@/lib/query/keys'
+import { renderWithQuery } from '@/test/render-with-query'
+
+import { ConfirmSessionActionDialog } from './confirm-session-action-dialog'
+
+vi.mock('@/lib/commands', () => ({
+  archiveSession: vi.fn(),
+  checkSessionAction: vi.fn(),
+  restoreSession: vi.fn(),
+}))
+
+/**
+ * A session with every optional field empty, overridden per case.
+ */
+function makeSession(overrides: Partial<Session> = {}): Session {
+  return {
+    id: 's1',
+    kind: 'desktop',
+    title: 'Fix the login bug',
+    cwd: null,
+    lastPrompt: null,
+    lastUsedAt: '2026-09-01T10:00:00Z',
+    archived: false,
+    state: 'idle',
+    needsRepair: false,
+    unmovableReason: null,
+    ...overrides,
+  }
+}
+
+/**
+ * Makes the next check resolve with `check`.
+ */
+function mockCheck(check: Partial<ActionCheck>) {
+  vi.mocked(checkSessionAction).mockResolvedValue({ blocker: null, appToQuit: null, ...check })
+}
+
+/**
+ * Hosts the toasts the dialog raises.
+ */
+function withToasts(ui: ReactNode) {
+  return <ToastProvider>{ui}</ToastProvider>
+}
+
+/**
+ * Renders the dialog for `session` and waits for its check to land.
+ */
+async function renderDialog(session: Session, action: 'archive' | 'restore' = 'archive') {
+  const onClose = vi.fn()
+  const user = userEvent.setup()
+  const result = renderWithQuery(
+    withToasts(<ConfirmSessionActionDialog profileId="p1" session={session} action={action} onClose={onClose} />),
+  )
+  await waitFor(() => expect(checkSessionAction).toHaveBeenCalledWith('p1', session.id, action))
+  return { ...result, onClose, user }
+}
+
+beforeEach(() => {
+  vi.mocked(archiveSession).mockReset().mockResolvedValue(undefined)
+  vi.mocked(restoreSession).mockReset().mockResolvedValue(undefined)
+  vi.mocked(checkSessionAction).mockReset()
+})
+
+describe('ConfirmSessionActionDialog', () => {
+  it('offers no way to go ahead while something only the user can clear stands in the way', async () => {
+    mockCheck({ blocker: 'Close it in the terminal first' })
+    const { user, onClose } = await renderDialog(makeSession())
+    expect(await screen.findByText('Close it in the terminal first')).toBeInTheDocument()
+    expect(screen.getAllByRole('button').filter((button) => !button.hasAttribute('disabled'))).toHaveLength(1)
+    await user.keyboard('{Enter}')
+    expect(archiveSession).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: /Cancel/ }))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('quits the desktop app in the way when the user confirms', async () => {
+    mockCheck({ appToQuit: { homeId: 'p1', label: 'Claude (Work)' } })
+    const { user } = await renderDialog(makeSession())
+    await user.click(await screen.findByRole('button', { name: /Claude \(Work\)/ }))
+    expect(archiveSession).toHaveBeenCalledWith('p1', 's1', true)
+  })
+
+  it('goes ahead without quitting anything when nothing is in the way', async () => {
+    mockCheck({})
+    const { user } = await renderDialog(makeSession({ archived: true }), 'restore')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Restore/ })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: /^Restore/ }))
+    expect(restoreSession).toHaveBeenCalledWith('p1', 's1', false)
+  })
+
+  it('closes and refreshes the session lists once the action is done', async () => {
+    mockCheck({})
+    const { user, onClose, client } = await renderDialog(makeSession())
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Archive/ })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: /^Archive/ }))
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce())
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.sessions.all })
+  })
+
+  it('stays open and says why when the action fails', async () => {
+    mockCheck({ appToQuit: { homeId: 'p1', label: 'Claude (Work)' } })
+    vi.mocked(archiveSession).mockRejectedValue({ kind: 'Validation', message: 'Claude (Work) didn’t quit' })
+    const { user, onClose } = await renderDialog(makeSession())
+    await user.click(await screen.findByRole('button', { name: /Claude \(Work\)/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Claude (Work) didn’t quit')
+    expect(onClose).not.toHaveBeenCalled()
+  })
+})

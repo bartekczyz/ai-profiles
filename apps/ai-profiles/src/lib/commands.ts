@@ -1,5 +1,6 @@
 import type { AppId } from './app-registry'
 import type {
+  ActionCheck,
   AppMetadata,
   AppState,
   AppStatePatch,
@@ -14,6 +15,7 @@ import type {
   ProfilePatch,
   ProfilePaths,
   ProfileUsage,
+  SessionAction,
   SessionList,
   Shell,
   Surface,
@@ -141,4 +143,28 @@ export function getProfileUsage(profileId: string): Promise<ProfileUsage> {
  */
 export function listSessions(profileId: string): Promise<SessionList> {
   return invoke<SessionList>('list_sessions', { profileId })
+}
+
+/**
+ * What stands between session `sessionId` of profile `profileId` and `action`:
+ * a reason only the user can clear, or the desktop app that has to quit first.
+ */
+export function checkSessionAction(profileId: string, sessionId: string, action: SessionAction): Promise<ActionCheck> {
+  return invoke<ActionCheck>('check_session_action', { profileId, sessionId, action })
+}
+
+/**
+ * Archives session `sessionId` of profile `profileId`, quitting the desktop app
+ * in the way first when `quitApp`.
+ */
+export function archiveSession(profileId: string, sessionId: string, quitApp: boolean): Promise<void> {
+  return invoke('archive_session', { profileId, sessionId, quitApp })
+}
+
+/**
+ * Restores archived session `sessionId` of profile `profileId`, quitting the
+ * desktop app in the way first when `quitApp`.
+ */
+export function restoreSession(profileId: string, sessionId: string, quitApp: boolean): Promise<void> {
+  return invoke('restore_session', { profileId, sessionId, quitApp })
 }

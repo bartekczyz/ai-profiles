@@ -15,7 +15,7 @@ use crate::paths::{
     stock_gui_support_dir,
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
-use crate::sessions::{self, SessionList};
+use crate::sessions::{self, ActionCheck, SessionAction, SessionList};
 use crate::usage::{
     self,
     codex::CodexQuotaProvider,
@@ -760,4 +760,31 @@ mod running_wrapper_tests {
         plain_result.unwrap();
         unknown_result.unwrap();
     }
+}
+
+/// What stands between session `session_id` of profile `profile_id` (or
+/// `default:<app>`) and `action`: a reason only the user can clear, or the
+/// desktop app that has to quit first.
+#[tauri::command(async)]
+pub fn check_session_action(
+    profile_id: String,
+    session_id: String,
+    action: SessionAction,
+) -> AppResult<ActionCheck> {
+    sessions::actions::check(&profile_id, &session_id, action)
+}
+
+/// Archive session `session_id` of profile `profile_id` (or `default:<app>`),
+/// quitting the desktop app in the way first if `quit_app`. Off the main
+/// thread, as quitting the app is waited for.
+#[tauri::command(async)]
+pub fn archive_session(profile_id: String, session_id: String, quit_app: bool) -> AppResult<()> {
+    sessions::actions::archive(&profile_id, &session_id, quit_app)
+}
+
+/// Restore archived session `session_id` of profile `profile_id` (or
+/// `default:<app>`), quitting the desktop app in the way first if `quit_app`.
+#[tauri::command(async)]
+pub fn restore_session(profile_id: String, session_id: String, quit_app: bool) -> AppResult<()> {
+    sessions::actions::restore(&profile_id, &session_id, quit_app)
 }

@@ -189,7 +189,6 @@ pub fn summarize(path: &Path) -> Option<TranscriptSummary> {
 /// The files and folders that make up `summary`'s session in `config_dir`,
 /// those that exist of: the transcript, the `<slug>/<id>/` folder beside it and
 /// `file-history/<id>/`.
-#[allow(dead_code)] // Consumed by the sessions commands.
 pub fn bundle_paths(config_dir: &Path, summary: &TranscriptSummary) -> Vec<PathBuf> {
     let sibling = summary.path.with_file_name(&summary.session_id);
     let history = config_dir.join("file-history").join(&summary.session_id);

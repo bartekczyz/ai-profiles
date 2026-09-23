@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
-import type { Session } from '@/lib/types'
+import type { AppId } from '@/lib/app-registry'
+import type { Session, SessionAction } from '@/lib/types'
 
 import { cn } from '@/design'
 
+import { rowActions } from '../lib/session-actions'
 import { SessionRow } from './session-row'
 import { SessionsListSkeleton, sessionsListClasses } from './sessions-panel-skeleton'
 
@@ -29,6 +31,10 @@ type Props = {
    */
   sessions: Array<Session>
   /**
+   * The app the sessions belong to, which decides what their rows offer.
+   */
+  app: AppId
+  /**
    * What an empty tab says.
    */
   emptyTitle: string
@@ -44,6 +50,10 @@ type Props = {
    * Empties the search, from the no-match state.
    */
   onClearSearch: () => void
+  /**
+   * Asks to do `action` to `session`, from its row.
+   */
+  onAction: (session: Session, action: SessionAction) => void
 }
 
 type NoticeProps = {
@@ -68,6 +78,14 @@ type ListErrorProps = {
   onRetry: () => void
 }
 
+/**
+ * How each action is named on a row.
+ */
+const actionLabels: Record<SessionAction, string> = {
+  archive: 'Archive',
+  restore: 'Restore',
+}
+
 const quietButtonClasses =
   'inline-flex h-7 shrink-0 cursor-pointer items-center rounded-[7px] border border-border bg-white/60 px-2.5 text-[12px] text-ink-soft outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:border-border-strong hover:bg-white focus-visible:ring-2 focus-visible:ring-orange/40 disabled:cursor-default disabled:opacity-60 dark:bg-white/[0.05] dark:hover:bg-white/[0.09]'
 
@@ -81,10 +99,12 @@ export function SessionsList({
   errorMessage,
   tabTotal,
   sessions,
+  app,
   emptyTitle,
   emptyHint,
   onRetry,
   onClearSearch,
+  onAction,
 }: Props) {
   if (loading) {
     return <SessionsListSkeleton />
@@ -113,7 +133,16 @@ export function SessionsList({
   return (
     <ul aria-label="Sessions" className={sessionsListClasses}>
       {sessions.map((session) => (
-        <SessionRow key={session.id} session={session} />
+        <SessionRow
+          key={session.id}
+          session={session}
+          actions={rowActions(session, app).map((item) => ({
+            id: item.action,
+            label: actionLabels[item.action],
+            disabledReason: item.disabledReason,
+            onSelect: () => onAction(session, item.action),
+          }))}
+        />
       ))}
     </ul>
   )

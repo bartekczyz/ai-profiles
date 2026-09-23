@@ -35,6 +35,14 @@ describe('SessionRowActions — inline', () => {
     await userEvent.setup().click(move)
     expect(actions[1].onSelect).not.toHaveBeenCalled()
   })
+
+  it('shows why on hover, outside the row, where a scrolling list can’t clip it', async () => {
+    const { container } = render(<SessionRowActions actions={makeActions()} />)
+    await userEvent.setup().hover(screen.getByRole('button', { name: 'Move' }))
+    const tooltip = await screen.findByRole('tooltip')
+    expect(tooltip).toHaveTextContent('Close it in the terminal first')
+    expect(container).not.toContainElement(tooltip)
+  })
 })
 
 describe('SessionRowActions — overflow menu', () => {

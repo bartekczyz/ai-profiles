@@ -333,3 +333,37 @@ export type SessionList = {
    */
   repairCount: number
 }
+
+/**
+ * What can be done to a session: put it in the Archived tab, or bring it back.
+ */
+export type SessionAction = 'archive' | 'restore'
+
+/**
+ * A desktop app instance that has to quit before a session action can run.
+ */
+export type AppToQuit = {
+  /**
+   * The profile (or `default:<app>`) whose instance it is.
+   */
+  homeId: string
+  /**
+   * How the instance is named: `Claude (Work)`.
+   */
+  label: string
+}
+
+/**
+ * What stands between a session and an action.
+ */
+export type ActionCheck = {
+  /**
+   * Why the action can't run, when only the user can change that.
+   */
+  blocker: string | null
+  /**
+   * The desktop app that has to quit first, when it holds files the action
+   * writes and is running.
+   */
+  appToQuit: AppToQuit | null
+}

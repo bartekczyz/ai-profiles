@@ -1,15 +1,21 @@
 import type { Session, SessionList } from '@/lib/types'
 
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { listSessions } from '@/lib/commands'
+import { ToastProvider } from '@/design'
+import { archiveSession, checkSessionAction, listSessions } from '@/lib/commands'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import { SessionsPanel } from './sessions-panel'
 
-vi.mock('@/lib/commands', () => ({ listSessions: vi.fn() }))
+vi.mock('@/lib/commands', () => ({
+  archiveSession: vi.fn(),
+  checkSessionAction: vi.fn(),
+  listSessions: vi.fn(),
+  restoreSession: vi.fn(),
+}))
 
 /**
  * A session with every optional field empty, overridden per case.
@@ -52,7 +58,11 @@ function rowTitles(): Array<string> {
  */
 async function renderPanel() {
   const user = userEvent.setup()
-  const result = renderWithQuery(<SessionsPanel profileId="p1" app="claude" />)
+  const result = renderWithQuery(
+    <ToastProvider>
+      <SessionsPanel profileId="p1" app="claude" />
+    </ToastProvider>,
+  )
   await screen.findByRole('list', { name: 'Sessions' })
   return { ...result, user }
 }
@@ -66,7 +76,16 @@ const mixed = [
 
 beforeEach(() => {
   vi.mocked(listSessions).mockReset()
+  vi.mocked(archiveSession).mockReset().mockResolvedValue(undefined)
+  vi.mocked(checkSessionAction).mockReset().mockResolvedValue({ blocker: null, appToQuit: null })
 })
+
+/**
+ * The row of the session titled `title`.
+ */
+function row(title: string): HTMLElement {
+  return within(screen.getByRole('list', { name: 'Sessions' })).getByRole('listitem', { name: title })
+}
 
 describe('SessionsPanel', () => {
   it('lists the profile’s active sessions, most recently used first', async () => {
@@ -143,5 +162,35 @@ describe('SessionsPanel', () => {
     expect(listSessions).toHaveBeenCalledTimes(2)
     expect(listSessions).toHaveBeenLastCalledWith('default:codex')
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('archives a session from its row once the user confirms', async () => {
+    mockSessions(mixed)
+    const { user } = await renderPanel()
+    await user.click(within(row('Plan the launch')).getByRole('button', { name: 'Archive' }))
+    const dialog = await screen.findByRole('dialog', { name: /Plan the launch/ })
+    expect(checkSessionAction).toHaveBeenCalledWith('p1', 'b', 'archive')
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: /^Archive/ })).toBeEnabled())
+    await user.click(within(dialog).getByRole('button', { name: /^Archive/ }))
+    expect(archiveSession).toHaveBeenCalledWith('p1', 'b', false)
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('offers restoring on the Archived tab', async () => {
+    mockSessions(mixed)
+    const { user } = await renderPanel()
+    await user.click(screen.getByRole('tab', { name: /Archived/ }))
+    await user.click(within(row('Old parser work')).getByRole('button', { name: 'Restore' }))
+    await screen.findByRole('dialog', { name: /Old parser work/ })
+    expect(checkSessionAction).toHaveBeenCalledWith('p1', 'd', 'restore')
+  })
+
+  it('holds archiving back while a terminal has the session open', async () => {
+    mockSessions([makeSession({ id: 'busy', title: 'Busy', state: 'openInTerminal' })])
+    const { user } = await renderPanel()
+    const archive = within(row('Busy')).getByRole('button', { name: 'Archive' })
+    expect(archive).toHaveAttribute('aria-disabled', 'true')
+    await user.click(archive)
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

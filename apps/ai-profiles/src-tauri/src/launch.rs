@@ -51,6 +51,18 @@ pub fn find_running_pid(ps_output: &str, data_dir: &str, gui_macos_exec: &str) -
     )
 }
 
+/// Every PID [`find_running_pid`] would pick from, in `ps` order: an app
+/// doesn't keep to one instance per data dir.
+pub fn find_running_pids(ps_output: &str, data_dir: &str, gui_macos_exec: &str) -> Vec<i32> {
+    pids_ending_with(
+        ps_output,
+        &[
+            stock_suffix(data_dir, gui_macos_exec),
+            wrapper_suffix(data_dir, gui_macos_exec),
+        ],
+    )
+}
+
 /// As [`find_running_pid`], but only for a profile running from its wrapper.
 pub fn find_running_wrapper_pid(
     ps_output: &str,
@@ -74,21 +86,24 @@ fn wrapper_suffix(data_dir: &str, gui_macos_exec: &str) -> String {
 /// The PID of the first process in `ps_output` whose command line ends with one
 /// of `suffixes`.
 pub(crate) fn first_pid_ending_with(ps_output: &str, suffixes: &[String]) -> Option<i32> {
-    for line in ps_output.lines() {
-        let Some((pid, command)) = line.trim_start().split_once(char::is_whitespace) else {
-            continue;
-        };
-        let command = command.trim_end();
-        if suffixes
-            .iter()
-            .any(|suffix| command.ends_with(suffix.as_str()))
-        {
-            if let Ok(parsed) = pid.parse::<i32>() {
-                return Some(parsed);
-            }
-        }
-    }
-    None
+    pids_ending_with(ps_output, suffixes).into_iter().next()
+}
+
+/// The PIDs of the processes in `ps_output` whose command line ends with one
+/// of `suffixes`, in `ps` order.
+pub(crate) fn pids_ending_with(ps_output: &str, suffixes: &[String]) -> Vec<i32> {
+    ps_output
+        .lines()
+        .filter_map(|line| {
+            let (pid, command) = line.trim_start().split_once(char::is_whitespace)?;
+            let command = command.trim_end();
+            suffixes
+                .iter()
+                .any(|suffix| command.ends_with(suffix.as_str()))
+                .then(|| pid.parse::<i32>().ok())
+                .flatten()
+        })
+        .collect()
 }
 
 /// Every running process, one `pid command` line each.

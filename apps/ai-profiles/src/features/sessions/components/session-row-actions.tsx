@@ -2,8 +2,9 @@ import { useId } from 'react'
 
 import { MoreHorizontal } from 'lucide-react'
 
-import { cn, TooltipBubble } from '@/design'
+import { cn } from '@/design'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/design/ui/dropdown-menu'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/design/ui/tooltip'
 
 /**
  * One thing a row lets you do to its session.
@@ -82,32 +83,42 @@ export function SessionRowActions({ actions }: Props) {
 /**
  * A side-by-side action button. A disabled one stays focusable
  * (`aria-disabled` rather than `disabled`) so its reason reaches a screen
- * reader as the description and shows as a tooltip on hover.
+ * reader as the description and shows as a tooltip on hover or focus. The
+ * tooltip is portalled to the page, so the scrolling list can't clip it.
  */
 function InlineAction({ action }: ActionProps) {
   const reasonId = useId()
   const disabled = action.disabledReason !== undefined
+  const button = (
+    <button
+      type="button"
+      aria-disabled={disabled}
+      aria-describedby={disabled ? reasonId : undefined}
+      className={cn(controlClasses, 'px-2')}
+      onClick={() => {
+        if (!disabled) {
+          action.onSelect()
+        }
+      }}
+    >
+      {action.label}
+    </button>
+  )
+  if (!disabled) {
+    return button
+  }
   return (
-    <span className="group relative">
-      <button
-        type="button"
-        aria-disabled={disabled}
-        aria-describedby={disabled ? reasonId : undefined}
-        className={cn(controlClasses, 'px-2')}
-        onClick={() => {
-          if (!disabled) {
-            action.onSelect()
-          }
-        }}
-      >
-        {action.label}
-      </button>
-      {disabled ? (
-        <span id={reasonId}>
-          <TooltipBubble>{action.disabledReason}</TooltipBubble>
-        </span>
-      ) : null}
-    </span>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent sideOffset={4} className="px-2 py-1 font-mono text-[11px] leading-[1.4]">
+          {action.disabledReason}
+        </TooltipContent>
+      </Tooltip>
+      <span id={reasonId} className="sr-only">
+        {action.disabledReason}
+      </span>
+    </TooltipProvider>
   )
 }
 

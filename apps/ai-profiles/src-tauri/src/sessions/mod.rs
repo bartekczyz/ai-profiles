@@ -6,6 +6,7 @@
 //! between versions, so everything here reads leniently and skips what it
 //! cannot make sense of rather than failing the whole listing.
 
+pub mod actions;
 mod claude;
 mod codex;
 mod home;
@@ -16,6 +17,7 @@ use std::path::PathBuf;
 
 use crate::app_kind::AppKind;
 
+pub use actions::{ActionCheck, SessionAction};
 pub use home::home_for;
 pub use list::{list_sessions, SessionList};
 

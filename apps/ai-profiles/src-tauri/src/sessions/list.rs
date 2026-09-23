@@ -13,7 +13,7 @@ use super::claude::desktop::read_records;
 use super::claude::live::{live_sessions, LiveHolder};
 use super::claude::markup::strip_markup;
 use super::claude::ownership::{owned_by, HomeScan, Owned};
-use super::claude::transcript::scan_projects;
+use super::claude::transcript::{scan_projects, TranscriptSummary};
 use super::codex;
 use super::home::homes_of;
 use super::Home;
@@ -27,8 +27,8 @@ const TRANSCRIPT_DELETED: &str = "Transcript deleted";
 /// Why a session started in the desktop app without a project can't move.
 const IN_SCRATCH_FOLDER: &str = "Lives in the desktop app's scratch folder";
 
-/// Why a session open in a terminal can't move.
-const OPEN_IN_TERMINAL: &str = "Close it in the terminal first";
+/// Why a session open in a terminal can't move, or be archived.
+pub(super) const OPEN_IN_TERMINAL: &str = "Close it in the terminal first";
 
 /// Where a session was started.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -124,25 +124,8 @@ pub async fn list_sessions(home: Home) -> AppResult<SessionList> {
 /// The Claude sessions `home` owns, of all `homes` of the app, given the
 /// output of `ps -ax -o pid=,command=`.
 fn claude_sessions(home: &Home, homes: &[Home], ps_output: &str) -> SessionList {
-    let scans: Vec<HomeScan> = homes
-        .iter()
-        .map(|each| HomeScan {
-            home_id: each.id.clone(),
-            transcripts: scan_projects(&each.config_dir),
-            records: read_records(&each.gui_data_dir),
-        })
-        .collect();
-    // A process registers the session it has open in the config dir its
-    // transcript is in, which for an orphan is another home's.
-    let mut live = HashMap::new();
-    for each in homes {
-        for (session_id, holder) in live_sessions(&each.config_dir, ps_output) {
-            let held = live.entry(session_id).or_insert(holder);
-            if holder == LiveHolder::Terminal {
-                *held = holder;
-            }
-        }
-    }
+    let scans = home_scans(homes);
+    let live = live_anywhere(homes, ps_output);
     let mut sessions: Vec<Session> = owned_by(&home.id, &scans)
         .into_iter()
         .map(|owned| owned_session(home, owned, &live))
@@ -164,6 +147,45 @@ fn claude_sessions(home: &Home, homes: &[Home], ps_output: &str) -> SessionList 
     }
 }
 
+/// What each of `homes` holds: its transcripts and desktop records.
+pub(super) fn home_scans(homes: &[Home]) -> Vec<HomeScan> {
+    homes
+        .iter()
+        .map(|each| HomeScan {
+            home_id: each.id.clone(),
+            transcripts: scan_projects(&each.config_dir),
+            records: read_records(&each.gui_data_dir),
+        })
+        .collect()
+}
+
+/// The sessions open in any of `homes`, by session id, given the output of
+/// `ps -ax -o pid=,command=`. A process registers the session it has open in
+/// the config dir its transcript is in, which for an orphan is another
+/// home's. A terminal holds a session also open in a desktop app.
+pub(super) fn live_anywhere(homes: &[Home], ps_output: &str) -> HashMap<String, LiveHolder> {
+    let mut live = HashMap::new();
+    for each in homes {
+        for (session_id, holder) in live_sessions(&each.config_dir, ps_output) {
+            let held = live.entry(session_id).or_insert(holder);
+            if holder == LiveHolder::Terminal {
+                *held = holder;
+            }
+        }
+    }
+    live
+}
+
+/// The title `transcript` gives its session: the name set with `/rename`,
+/// else the title Claude generated, else the first prompt without its markup.
+pub(super) fn transcript_title(transcript: &TranscriptSummary) -> Option<String> {
+    transcript
+        .custom_title
+        .clone()
+        .or_else(|| transcript.ai_title.clone())
+        .or_else(|| transcript.first_prompt.as_deref().and_then(strip_markup))
+}
+
 /// The row of a session `home` owns, given the sessions open anywhere.
 fn owned_session(home: &Home, owned: Owned, live: &HashMap<String, LiveHolder>) -> Session {
     let Owned {
@@ -176,13 +198,7 @@ fn owned_session(home: &Home, owned: Owned, live: &HashMap<String, LiveHolder>) 
     let record = record.as_ref();
     let title = record
         .and_then(|record| record.title.clone())
-        .or_else(|| transcript.and_then(|transcript| transcript.custom_title.clone()))
-        .or_else(|| transcript.and_then(|transcript| transcript.ai_title.clone()))
-        .or_else(|| {
-            transcript
-                .and_then(|transcript| transcript.first_prompt.as_deref())
-                .and_then(strip_markup)
-        });
+        .or_else(|| transcript.and_then(transcript_title));
     let cwd = record
         .and_then(|record| record.cwd.clone())
         .or_else(|| transcript.and_then(|transcript| transcript.cwd.clone()));
