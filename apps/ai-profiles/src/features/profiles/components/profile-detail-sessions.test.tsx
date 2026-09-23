@@ -61,6 +61,7 @@ function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
     openInDesktop: false,
     inDesktop: false,
     unmovableReason: null,
+    leftInDefault: false,
     ...overrides,
   }
 }
@@ -191,6 +192,44 @@ describe('ProfileDetailSessions', () => {
     const done = await screen.findByRole('dialog', { name: 'Session moved' })
     expect(within(done).getByText(/and its desktop app lists it/)).toBeInTheDocument()
     expect(within(done).getByText(/notes\.md/)).toBeInTheDocument()
+  })
+
+  it('brings a session left in the Default folder into the profile, with nothing to choose', async () => {
+    vi.mocked(listSessions).mockResolvedValue([session({ inDesktop: true, leftInDefault: true })])
+    vi.mocked(planSessionTransfer).mockResolvedValue(
+      plan({ sourceLabel: 'Default', destinationLabel: 'Work', desktop: 'alreadyListed' }),
+    )
+    vi.mocked(transferSession).mockResolvedValue({
+      destinationTranscript: '/p/work/cli-config/projects/-code/s1.jsonl',
+      backupDir: null,
+      desktopRecord: null,
+      archivedTo: '/Users/ada/.claude/session-transfer-backups/s1/t-archived',
+      memoryCopied: [],
+      memoryConflicts: [],
+    })
+    renderWithQuery(<ProfileDetailSessions profileId="work" />)
+
+    expect(await screen.findByText('In Default')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Move here' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Move session here' })
+    expect(within(dialog).queryByRole('combobox')).toBeNull()
+    expect(within(dialog).queryByRole('checkbox')).toBeNull()
+    await within(dialog).findByText('Files: 2 to copy.')
+    await user.click(within(dialog).getByRole('button', { name: /^Move/ }))
+
+    await waitFor(() =>
+      expect(transferSession).toHaveBeenCalledWith({
+        sourceId: 'default:claude',
+        sessionId: 's1',
+        destinationId: 'work',
+        addToDesktop: true,
+        archiveSource: true,
+        replaceNewer: false,
+        quitApps: false,
+      }),
+    )
   })
 
   it('offers to quit the apps a move needs closed, and asks the backend to', async () => {

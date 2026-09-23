@@ -284,6 +284,11 @@ export type SessionSummary = {
   inDesktop: boolean
   /** Why it can't be moved, if it can't. */
   unmovableReason: string | null
+  /**
+   * The profile's desktop app lists it, but its transcript is in the Default
+   * folder, where the app wrote it before it had a config dir of its own.
+   */
+  leftInDefault: boolean
 }
 
 export type TransferRequest = {

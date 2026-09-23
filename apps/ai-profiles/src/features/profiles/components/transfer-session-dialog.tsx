@@ -17,6 +17,12 @@ type Props = {
   /** Profile id the session is in, or `default:claude`. */
   sourceId: string
   session: SessionSummary
+  /**
+   * Move it to this profile, with nothing to choose: for bringing a session
+   * that a profile's desktop app left in the Default folder into the profile.
+   * Its desktop app already lists it, and the Default copy goes.
+   */
+  destinationId?: string
   onClose: () => void
 }
 
@@ -27,7 +33,7 @@ type Props = {
  * button is pressed. It is re-read when the window regains focus: quitting
  * that app happens outside ai-profiles.
  */
-export function TransferSessionDialog({ open, sourceId, session, onClose }: Props) {
+export function TransferSessionDialog({ open, sourceId, session, destinationId: fixedDestinationId, onClose }: Props) {
   const { profiles } = useProfiles()
   const destinations = useMemo(() => {
     const managed = profiles
@@ -36,7 +42,10 @@ export function TransferSessionDialog({ open, sourceId, session, onClose }: Prop
     return sourceId === stockId ? managed : [{ id: stockId, label: 'Default (stock install)' }, ...managed]
   }, [profiles, sourceId])
 
-  const [destinationId, setDestinationId] = useState(destinations[0]?.id ?? '')
+  const [destinationId, setDestinationId] = useState(fixedDestinationId ?? destinations[0]?.id ?? '')
+  const fixedLabel = fixedDestinationId
+    ? profiles.find((profile) => profile.id === fixedDestinationId)?.name
+    : undefined
   const [addToDesktop, setAddToDesktop] = useState(true)
   const [archiveSource, setArchiveSource] = useState(true)
   const [replaceNewer, setReplaceNewer] = useState(false)
@@ -95,7 +104,7 @@ export function TransferSessionDialog({ open, sourceId, session, onClose }: Prop
   return (
     <Dialog
       open={open}
-      title="Move session"
+      title={fixedDestinationId ? 'Move session here' : 'Move session'}
       description={title}
       onClose={onClose}
       onSubmit={handleMove}
@@ -116,7 +125,29 @@ export function TransferSessionDialog({ open, sourceId, session, onClose }: Prop
         </>
       }
     >
-      {destinations.length === 0 ? (
+      {fixedDestinationId ? (
+        <div className="space-y-3">
+          {session.cwd ? <p className="font-mono text-mono text-muted-strong">{shortenHomePath(session.cwd)}</p> : null}
+          <p className="text-body text-ink-soft">
+            {fixedLabel ?? 'This profile'}'s desktop app lists this session, but its conversation was saved in the
+            Default folder, before the profile had one of its own. Moving it brings the conversation into{' '}
+            {fixedLabel ?? 'the profile'}. The Default copy is kept in session-transfer-backups.
+          </p>
+          <PlanBody
+            plan={plan.data}
+            loading={plan.isLoading}
+            error={plan.error ? sessionErrorMessage(plan.error) : null}
+            replaceNewer={replaceNewer}
+            onReplaceNewer={setReplaceNewer}
+            onRecheck={() => void plan.refetch()}
+          />
+          {moveError ? (
+            <p role="alert" className="text-meta text-red">
+              {moveError}
+            </p>
+          ) : null}
+        </div>
+      ) : destinations.length === 0 ? (
         <p className="text-body text-ink-soft">There is no other Claude profile to move it to.</p>
       ) : (
         <div className="space-y-3">

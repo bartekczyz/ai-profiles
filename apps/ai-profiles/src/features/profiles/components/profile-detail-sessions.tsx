@@ -3,7 +3,7 @@ import type { ArchivedSession, SessionSummary } from '@/lib/types'
 import { useState } from 'react'
 
 import { formatDistanceToNow } from 'date-fns'
-import { Archive, ArchiveRestore, ArrowRightLeft, Monitor, Terminal } from 'lucide-react'
+import { Archive, ArchiveRestore, ArrowDownToLine, ArrowRightLeft, Monitor, Terminal } from 'lucide-react'
 
 import { Button, Skeleton, StatusDot } from '@/design'
 
@@ -13,6 +13,9 @@ import { RestoreSessionDialog } from './restore-session-dialog'
 import { sessionErrorMessage } from './session-error-message'
 import { shortenHomePath } from './shorten-home-path'
 import { TransferSessionDialog } from './transfer-session-dialog'
+
+/** The stock install's id, where a session left in the Default folder is. */
+const stockId = 'default:claude'
 
 /** Rows shown before "Show all". */
 const collapsedCount = 5
@@ -115,7 +118,17 @@ export function ProfileDetailSessions({ profileId }: Props) {
       ) : null}
 
       {moving ? (
-        <TransferSessionDialog open sourceId={profileId} session={moving} onClose={() => setMoving(null)} />
+        moving.leftInDefault ? (
+          <TransferSessionDialog
+            open
+            sourceId={stockId}
+            destinationId={profileId}
+            session={moving}
+            onClose={() => setMoving(null)}
+          />
+        ) : (
+          <TransferSessionDialog open sourceId={profileId} session={moving} onClose={() => setMoving(null)} />
+        )
       ) : null}
       {archiving ? (
         <ArchiveSessionDialog open profileId={profileId} session={archiving} onClose={() => setArchiving(null)} />
@@ -164,6 +177,14 @@ function SessionRow({ session, onMove, onArchive }: SessionRowProps) {
             {title}
           </span>
           <SurfacePill surface={surfaceOf(session)} />
+          {session.leftInDefault ? (
+            <span
+              className="shrink-0 cursor-default text-meta text-amber"
+              title="Saved in the Default folder, before this profile's desktop app had one of its own. Move it here to keep it with the profile."
+            >
+              In Default
+            </span>
+          ) : null}
           {session.running && session.openInDesktop ? (
             <span
               className="inline-flex shrink-0 items-center gap-1 text-meta text-muted-strong"
@@ -194,7 +215,11 @@ function SessionRow({ session, onMove, onArchive }: SessionRowProps) {
         </div>
       ) : (
         <div className="flex shrink-0 items-center gap-1">
-          {session.unmovableReason ? (
+          {session.leftInDefault ? (
+            <Button variant="ghost" size="sm" leadingIcon={<ArrowDownToLine />} onClick={onMove}>
+              Move here
+            </Button>
+          ) : session.unmovableReason ? (
             <span className="cursor-default px-2 text-meta text-muted" title={session.unmovableReason}>
               Can't move
             </span>
@@ -203,9 +228,11 @@ function SessionRow({ session, onMove, onArchive }: SessionRowProps) {
               Move
             </Button>
           )}
-          <Button variant="ghost" size="sm" aria-label="Archive" title="Archive" onClick={onArchive}>
-            <Archive aria-hidden className="h-3.5 w-3.5" />
-          </Button>
+          {session.leftInDefault ? null : (
+            <Button variant="ghost" size="sm" aria-label="Archive" title="Archive" onClick={onArchive}>
+              <Archive aria-hidden className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       )}
     </li>
