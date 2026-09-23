@@ -187,6 +187,7 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
           {plan.data ? <DesktopLine plan={plan.data} /> : null}
           <AfterwardsChoice
             source={plan.data?.sourceLabel ?? 'this profile'}
+            destination={plan.data?.destinationLabel ?? 'the other profile'}
             sourceBytes={plan.data?.sourceBytes ?? null}
             value={afterwards}
             onChange={setAfterwards}
@@ -311,11 +312,14 @@ function DesktopLine({ plan }: { plan: TransferPlan }) {
  */
 function AfterwardsChoice({
   source,
+  destination,
   sourceBytes,
   value,
   onChange,
 }: {
   source: string
+  /** The profile it moves to. */
+  destination: string
   /** What deleting frees, once the plan says. */
   sourceBytes: number | null
   value: Afterwards
@@ -331,7 +335,7 @@ function AfterwardsChoice({
     {
       value: 'delete',
       label: 'Delete it',
-      hint: "Only once the moved copy is checked to be identical. Can't be undone. Plan files and project memory stay.",
+      hint: `Only after the moved copy is checked to be identical, and it can't be undone. Plan files and project memory aren't deleted: other sessions in ${source} may use them, and ${destination} has its own copies now.`,
     },
     { value: 'keep', label: 'Keep it', hint: 'Both profiles list it.' },
   ]

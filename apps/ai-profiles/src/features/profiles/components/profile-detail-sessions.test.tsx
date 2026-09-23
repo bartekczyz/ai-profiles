@@ -255,6 +255,9 @@ describe('ProfileDetailSessions', () => {
     await user.selectOptions(within(dialog).getByRole('combobox'), 'personal')
     const afterwards = within(dialog).getByRole('group', { name: /The copy in Work/ })
     await user.click(await within(afterwards).findByRole('radio', { name: /^Delete it/ }))
+    expect(
+      within(afterwards).getByText(/other sessions in Work may use them, and Personal has its own copies now/),
+    ).toBeInTheDocument()
     await within(dialog).findByText('Files: 2 to copy.')
     await user.click(within(dialog).getByRole('button', { name: /^Move/ }))
 
