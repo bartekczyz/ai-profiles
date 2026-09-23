@@ -10,7 +10,7 @@
 //! machine.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -41,7 +41,12 @@ impl ProfileAccount {
 }
 
 /// The account profile `id` (or `default:<app>`) is signed in under, or `None`
-/// when nothing on disk names one.
+/// when nothing on disk names one reliably.
+///
+/// Claude's stock install is always `None`. Its desktop app keeps its sign-in
+/// in its own data, not in any `.claude.json`, and `$HOME/.claude.json` still
+/// names the account of a stock install that has since been moved into a
+/// profile. Neither file can say who the stock entry is signed in as.
 pub fn read(id: &str) -> AppResult<Option<ProfileAccount>> {
     let (kind, config_dir) = match AppKind::from_default_id(id) {
         Some(kind) => (kind, stock_cli_config_dir(kind.spec())?),
@@ -57,26 +62,16 @@ pub fn read(id: &str) -> AppResult<Option<ProfileAccount>> {
     };
     let stock = AppKind::from_default_id(id).is_some();
     Ok(match kind {
-        AppKind::Claude => claude_account(&config_dir, stock),
+        AppKind::Claude if stock => None,
+        AppKind::Claude => claude_account(&config_dir),
         AppKind::Codex => codex_account(&config_dir),
     })
 }
 
-/// Claude keeps the account in `.claude.json`. A stock install keeps that file
-/// in `$HOME`; a profile keeps it inside its config dir, which is what
-/// `CLAUDE_CONFIG_DIR` points at.
-fn claude_account(config_dir: &Path, stock: bool) -> Option<ProfileAccount> {
-    let mut candidates = vec![config_dir.join(".claude.json")];
-    if stock {
-        if let Some(home) = dirs::home_dir() {
-            candidates.push(home.join(".claude.json"));
-        }
-    }
-    candidates
-        .iter()
-        .map(PathBuf::as_path)
-        .filter_map(read_json)
-        .find_map(|document| account_from_claude_json(&document))
+/// A Claude profile keeps the account in the `.claude.json` inside its config
+/// dir, which is what `CLAUDE_CONFIG_DIR` points at.
+fn claude_account(config_dir: &Path) -> Option<ProfileAccount> {
+    account_from_claude_json(&read_json(&config_dir.join(".claude.json"))?)
 }
 
 /// Pure: the account in a parsed `.claude.json`, if it names one.
@@ -248,6 +243,14 @@ mod tests {
             encode(br#"{"alg":"none"}"#),
             encode(claims.to_string().as_bytes())
         )
+    }
+
+    #[test]
+    fn the_stock_claude_entry_never_names_an_account() {
+        // Whatever $HOME/.claude.json says: it may name an account long since
+        // moved into a profile, and the desktop app doesn't keep its sign-in
+        // there at all.
+        assert_eq!(read("default:claude").unwrap(), None);
     }
 
     #[test]

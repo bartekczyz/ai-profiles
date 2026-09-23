@@ -26,7 +26,9 @@ vi.mock('@/lib/commands', async () => {
   return {
     ...actual,
     profilePaths: vi.fn(),
-    profileAccount: vi.fn(async () => null),
+    // Unanswered unless a test answers it: the account line isn't what most
+    // tests here are about, and its answer re-renders the pane mid-click.
+    profileAccount: vi.fn(() => new Promise(() => {})),
     openInFinder: vi.fn(async () => {}),
     openProfileInApp: vi.fn(async () => {}),
     copyToClipboard: vi.fn(async () => {}),
