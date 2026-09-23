@@ -418,7 +418,7 @@ function AfterwardsChoice({
   ]
   return (
     <fieldset className="space-y-1.5">
-      <legend className="mb-1.5 text-body text-ink-soft">The copy in {source}, once it has moved</legend>
+      <legend className="mb-1.5 text-body text-ink-soft">The session on {source}</legend>
       {options.map((option) => (
         <label key={option.value} className="flex cursor-pointer items-start gap-2 text-body text-ink-soft">
           <input

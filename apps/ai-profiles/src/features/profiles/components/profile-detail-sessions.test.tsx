@@ -224,7 +224,7 @@ describe('ProfileDetailSessions', () => {
     const { user, dialog } = await openMoveDialog()
 
     await user.selectOptions(within(dialog).getByRole('combobox'), 'personal')
-    const afterwards = within(dialog).getByRole('group', { name: /The copy in Work/ })
+    const afterwards = within(dialog).getByRole('group', { name: /The session on Work/ })
     // Archiving stays the default: it can be undone, and says what it keeps.
     expect(await within(afterwards).findByRole('radio', { name: /Archive it \(2.0 KB\)/ })).toBeChecked()
     expect(within(dialog).queryByRole('checkbox', { name: /desktop app/ })).toBeNull()
@@ -314,7 +314,7 @@ describe('ProfileDetailSessions', () => {
     const { user, dialog } = await openMoveDialog()
 
     await user.selectOptions(within(dialog).getByRole('combobox'), 'personal')
-    const afterwards = within(dialog).getByRole('group', { name: /The copy in Work/ })
+    const afterwards = within(dialog).getByRole('group', { name: /The session on Work/ })
     await user.click(await within(afterwards).findByRole('radio', { name: /^Delete it/ }))
     expect(
       within(afterwards).getByText(/other sessions in Work may use them, and Personal has its own copies now/),
