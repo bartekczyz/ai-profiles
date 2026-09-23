@@ -7,7 +7,9 @@
 //! cannot make sense of rather than failing the whole listing.
 
 mod claude;
+mod codex;
 mod home;
+mod instance;
 mod list;
 
 use std::path::PathBuf;
@@ -35,4 +37,10 @@ pub struct Home {
     pub gui_data_dir: PathBuf,
     /// The stock install rather than a managed profile.
     pub stock: bool,
+}
+
+/// `value` unless it is blank. The apps write empty strings for fields they
+/// have no value for yet.
+fn non_blank(value: Option<String>) -> Option<String> {
+    value.filter(|text| !text.trim().is_empty())
 }

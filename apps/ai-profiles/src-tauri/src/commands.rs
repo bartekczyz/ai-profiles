@@ -567,21 +567,17 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
         AppKind::Codex => {
             // app-server refreshes its own token per call, so no external
             // refresher dance is needed.
-            let provider = CodexQuotaProvider::new(
-                "ai-profiles".to_string(),
-                env!("CARGO_PKG_VERSION").to_string(),
-            );
-            Ok(usage::build(&config_dir, &provider).await)
+            Ok(usage::build(&config_dir, &CodexQuotaProvider).await)
         }
     }
 }
 
-/// The sessions profile `profile_id` (or `default:<app>`) owns. Reading them
-/// walks every transcript of every profile of the app, so it runs off the main
-/// thread.
-#[tauri::command(async)]
-pub fn list_sessions(profile_id: String) -> AppResult<SessionList> {
-    sessions::list_sessions(&sessions::home_for(&profile_id)?)
+/// The sessions profile `profile_id` (or `default:<app>`) owns. Async so a
+/// Codex listing can await `codex app-server`; a Claude listing walks every
+/// transcript of every profile of the app on a blocking thread.
+#[tauri::command]
+pub async fn list_sessions(profile_id: String) -> AppResult<SessionList> {
+    sessions::list_sessions(sessions::home_for(&profile_id)?).await
 }
 
 fn resolve_app(profile_id: &str) -> AppResult<AppKind> {

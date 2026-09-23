@@ -14,8 +14,4 @@ pub mod markup;
 pub mod ownership;
 pub mod transcript;
 
-/// `value` unless it is blank. The apps write empty strings for fields they
-/// have no value for yet.
-fn non_blank(value: Option<String>) -> Option<String> {
-    value.filter(|text| !text.trim().is_empty())
-}
+use super::non_blank;

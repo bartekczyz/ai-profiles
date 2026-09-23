@@ -14,10 +14,11 @@ use super::claude::live::{live_sessions, LiveHolder};
 use super::claude::markup::strip_markup;
 use super::claude::ownership::{owned_by, HomeScan, Owned};
 use super::claude::transcript::scan_projects;
+use super::codex;
 use super::home::homes_of;
 use super::Home;
 use crate::app_kind::AppKind;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
 
 /// Why a session whose desktop record outlived its transcript can't move.
@@ -65,12 +66,14 @@ pub struct Session {
     pub id: String,
     /// Where the session was started.
     pub kind: SessionKind,
-    /// The desktop record's title, else the name set with `/rename`, else the
-    /// title Claude generated, else the first prompt without its markup.
+    /// Claude: the desktop record's title, else the name set with `/rename`,
+    /// else the title Claude generated, else the first prompt without its
+    /// markup. Codex: the thread's name, else its first prompt.
     pub title: Option<String>,
     /// The folder the session works in.
     pub cwd: Option<String>,
-    /// The last thing typed into the session.
+    /// Claude: the last thing typed into the session. Codex: the first, as
+    /// app-server only lists that.
     pub last_prompt: Option<String>,
     /// When the session was last used: the later of its desktop record's last
     /// activity and its transcript's last record.
@@ -97,17 +100,24 @@ pub struct SessionList {
 }
 
 /// The sessions `home` owns. Ownership of a Claude session depends on what
-/// every home of the app holds, so all of them are read.
-pub fn list_sessions(home: &Home) -> AppResult<SessionList> {
+/// every home of the app holds, so all of them are read, on a blocking thread
+/// as that walks every transcript. Codex sessions are what the home's
+/// `codex app-server` lists.
+pub async fn list_sessions(home: Home) -> AppResult<SessionList> {
     match home.app {
-        AppKind::Claude => {
+        AppKind::Claude => tokio::task::spawn_blocking(move || {
             let homes = homes_of(AppKind::Claude)?;
             // Without a process list nothing shows as open, which is only
             // wrong until the next listing.
             let ps_output = process_list().unwrap_or_default();
-            Ok(claude_sessions(home, &homes, &ps_output))
-        }
-        AppKind::Codex => Ok(SessionList::default()),
+            Ok(claude_sessions(&home, &homes, &ps_output))
+        })
+        .await
+        .map_err(|error| AppError::Io(std::io::Error::other(error)))?,
+        AppKind::Codex => Ok(SessionList {
+            sessions: codex::list(&home).await?,
+            repair_count: 0,
+        }),
     }
 }
 
@@ -237,7 +247,11 @@ fn archived_session(home: &Home, bundle: ArchivedBundle) -> Session {
 
 /// Why a session of `home` in `state`, working in `cwd`, can't be moved, if
 /// it can't: lasting reasons before one the user can clear.
-fn unmovable_reason(home: &Home, state: SessionState, cwd: Option<&str>) -> Option<String> {
+pub(super) fn unmovable_reason(
+    home: &Home,
+    state: SessionState,
+    cwd: Option<&str>,
+) -> Option<String> {
     let in_scratch = cwd.is_some_and(|cwd| Path::new(cwd).starts_with(&home.gui_data_dir));
     let reason = match state {
         SessionState::TranscriptMissing => TRANSCRIPT_DELETED,
@@ -586,17 +600,6 @@ mod tests {
         let list = claude_sessions(&default, std::slice::from_ref(&default), "");
 
         assert_eq!(list.sessions[0].title, None);
-    }
-
-    #[test]
-    fn a_codex_home_lists_nothing_yet() {
-        let root = tempdir().unwrap();
-        let codex = Home {
-            app: AppKind::Codex,
-            ..home(root.path(), "codex", false)
-        };
-
-        assert_eq!(list_sessions(&codex).unwrap(), SessionList::default());
     }
 
     #[test]

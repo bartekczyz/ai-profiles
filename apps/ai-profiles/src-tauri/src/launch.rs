@@ -73,7 +73,7 @@ fn wrapper_suffix(data_dir: &str, gui_macos_exec: &str) -> String {
 
 /// The PID of the first process in `ps_output` whose command line ends with one
 /// of `suffixes`.
-fn first_pid_ending_with(ps_output: &str, suffixes: &[String]) -> Option<i32> {
+pub(crate) fn first_pid_ending_with(ps_output: &str, suffixes: &[String]) -> Option<i32> {
     for line in ps_output.lines() {
         let Some((pid, command)) = line.trim_start().split_once(char::is_whitespace) else {
             continue;

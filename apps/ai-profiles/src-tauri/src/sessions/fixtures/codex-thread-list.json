@@ -1,0 +1,184 @@
+{
+  "data": [
+    {
+      "id": "019dd838-67d9-7112-b0cc-29a785573e73",
+      "extra": null,
+      "sessionId": "019dd838-67d9-7112-b0cc-29a785573e73",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "Add a dark mode toggle",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "createdAt": 1789643876,
+      "updatedAt": 1789643901,
+      "recencyAt": 1789643876,
+      "status": {
+        "type": "notLoaded"
+      },
+      "path": null,
+      "cwd": "/work/site",
+      "cliVersion": "0.154.0-alpha.6.2",
+      "source": "vscode",
+      "canAcceptDirectInput": null,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": {
+        "sha": "0f3c2a1",
+        "branch": "main",
+        "originUrl": null
+      },
+      "name": "Dark mode",
+      "turns": []
+    },
+    {
+      "id": "019e1a2b-0000-7000-8000-000000000003",
+      "extra": null,
+      "sessionId": "019e1a2b-0000-7000-8000-000000000003",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "Refactor the parser",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "createdAt": 1779976513,
+      "updatedAt": 1779976569,
+      "recencyAt": 1779976569,
+      "status": {
+        "type": "active",
+        "activeFlags": ["waitingOnUserInput"]
+      },
+      "path": null,
+      "cwd": "/work/app",
+      "cliVersion": "0.128.0",
+      "source": "vscode",
+      "canAcceptDirectInput": null,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": {
+        "sha": "0f3c2a1",
+        "branch": "main",
+        "originUrl": null
+      },
+      "name": null,
+      "turns": []
+    },
+    {
+      "id": "019d7637-2fc8-76b3-ba4c-b260a550ae10",
+      "extra": null,
+      "sessionId": "019d7637-2fc8-76b3-ba4c-b260a550ae10",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "Fix the flaky login test",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "createdAt": 1775804821,
+      "updatedAt": 1775805059,
+      "recencyAt": 1775805059,
+      "status": {
+        "type": "notLoaded"
+      },
+      "path": null,
+      "cwd": "/work/app",
+      "cliVersion": "0.118.0",
+      "source": "cli",
+      "canAcceptDirectInput": null,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": {
+        "sha": "0f3c2a1",
+        "branch": "main",
+        "originUrl": null
+      },
+      "name": null,
+      "turns": []
+    },
+    {
+      "id": "019e1a2b-0000-7000-8000-000000000004",
+      "extra": null,
+      "sessionId": "019e1a2b-0000-7000-8000-000000000004",
+      "forkedFromId": null,
+      "parentThreadId": "019d7637-2fc8-76b3-ba4c-b260a550ae10",
+      "preview": "Review the change",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "createdAt": 1786535888,
+      "updatedAt": 1786536058,
+      "recencyAt": 1786535888,
+      "status": {
+        "type": "notLoaded"
+      },
+      "path": null,
+      "cwd": "/work/app",
+      "cliVersion": "0.147.0",
+      "source": {
+        "subAgent": "review"
+      },
+      "canAcceptDirectInput": null,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": {
+        "sha": "0f3c2a1",
+        "branch": "main",
+        "originUrl": null
+      },
+      "name": null,
+      "turns": []
+    },
+    {
+      "id": "019e1a2b-0000-7000-8000-000000000005",
+      "extra": null,
+      "sessionId": "019e1a2b-0000-7000-8000-000000000005",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "Scratch",
+      "ephemeral": true,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "createdAt": 1775804821,
+      "updatedAt": 1775805059,
+      "recencyAt": 1775805059,
+      "status": {
+        "type": "notLoaded"
+      },
+      "path": null,
+      "cwd": "/work/app",
+      "cliVersion": "0.118.0",
+      "source": "cli",
+      "canAcceptDirectInput": null,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": {
+        "sha": "0f3c2a1",
+        "branch": "main",
+        "originUrl": null
+      },
+      "name": null,
+      "turns": []
+    }
+  ],
+  "nextCursor": null,
+  "backwardsCursor": null
+}
