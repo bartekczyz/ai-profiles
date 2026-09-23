@@ -2,6 +2,7 @@ import type { AppId } from '@/lib/app-registry'
 
 import { Suspense } from 'react'
 
+import { PaneLayout } from '@/components/pane-layout'
 import { Button, Kbd } from '@/design'
 
 import { AppearanceSection } from './appearance-section'
@@ -18,7 +19,8 @@ type Props = {
 /**
  * Settings shell.
  *
- * The header, Appearance section, and footer row all render synchronously.
+ * The header (pinned by `PaneLayout`), Appearance section, and footer row
+ * all render synchronously.
  * The two suspending sections (System owns `useDependencies`, Data owns
  * `useMigration` + `useMigrationBackups`) sit behind their own Suspense
  * boundaries so the rest of the pane paints instantly when the user opens
@@ -27,25 +29,25 @@ type Props = {
  */
 export function SettingsView({ onClose, onOpenMigration, onOpenAbout }: Props) {
   return (
-    <main className="flex flex-1 flex-col overflow-y-auto bg-background px-9 py-9">
-      <div className="mx-auto flex w-full max-w-[640px] flex-1 flex-col">
-        <header className="mb-6 flex items-center justify-between">
+    <PaneLayout
+      className="bg-background"
+      header={
+        <header className="flex items-center justify-between border-b border-border-soft pb-6">
           <h2 className="text-[22px] font-semibold tracking-[-0.012em] text-ink">Settings</h2>
           <Button size="sm" variant="ghost" trailingKbd={<Kbd>⎋</Kbd>} aria-keyshortcuts="Escape" onClick={onClose}>
             Done
           </Button>
         </header>
-        <div className="mb-6 h-px bg-border-soft" />
-
-        <AppearanceSection />
-        <Suspense fallback={<SystemSectionFallback />}>
-          <SystemSection />
-        </Suspense>
-        <Suspense fallback={<DataSectionFallback />}>
-          <DataSection onReimport={onOpenMigration} />
-        </Suspense>
-        <SettingsFooterRow onOpenAbout={onOpenAbout} />
-      </div>
-    </main>
+      }
+    >
+      <AppearanceSection />
+      <Suspense fallback={<SystemSectionFallback />}>
+        <SystemSection />
+      </Suspense>
+      <Suspense fallback={<DataSectionFallback />}>
+        <DataSection onReimport={onOpenMigration} />
+      </Suspense>
+      <SettingsFooterRow onOpenAbout={onOpenAbout} />
+    </PaneLayout>
   )
 }

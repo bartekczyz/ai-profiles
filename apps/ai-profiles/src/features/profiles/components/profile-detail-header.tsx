@@ -54,7 +54,7 @@ export const headerControlClasses =
 export function ProfileDetailHeader({ name, swatch, action, info, subline, menu, onEdit }: Props) {
   const hasActions = onEdit !== undefined || action !== undefined || menu !== undefined
   return (
-    <header className="mb-5 flex items-center gap-3.5 border-b border-border-soft pb-5">
+    <header className="flex items-center gap-3.5 border-b border-border-soft pb-5">
       {swatch}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">

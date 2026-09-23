@@ -4,6 +4,7 @@ import type { GuiLaunch } from './use-gui-launch'
 
 import { Suspense, useState } from 'react'
 
+import { PaneLayout } from '@/components/pane-layout'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
 import { appSpecs, wrapperCommand } from '@/lib/app-registry'
 
@@ -13,7 +14,6 @@ import { formatLastUsed } from './format-last-used'
 import { ProfileDetailHeader, ProfileSwatch } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
 import { ProfileDetailOverflowMenu, ProfileDetailOverflowMenuFallback } from './profile-detail-overflow-menu'
-import { ProfileDetailShell } from './profile-detail-shell'
 import { ProfileDetailSurfacesPanel } from './profile-detail-surfaces-panel'
 import { ProfileDetailUsageCard } from './profile-detail-usage-card'
 import { useGuiLaunch } from './use-gui-launch'
@@ -37,29 +37,31 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
   const launch = useGuiLaunch()
 
   return (
-    <ProfileDetailShell>
-      <ProfileDetailHeader
-        name={profile.name}
-        swatch={<ProfileSwatch color={profile.color} />}
-        info={<ProfileDetailInfo app={profile.app} command={command} />}
-        subline={
-          <>
-            <span>{appSpecs[profile.app].displayName}</span>
-            <span className="mx-2 text-border">·</span>
-            <span className="text-muted-strong">{formatLastUsed(profile.lastUsedAt)}</span>
-          </>
-        }
-        menu={
-          // Its own boundary: the header's identity block renders from
-          // sidebar-provided data immediately, and only the menu waits on
-          // the per-profile path resolution.
-          <Suspense key={profile.id} fallback={<ProfileDetailOverflowMenuFallback />}>
-            <ProfileDetailOverflowMenu profileId={profile.id} onDelete={onDelete} onError={setActionError} />
-          </Suspense>
-        }
-        onEdit={onEdit}
-      />
-
+    <PaneLayout
+      header={
+        <ProfileDetailHeader
+          name={profile.name}
+          swatch={<ProfileSwatch color={profile.color} />}
+          info={<ProfileDetailInfo app={profile.app} command={command} />}
+          subline={
+            <>
+              <span>{appSpecs[profile.app].displayName}</span>
+              <span className="mx-2 text-border">·</span>
+              <span className="text-muted-strong">{formatLastUsed(profile.lastUsedAt)}</span>
+            </>
+          }
+          menu={
+            // Its own boundary: the header's identity block renders from
+            // sidebar-provided data immediately, and only the menu waits on
+            // the per-profile path resolution.
+            <Suspense key={profile.id} fallback={<ProfileDetailOverflowMenuFallback />}>
+              <ProfileDetailOverflowMenu profileId={profile.id} onDelete={onDelete} onError={setActionError} />
+            </Suspense>
+          }
+          onEdit={onEdit}
+        />
+      }
+    >
       <ProfileDetailUsageCard
         app={profile.app}
         cliCommand={command}
@@ -96,7 +98,7 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
           {actionError}
         </p>
       ) : null}
-    </ProfileDetailShell>
+    </PaneLayout>
   )
 }
 
