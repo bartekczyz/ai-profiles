@@ -1,11 +1,12 @@
-import type { Session, SessionList } from '@/lib/types'
+import type { Profile, Session, SessionList, SidebarEntry } from '@/lib/types'
 
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ToastProvider } from '@/design'
-import { archiveSession, checkSessionAction, listSessions } from '@/lib/commands'
+import { useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
+import { archiveSession, checkSessionAction, listSessions, planSessionMove } from '@/lib/commands'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import { SessionsPanel } from './sessions-panel'
@@ -14,8 +15,54 @@ vi.mock('@/lib/commands', () => ({
   archiveSession: vi.fn(),
   checkSessionAction: vi.fn(),
   listSessions: vi.fn(),
+  moveSession: vi.fn(),
+  planSessionMove: vi.fn(),
   restoreSession: vi.fn(),
 }))
+
+vi.mock('@/features/profiles/api/use-sidebar-entries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/profiles/api/use-sidebar-entries')>()),
+  useSidebarEntries: vi.fn(),
+}))
+
+/**
+ * A managed profile's sidebar entry.
+ */
+function managedEntry(id: string, name: string, app: Profile['app']): SidebarEntry {
+  return {
+    kind: 'managed',
+    profile: {
+      id,
+      app,
+      name,
+      slug: name.toLowerCase(),
+      color: '#123456',
+      createdAt: '2026-09-01T10:00:00Z',
+      surfaces: { gui: true, cli: true },
+      distinctDockIcon: false,
+      lastUsedAt: null,
+    },
+  }
+}
+
+/**
+ * The sidebar: Claude's stock install and three profiles, one of them Codex.
+ */
+const sidebarEntries: Array<SidebarEntry> = [
+  {
+    kind: 'default',
+    entry: {
+      id: 'default:claude',
+      app: 'claude',
+      name: 'Claude',
+      customName: null,
+      surfaces: { gui: true, cli: true },
+    },
+  },
+  managedEntry('p1', 'Work', 'claude'),
+  managedEntry('p2', 'Personal', 'claude'),
+  managedEntry('p3', 'Chat', 'codex'),
+]
 
 /**
  * A session with every optional field empty, overridden per case.
@@ -78,6 +125,16 @@ beforeEach(() => {
   vi.mocked(listSessions).mockReset()
   vi.mocked(archiveSession).mockReset().mockResolvedValue(undefined)
   vi.mocked(checkSessionAction).mockReset().mockResolvedValue({ blocker: null, appToQuit: null })
+  vi.mocked(useSidebarEntries).mockReset().mockReturnValue(sidebarEntries)
+  vi.mocked(planSessionMove).mockReset().mockResolvedValue({
+    summary: 'Moves 1 file from Work to Personal',
+    items: [],
+    destinationNewer: false,
+    desktop: 'add',
+    blockers: [],
+    appsToQuit: [],
+    notes: [],
+  })
 })
 
 /**
@@ -185,6 +242,7 @@ describe('SessionsPanel', () => {
       </ToastProvider>,
     )
     await screen.findByRole('list', { name: 'Sessions' })
+    expect(within(row('Fix the flaky test')).queryByRole('button', { name: 'Move' })).toBeNull()
 
     await user.click(within(row('Fix the flaky test')).getByRole('button', { name: 'Archive' }))
 
@@ -208,5 +266,32 @@ describe('SessionsPanel', () => {
     expect(archive).toHaveAttribute('aria-disabled', 'true')
     await user.click(archive)
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('moves a session to another profile of the app picked from its row', async () => {
+    mockSessions(mixed)
+    const { user } = await renderPanel()
+    await user.click(within(row('Plan the launch')).getByRole('button', { name: 'Move' }))
+    const targets = (await screen.findAllByRole('menuitem')).map((item) => item.textContent)
+    expect(targets).toEqual(['Claude', 'Personal'])
+    await user.click(screen.getByRole('menuitem', { name: 'Personal' }))
+    await screen.findByRole('dialog', { name: /Plan the launch/ })
+    expect(planSessionMove).toHaveBeenCalledWith('p1', 'b', 'p2')
+  })
+
+  it('holds moving back with the reason the session can’t move', async () => {
+    mockSessions([makeSession({ id: 'gone', title: 'Gone', unmovableReason: 'Transcript deleted' })])
+    const { user } = await renderPanel()
+    const move = within(row('Gone')).getByRole('button', { name: 'Move' })
+    expect(move).toHaveAttribute('aria-disabled', 'true')
+    await user.click(move)
+    expect(screen.queryByRole('menuitem')).toBeNull()
+  })
+
+  it('offers no move when the app has no other profile', async () => {
+    vi.mocked(useSidebarEntries).mockReturnValue([managedEntry('p1', 'Work', 'claude')])
+    mockSessions(mixed)
+    await renderPanel()
+    expect(within(row('Plan the launch')).queryByRole('button', { name: 'Move' })).toBeNull()
   })
 })

@@ -42,7 +42,7 @@ type NoticeProps = {
   cwd: string | null
 }
 
-type PrimaryProps = {
+export type PrimaryProps = {
   /**
    * Whether the action can't go ahead yet: the check is on its way, it
    * failed, or the action is under way.
@@ -179,7 +179,7 @@ function ActionNotice({ check, errorMessage, cwd }: NoticeProps) {
  * The primary button, or, when only the user can let the action go ahead,
  * the reason in its place.
  */
-function PrimaryAction({ disabled, label, blocker, onConfirm }: PrimaryProps) {
+export function PrimaryAction({ disabled, label, blocker, onConfirm }: PrimaryProps) {
   if (blocker !== null) {
     return <p className="max-w-[60%] text-right text-meta text-muted-strong">{blocker}</p>
   }

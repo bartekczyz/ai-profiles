@@ -2,7 +2,7 @@ import type { SessionAction } from '@/lib/types'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { archiveSession, checkSessionAction, restoreSession } from '@/lib/commands'
+import { archiveSession, checkSessionAction, moveSession, planSessionMove, restoreSession } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 
 /**
@@ -21,6 +21,28 @@ type SessionActionInput = {
    * Quit the desktop app in the way first.
    */
   quitApp: boolean
+}
+
+/**
+ * What a move is asked to do.
+ */
+type MoveInput = {
+  /**
+   * The session to move.
+   */
+  sessionId: string
+  /**
+   * The profile to move it to — a managed profile's id, or `default:<app>`.
+   */
+  destinationId: string
+  /**
+   * Replace a copy at the destination that was used more recently.
+   */
+  replaceNewer: boolean
+  /**
+   * Quit the desktop apps in the way first.
+   */
+  quitApps: boolean
 }
 
 /**
@@ -52,6 +74,37 @@ export function useSessionAction(profileId: string) {
       action === 'archive'
         ? archiveSession(profileId, sessionId, quitApp)
         : restoreSession(profileId, sessionId, quitApp),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all })
+    },
+  })
+}
+
+/**
+ * What moving one of a profile's sessions to `destinationId` would do.
+ * Looked up whenever it is asked for and again on every window focus, as the
+ * user may close a terminal or quit a desktop app while the question is open.
+ */
+export function useSessionMovePlan(profileId: string, sessionId: string, destinationId: string) {
+  return useQuery({
+    queryKey: queryKeys.sessionMovePlan(profileId, sessionId, destinationId),
+    queryFn: () => planSessionMove(profileId, sessionId, destinationId),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: 'always',
+  })
+}
+
+/**
+ * Moves one of a profile's sessions to another profile. Every profile's list
+ * is refetched afterwards, whether it worked or not, as a move changes two
+ * lists and may quit desktop apps on the way.
+ */
+export function useMoveSession(profileId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ sessionId, destinationId, replaceNewer, quitApps }: MoveInput) =>
+      moveSession(profileId, sessionId, destinationId, replaceNewer, quitApps),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all })
     },

@@ -78,11 +78,7 @@ pub fn owned_by(home_id: &str, scans: &[HomeScan]) -> Vec<Owned> {
         by_id.insert(session.session_id.clone(), owned.len());
         owned.push(session);
     }
-    let claimed: HashSet<&str> = scans
-        .iter()
-        .flat_map(|scan| &scan.records)
-        .flat_map(claimed_ids)
-        .collect();
+    let claimed = claimed_from(home_id, scans);
     for transcript in &own.transcripts {
         let session_id = &transcript.session_id;
         if by_id.contains_key(session_id) || claimed.contains(session_id.as_str()) {
@@ -119,6 +115,43 @@ fn transcript_index<'a>(
         }
     }
     index
+}
+
+/// The ids of the transcripts in `home_id`'s config dir that a record, of
+/// this home or another, claims. A record claims the copy in its own home's config dir when
+/// there is one; only when there isn't does it claim another home's, the
+/// first that has one, as [`transcript_index`] finds it (an orphan). So a
+/// session moved to another home and restored here still lists here.
+fn claimed_from<'a>(home_id: &str, scans: &'a [HomeScan]) -> HashSet<&'a str> {
+    let mut holders: HashMap<&str, Vec<&str>> = HashMap::new();
+    for scan in scans {
+        for transcript in &scan.transcripts {
+            holders
+                .entry(transcript.session_id.as_str())
+                .or_default()
+                .push(scan.home_id.as_str());
+        }
+    }
+    scans
+        .iter()
+        .flat_map(|scan| {
+            scan.records
+                .iter()
+                .flat_map(claimed_ids)
+                .map(move |id| (scan.home_id.as_str(), id))
+        })
+        .filter(|(claimant, id)| {
+            holders.get(id).is_some_and(|homes| {
+                let claimed_copy = if homes.contains(claimant) {
+                    Some(claimant)
+                } else {
+                    homes.first()
+                };
+                claimed_copy == Some(&home_id)
+            })
+        })
+        .map(|(_, id)| id)
+        .collect()
 }
 
 /// The ids of the transcripts `record` claims: its current one, then its
@@ -441,5 +474,24 @@ mod tests {
             [("first", DEFAULT), ("second", DEFAULT)]
         );
         assert_eq!(owned_by(DEFAULT, &scans), []);
+    }
+
+    #[test]
+    fn a_copy_in_another_home_is_that_homes_when_the_record_has_its_own() {
+        let scans = [
+            scan(DEFAULT, &["moved"], vec![]),
+            scan(PERSONAL, &["moved"], vec![record("r1", Some("moved"), 1)]),
+        ];
+
+        assert_eq!(
+            summary(&owned_by(DEFAULT, &scans)),
+            [("moved", None, Some(DEFAULT))]
+        );
+        let personal = owned_by(PERSONAL, &scans);
+        assert_eq!(
+            summary(&personal),
+            [("moved", Some("local_r1"), Some(PERSONAL))]
+        );
+        assert_eq!(claimed(&personal[0]), [("moved", PERSONAL)]);
     }
 }

@@ -1,16 +1,19 @@
 import type { AppId } from '@/lib/app-registry'
 import type { Session, SessionAction } from '@/lib/types'
 import type { KindFilter, SessionsTab, SortDirection } from '../lib/session-filters'
+import type { MoveTarget } from './move-session-dialog'
 
 import { useState } from 'react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/design/ui/tabs'
+import { appFromEntry, entryId, useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
 import { appSpecs } from '@/lib/app-registry'
 import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { useSessions } from '../api/use-sessions'
 import { countByTab, filterSessions, hasBothKinds, sortSessions } from '../lib/session-filters'
 import { ConfirmSessionActionDialog } from './confirm-session-action-dialog'
+import { MoveSessionDialog } from './move-session-dialog'
 import { SessionsControls } from './sessions-controls'
 import { SessionsList } from './sessions-list'
 import { sessionsPanelClasses } from './sessions-panel-skeleton'
@@ -41,6 +44,20 @@ type PendingAction = {
   action: SessionAction
 }
 
+/**
+ * A move the user asked for from a row, waiting on their confirmation.
+ */
+type PendingMove = {
+  /**
+   * The session to move.
+   */
+  session: Session
+  /**
+   * Where to move it.
+   */
+  destination: MoveTarget
+}
+
 type TabLabelProps = {
   /**
    * The tab's name.
@@ -66,6 +83,9 @@ const tabTriggerClasses = 'flex-none px-0.5 pb-1 text-[13px] tracking-[-0.005em]
  * and only the rows scroll; stacked, it grows with its rows and the pane
  * scrolls as a whole.
  *
+ * A Claude session's row offers Move, a menu of the app's other profiles
+ * (Default included); picking one asks to confirm the move.
+ *
  * The kind filter only exists while the open tab mixes both kinds. When it
  * goes away, the choice made on it is set aside rather than reset, so the
  * list shows everything and the choice comes back with the filter.
@@ -77,6 +97,13 @@ export function SessionsPanel({ profileId, app }: Props) {
   const [query, setQuery] = useState('')
   const [direction, setDirection] = useState<SortDirection>('desc')
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
+  const moveTargets: Array<MoveTarget> = useSidebarEntries()
+    .filter((entry) => appFromEntry(entry) === app && entryId(entry) !== profileId)
+    .map((entry) => ({
+      id: entryId(entry),
+      label: entry.kind === 'managed' ? entry.profile.name : entry.entry.name,
+    }))
 
   const listed = sessionsQuery.data?.sessions
   const sessions = listed ?? []
@@ -96,6 +123,8 @@ export function SessionsPanel({ profileId, app }: Props) {
       errorMessage={errorMessage}
       tabTotal={inTab.length}
       sessions={visible}
+      app={app}
+      moveTargets={moveTargets}
       emptyTitle={tab === 'active' ? 'No sessions yet' : 'No archived sessions'}
       emptyHint={
         tab === 'active' ? `${appSpecs[app].cliDisplayName} sessions this profile starts show up here.` : undefined
@@ -105,6 +134,7 @@ export function SessionsPanel({ profileId, app }: Props) {
       }}
       onClearSearch={() => setQuery('')}
       onAction={(session, action) => setPendingAction({ session, action })}
+      onMove={(session, destination) => setPendingMove({ session, destination })}
     />
   )
 
@@ -143,6 +173,14 @@ export function SessionsPanel({ profileId, app }: Props) {
           session={pendingAction.session}
           action={pendingAction.action}
           onClose={() => setPendingAction(null)}
+        />
+      )}
+      {pendingMove === null ? null : (
+        <MoveSessionDialog
+          profileId={profileId}
+          session={pendingMove.session}
+          destination={pendingMove.destination}
+          onClose={() => setPendingMove(null)}
         />
       )}
     </Tabs>

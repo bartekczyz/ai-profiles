@@ -25,6 +25,13 @@ const MANIFEST: &str = "manifest.json";
 /// How a bundle's timestamp folder is named: UTC, and sortable as text.
 const STAMP_FORMAT: &str = "%Y-%m-%dT%H-%M-%SZ";
 
+/// How a move's backup folder is named: UTC to the millisecond, so two moves
+/// in one second don't share one, and sortable as text.
+const REPLACED_STAMP_FORMAT: &str = "%Y-%m-%dT%H-%M-%S%.3fZ";
+
+/// The folder under [`ARCHIVE_DIR`] holding what moves replaced.
+const REPLACED_DIR: &str = ".replaced";
+
 /// Why an archived session can't be restored over files it would replace.
 pub const ACTIVE_COPY: &str = "It's already active in this profile";
 
@@ -156,6 +163,23 @@ fn archive_bundle_with(
     }
 }
 
+/// Where a move into `config_dir` at `at` keeps what it replaces of session
+/// `session_id`: `<config>/ai-profiles-archive/.replaced/<id>/<stamp>/`, laid
+/// out like the config dir. Refused for an id that isn't one folder. The folder starts with `.`, so it never lists as
+/// an archived session.
+pub fn replaced_dir(config_dir: &Path, session_id: &str, at: DateTime<Utc>) -> AppResult<PathBuf> {
+    if !is_session_dir_name(session_id) {
+        return Err(AppError::Validation(format!(
+            "invalid session id {session_id:?}"
+        )));
+    }
+    Ok(config_dir
+        .join(ARCHIVE_DIR)
+        .join(REPLACED_DIR)
+        .join(session_id)
+        .join(at.format(REPLACED_STAMP_FORMAT).to_string()))
+}
+
 /// Restore session `session_id`'s latest archived bundle in `config_dir`:
 /// move its files back to where they were, then remove the emptied bundle
 /// folder, and the session's folder with it once that is empty too. Refused
@@ -241,17 +265,17 @@ fn bundle_items(bundle_dir: &Path) -> Vec<PathBuf> {
 }
 
 /// Why moving a bundle's items stopped part way.
-struct MoveFailed {
+pub(super) struct MoveFailed {
     /// Why the move stopped.
-    error: AppError,
+    pub(super) error: AppError,
     /// The items that had moved and could not be put back.
-    stranded: Vec<PathBuf>,
+    pub(super) stranded: Vec<PathBuf>,
 }
 
 impl MoveFailed {
     /// The error for a move that stopped and left items where they had moved
     /// to, saying what became of them: `outcome`.
-    fn stranded_error(&self, outcome: &str) -> AppError {
+    pub(super) fn stranded_error(&self, outcome: &str) -> AppError {
         let items: Vec<String> = self
             .stranded
             .iter()
@@ -269,7 +293,7 @@ impl MoveFailed {
 /// under `to` with `rename`, making the folders on the way. Refuses to
 /// replace anything, a dangling link included. A move that fails puts back
 /// the ones before it, and says which of those couldn't be.
-fn move_all(
+pub(super) fn move_all(
     items: &[PathBuf],
     from: &Path,
     to: &Path,
@@ -302,7 +326,7 @@ fn move_all(
 }
 
 /// Something is at `path`: a file, a folder or a link, even a dangling one.
-fn occupied(path: &Path) -> bool {
+pub(super) fn occupied(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
 }
 
@@ -700,5 +724,24 @@ mod tests {
         assert!(matches!(archived, Err(AppError::Validation(_))));
         assert!(outside.exists());
         assert!(!config.join(ARCHIVE_DIR).exists());
+    }
+
+    #[test]
+    fn what_a_move_replaces_is_kept_by_session_and_millisecond() {
+        let root = tempdir().unwrap();
+        let at = "2026-09-23T08:15:00.123Z".parse().unwrap();
+
+        let dir = replaced_dir(root.path(), "s", at).unwrap();
+
+        assert_eq!(
+            dir,
+            root.path()
+                .join(ARCHIVE_DIR)
+                .join(".replaced/s/2026-09-23T08-15-00.123Z")
+        );
+        assert!(matches!(
+            replaced_dir(root.path(), "../s", at),
+            Err(AppError::Validation(_))
+        ));
     }
 }

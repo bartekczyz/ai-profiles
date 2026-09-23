@@ -34,6 +34,10 @@ export const queryKeys = {
   // not refetch the check of the action that was just done.
   sessionActionCheck: (profileId: string, sessionId: string, action: SessionAction) =>
     ['session-action-check', profileId, sessionId, action] as const,
+  // Outside the `sessions` subtree for the same reason: the plan of a move
+  // that was just done must not refetch and flash what it would do now.
+  sessionMovePlan: (profileId: string, sessionId: string, destinationId: string) =>
+    ['session-move-plan', profileId, sessionId, destinationId] as const,
   appState: ['app-state'] as const,
   shell: ['shell'] as const,
 } as const

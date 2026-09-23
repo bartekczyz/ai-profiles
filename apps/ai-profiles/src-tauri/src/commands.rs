@@ -15,7 +15,7 @@ use crate::paths::{
     stock_gui_support_dir,
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
-use crate::sessions::{self, ActionCheck, SessionAction, SessionList};
+use crate::sessions::{self, ActionCheck, MovePlan, MoveReport, SessionAction, SessionList};
 use crate::usage::{
     self,
     codex::CodexQuotaProvider,
@@ -785,6 +785,40 @@ pub async fn archive_session(
     quit_app: bool,
 ) -> AppResult<()> {
     sessions::actions::archive(&profile_id, &session_id, quit_app).await
+}
+
+/// What moving session `session_id` of profile `profile_id` (or
+/// `default:<app>`) to profile `destination_id` would do, without doing any
+/// of it. Async, as it reads every profile's sessions on a blocking thread.
+#[tauri::command]
+pub async fn plan_session_move(
+    profile_id: String,
+    session_id: String,
+    destination_id: String,
+) -> AppResult<MovePlan> {
+    sessions::actions::plan_move(&profile_id, &session_id, &destination_id).await
+}
+
+/// Move session `session_id` of profile `profile_id` (or `default:<app>`) to
+/// profile `destination_id`: copy it there, then archive it here. A newer
+/// copy at the destination is only replaced if `replace_newer`; the desktop
+/// apps in the way are quit first if `quit_apps`.
+#[tauri::command]
+pub async fn move_session(
+    profile_id: String,
+    session_id: String,
+    destination_id: String,
+    replace_newer: bool,
+    quit_apps: bool,
+) -> AppResult<MoveReport> {
+    sessions::actions::move_session(
+        &profile_id,
+        &session_id,
+        &destination_id,
+        replace_newer,
+        quit_apps,
+    )
+    .await
 }
 
 /// Restore archived session `session_id` of profile `profile_id` (or

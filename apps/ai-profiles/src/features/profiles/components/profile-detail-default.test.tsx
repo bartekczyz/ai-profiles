@@ -19,6 +19,13 @@ import { renderWithQuery } from '@/test/render-with-query'
 
 import { DefaultProfileDetail } from './profile-detail-default'
 
+// The sessions panel lists the profiles a session can move to, which these
+// tests don't set up.
+vi.mock('@/features/profiles/api/use-sidebar-entries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/profiles/api/use-sidebar-entries')>()),
+  useSidebarEntries: vi.fn(() => []),
+}))
+
 vi.mock('@/lib/commands', async () => {
   const actual = await vi.importActual<typeof import('@/lib/commands')>('@/lib/commands')
   return {

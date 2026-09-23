@@ -1,0 +1,315 @@
+//! Copying a session's files into another config dir without losing any.
+//!
+//! A copy is built under a temporary name beside where it goes and renamed
+//! into place, so Claude Code never reads half a file. Whatever it replaces is
+//! first moved aside into a backup folder, never removed. Files keep their
+//! modification time, which Claude Code sorts sessions by.
+
+use std::fs::{self, File};
+use std::io;
+use std::path::{Path, PathBuf};
+
+use serde::Serialize;
+
+use super::archive_store::{move_all, occupied};
+use crate::error::{AppError, AppResult};
+
+/// What a move does with one of its files or folders at the destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ItemAction {
+    /// The destination doesn't have it: it is copied.
+    Copy,
+    /// The destination has the same: it is left alone.
+    Same,
+    /// The destination has something else there: that is backed up, then
+    /// replaced.
+    Replace,
+}
+
+/// What a move would do with `from` to put it at `to`.
+pub fn compare(from: &Path, to: &Path) -> AppResult<ItemAction> {
+    if !occupied(to) {
+        return Ok(ItemAction::Copy);
+    }
+    if identical(from, to)? {
+        return Ok(ItemAction::Same);
+    }
+    Ok(ItemAction::Replace)
+}
+
+/// Put a copy of `from`, a file or folder, at `relative` under `destination`.
+/// What is there already is moved to `relative` under `backup` first, and put
+/// back if the copy can't be renamed into place. The copy is built under a
+/// temporary name, removed again when that fails.
+pub fn place(from: &Path, destination: &Path, relative: &Path, backup: &Path) -> AppResult<()> {
+    let target = destination.join(relative);
+    let temp = stage(&target, |temp| copy_tree(from, temp))?;
+    finish(&temp, destination, relative, backup)
+}
+
+/// Replace the file at `relative` under `destination` with `contents`, moving
+/// the one there to `relative` under `backup` first.
+pub fn write_replacing(
+    contents: &str,
+    destination: &Path,
+    relative: &Path,
+    backup: &Path,
+) -> AppResult<()> {
+    let target = destination.join(relative);
+    let temp = stage(&target, |temp| fs::write(temp, contents))?;
+    finish(&temp, destination, relative, backup)
+}
+
+/// Build what goes to `target` with `build`, under a temporary name beside
+/// it, making its folder. Returns the temporary path. A leftover of an earlier
+/// attempt is ours and is cleared first; a failed build is cleared too.
+fn stage(target: &Path, build: impl FnOnce(&Path) -> io::Result<()>) -> AppResult<PathBuf> {
+    let name = target
+        .file_name()
+        .ok_or_else(|| AppError::Validation(format!("{} has no name", target.display())))?;
+    let temp = target.with_file_name(format!(".{}.ai-profiles-tmp", name.to_string_lossy()));
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    remove_temp(&temp);
+    if let Err(error) = build(&temp) {
+        remove_temp(&temp);
+        return Err(error.into());
+    }
+    Ok(temp)
+}
+
+/// Rename the staged `temp` into `relative` under `destination`, moving what
+/// is there to `relative` under `backup` first and back if the rename fails.
+fn finish(temp: &Path, destination: &Path, relative: &Path, backup: &Path) -> AppResult<()> {
+    let target = destination.join(relative);
+    let items = [relative.to_path_buf()];
+    let backed_up = occupied(&target);
+    let rename = &mut |from: &Path, to: &Path| fs::rename(from, to);
+    if backed_up {
+        if let Err(failed) = move_all(&items, destination, backup, rename) {
+            remove_temp(temp);
+            return Err(failed.error);
+        }
+    }
+    if let Err(error) = fs::rename(temp, &target) {
+        remove_temp(temp);
+        if backed_up {
+            if let Err(failed) = move_all(&items, backup, destination, rename) {
+                return Err(failed
+                    .stranded_error(&format!("so it stays backed up in {}", backup.display())));
+            }
+        }
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+/// Remove a temporary copy of ours at `temp`, if there is one.
+fn remove_temp(temp: &Path) {
+    match fs::symlink_metadata(temp) {
+        Ok(metadata) if metadata.is_dir() => {
+            let _ = fs::remove_dir_all(temp);
+        }
+        Ok(_) => {
+            let _ = fs::remove_file(temp);
+        }
+        Err(_) => {}
+    }
+}
+
+/// Copy `from`, a file, folder or link, to `to`, which must not exist. Files
+/// keep their modification time.
+fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(from)?;
+    let kind = metadata.file_type();
+    if kind.is_symlink() {
+        return std::os::unix::fs::symlink(fs::read_link(from)?, to);
+    }
+    if kind.is_dir() {
+        fs::create_dir(to)?;
+        for entry in fs::read_dir(from)? {
+            let entry = entry?;
+            copy_tree(&entry.path(), &to.join(entry.file_name()))?;
+        }
+        return Ok(());
+    }
+    fs::copy(from, to)?;
+    File::options()
+        .write(true)
+        .open(to)?
+        .set_modified(metadata.modified()?)
+}
+
+/// Whether `left` and `right` hold the same: files with the same bytes, links
+/// to the same place, or folders whose entries are all the same.
+fn identical(left: &Path, right: &Path) -> AppResult<bool> {
+    let (left_metadata, right_metadata) =
+        (fs::symlink_metadata(left)?, fs::symlink_metadata(right)?);
+    let (left_kind, right_kind) = (left_metadata.file_type(), right_metadata.file_type());
+    if left_kind.is_symlink() || right_kind.is_symlink() {
+        return Ok(left_kind.is_symlink()
+            && right_kind.is_symlink()
+            && fs::read_link(left)? == fs::read_link(right)?);
+    }
+    if left_kind.is_file() && right_kind.is_file() {
+        return Ok(
+            left_metadata.len() == right_metadata.len() && fs::read(left)? == fs::read(right)?
+        );
+    }
+    if !(left_kind.is_dir() && right_kind.is_dir()) {
+        return Ok(false);
+    }
+    let (left_names, right_names) = (entry_names(left)?, entry_names(right)?);
+    if left_names != right_names {
+        return Ok(false);
+    }
+    for name in left_names {
+        if !identical(&left.join(&name), &right.join(&name))? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// The names of the entries in `dir`, sorted.
+fn entry_names(dir: &Path) -> io::Result<Vec<std::ffi::OsString>> {
+    let mut names = fs::read_dir(dir)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<io::Result<Vec<_>>>()?;
+    names.sort();
+    Ok(names)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, SystemTime};
+
+    use tempfile::tempdir;
+
+    use super::*;
+
+    /// Write `contents` to `path`, making its folder.
+    fn write(path: &Path, contents: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+    }
+
+    /// The names in `dir`, sorted, hidden ones included.
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn an_item_is_copied_when_missing_left_when_the_same_and_replaced_when_not() {
+        let root = tempdir().unwrap();
+        let from = root.path().join("from");
+        let to = root.path().join("to");
+        write(&from.join("a/one.txt"), "1");
+        write(&from.join("b/one.txt"), "1");
+        write(&to.join("b/one.txt"), "1");
+        write(&from.join("c/one.txt"), "1");
+        write(&to.join("c/one.txt"), "2");
+        write(&from.join("d/one.txt"), "1");
+        write(&to.join("d/one.txt"), "1");
+        write(&to.join("d/two.txt"), "2");
+
+        let actions: Vec<ItemAction> = ["a", "b", "c", "d"]
+            .iter()
+            .map(|name| compare(&from.join(name), &to.join(name)).unwrap())
+            .collect();
+
+        assert_eq!(
+            actions,
+            [
+                ItemAction::Copy,
+                ItemAction::Same,
+                ItemAction::Replace,
+                ItemAction::Replace
+            ]
+        );
+    }
+
+    #[test]
+    fn a_placed_copy_keeps_its_dates_and_what_it_replaced_is_backed_up() {
+        let root = tempdir().unwrap();
+        let from = root.path().join("from/s");
+        let destination = root.path().join("to");
+        let backup = root.path().join("backup");
+        let written = SystemTime::UNIX_EPOCH + Duration::from_secs(1_780_000_000);
+        write(&from.join("subagents/agent-1.jsonl"), "new");
+        File::options()
+            .write(true)
+            .open(from.join("subagents/agent-1.jsonl"))
+            .unwrap()
+            .set_modified(written)
+            .unwrap();
+        write(&destination.join("projects/s/old.jsonl"), "old");
+
+        place(&from, &destination, Path::new("projects/s"), &backup).unwrap();
+
+        let copied = destination.join("projects/s/subagents/agent-1.jsonl");
+        assert_eq!(fs::read_to_string(&copied).unwrap(), "new");
+        assert_eq!(fs::metadata(&copied).unwrap().modified().unwrap(), written);
+        assert!(!destination.join("projects/s/old.jsonl").exists());
+        assert_eq!(
+            fs::read_to_string(backup.join("projects/s/old.jsonl")).unwrap(),
+            "old"
+        );
+        assert_eq!(names(&destination.join("projects")), ["s"]);
+    }
+
+    #[test]
+    fn a_copy_that_fails_leaves_the_destination_as_it_was() {
+        let root = tempdir().unwrap();
+        let from = root.path().join("from.jsonl");
+        let destination = root.path().join("to");
+        let backup = root.path().join("backup");
+        write(&from, "new");
+        write(&destination.join("projects/s.jsonl"), "old");
+        let projects = destination.join("projects");
+        fs::set_permissions(&projects, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let placed = place(&from, &destination, Path::new("projects/s.jsonl"), &backup);
+
+        fs::set_permissions(&projects, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(placed.is_err());
+        assert_eq!(names(&projects), ["s.jsonl"]);
+        assert_eq!(fs::read_to_string(projects.join("s.jsonl")).unwrap(), "old");
+        assert!(!backup.exists());
+    }
+
+    #[test]
+    fn a_replaced_file_is_backed_up_before_it_is_rewritten() {
+        let root = tempdir().unwrap();
+        let destination = root.path().join("to");
+        let backup = root.path().join("backup");
+        write(&destination.join("memory/MEMORY.md"), "- a\n");
+
+        write_replacing(
+            "- a\n- b\n",
+            &destination,
+            Path::new("memory/MEMORY.md"),
+            &backup,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(destination.join("memory/MEMORY.md")).unwrap(),
+            "- a\n- b\n"
+        );
+        assert_eq!(
+            fs::read_to_string(backup.join("memory/MEMORY.md")).unwrap(),
+            "- a\n"
+        );
+        assert_eq!(names(&destination.join("memory")), ["MEMORY.md"]);
+    }
+}

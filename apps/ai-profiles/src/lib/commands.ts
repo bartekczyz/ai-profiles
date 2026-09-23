@@ -10,6 +10,8 @@ import type {
   ImportExistingInput,
   LaunchResult,
   MigrationBackupInfo,
+  MovePlan,
+  MoveReport,
   PathHookOutcome,
   Profile,
   ProfilePatch,
@@ -167,4 +169,27 @@ export function archiveSession(profileId: string, sessionId: string, quitApp: bo
  */
 export function restoreSession(profileId: string, sessionId: string, quitApp: boolean): Promise<void> {
   return invoke('restore_session', { profileId, sessionId, quitApp })
+}
+
+/**
+ * What moving session `sessionId` of profile `profileId` to profile
+ * `destinationId` would do, without doing any of it.
+ */
+export function planSessionMove(profileId: string, sessionId: string, destinationId: string): Promise<MovePlan> {
+  return invoke<MovePlan>('plan_session_move', { profileId, sessionId, destinationId })
+}
+
+/**
+ * Moves session `sessionId` of profile `profileId` to profile `destinationId`:
+ * copies it there, then archives it here. A newer copy there is only replaced
+ * if `replaceNewer`; the desktop apps in the way are quit first if `quitApps`.
+ */
+export function moveSession(
+  profileId: string,
+  sessionId: string,
+  destinationId: string,
+  replaceNewer: boolean,
+  quitApps: boolean,
+): Promise<MoveReport> {
+  return invoke<MoveReport>('move_session', { profileId, sessionId, destinationId, replaceNewer, quitApps })
 }

@@ -179,7 +179,6 @@ pub fn scan_projects(config_dir: &Path) -> Vec<TranscriptSummary> {
 
 /// Read the summary of the transcript at `path`. `None` when it can't be read,
 /// or holds a subagent's records only.
-#[allow(dead_code)] // Consumed by the sessions commands.
 pub fn summarize(path: &Path) -> Option<TranscriptSummary> {
     let file = File::open(path).ok()?;
     let modified = file.metadata().ok()?.modified().ok()?;

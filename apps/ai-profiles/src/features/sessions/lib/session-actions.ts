@@ -1,3 +1,4 @@
+import type { AppId } from '@/lib/app-registry'
 import type { Session, SessionAction } from '@/lib/types'
 
 /**
@@ -33,4 +34,30 @@ export function rowActions(session: Session): Array<RowAction> {
     return [{ action: 'archive', disabledReason: closeInTerminalReason }]
   }
   return [{ action: 'archive' }]
+}
+
+/**
+ * Whether a row offers Move, and why it is held back, if it is.
+ */
+export type MoveAvailability = {
+  /**
+   * Why the session can't move right now. Present means disabled.
+   */
+  disabledReason?: string
+}
+
+/**
+ * Whether `session`'s row, in a profile of `app` with `targetCount` other
+ * profiles of the app to move to, offers Move: only active Claude sessions,
+ * when there is somewhere to go. A session that can't move keeps the action,
+ * held back with the reason. `null` when the row offers no Move at all.
+ */
+export function moveAvailability(session: Session, app: AppId, targetCount: number): MoveAvailability | null {
+  if (session.archived || app !== 'claude' || targetCount === 0) {
+    return null
+  }
+  if (session.unmovableReason !== null) {
+    return { disabledReason: session.unmovableReason }
+  }
+  return {}
 }

@@ -9,10 +9,13 @@
 
 pub mod archive;
 pub mod archive_store;
+pub mod copy;
 pub mod desktop;
 pub mod live;
 pub mod markup;
+pub mod memory;
 pub mod ownership;
 pub mod transcript;
+pub mod transfer;
 
 use super::non_blank;

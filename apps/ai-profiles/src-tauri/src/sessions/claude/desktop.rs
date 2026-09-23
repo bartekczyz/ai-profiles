@@ -12,10 +12,12 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use super::non_blank;
+use super::transcript::TranscriptSummary;
 use crate::error::{AppError, AppResult};
+use crate::sessions::list::transcript_title;
 use crate::sessions::Home;
 
 /// The folder under `<gui-data>` holding the records, by account and org.
@@ -23,6 +25,19 @@ const RECORDS_DIR: &str = "claude-code-sessions";
 
 /// The file in each `<account>/<org>` folder listing its archived records.
 const ARCHIVED_INDEX: &str = "archived-sessions.idx";
+
+/// Record fields that belong to the account a session last ran under, not to
+/// the session: its connectors, the folders and tools approved in that app,
+/// and snapshots of the prompt and tools it started with. The app fills them
+/// in again for the account it opens the session under.
+const ACCOUNT_BOUND_FIELDS: [&str; 6] = [
+    "remoteMcpServersConfig",
+    "sessionPermissionUpdates",
+    "alwaysAllowedReasons",
+    "promptAppendSnapshot",
+    "toolSurfaceSnapshot",
+    "spawnSeed",
+];
 
 /// What the Sessions list needs to know about one desktop record.
 #[derive(Debug, Clone, PartialEq)]
@@ -175,6 +190,108 @@ pub fn set_archived(record: &DesktopRecord, archived: bool) -> AppResult<()> {
     replace_file(&index_path, &index.to_string())
 }
 
+/// The record another home's desktop app gets of a session moved to it,
+/// continuing transcript `displayed` after the earlier ones `priors`: the
+/// `source` record without the fields bound to its account, else, for a
+/// session the CLI started, the fields the app needs to list and open it.
+/// Either way it keeps its `local_<uuid>`, is active, and is titled as the
+/// Sessions list titles it when it has no title of its own.
+pub fn build_destination_record(
+    source: Option<&DesktopRecord>,
+    displayed: &TranscriptSummary,
+    priors: &[String],
+) -> AppResult<Value> {
+    let mut fields = match source {
+        Some(source) => {
+            let mut fields: Map<String, Value> =
+                serde_json::from_str(&fs::read_to_string(&source.path)?)
+                    .map_err(|_| unexpected(&source.path))?;
+            for field in ACCOUNT_BOUND_FIELDS {
+                fields.remove(field);
+            }
+            fields.insert("sessionId".to_string(), json!(source.local_id));
+            fields
+        }
+        None => {
+            let cwd = displayed.cwd.as_deref().unwrap_or_default();
+            let used_at = displayed.last_used_at.timestamp_millis();
+            let mut fields = Map::new();
+            fields.insert(
+                "sessionId".to_string(),
+                json!(format!("local_{}", uuid::Uuid::new_v4())),
+            );
+            fields.insert("cwd".to_string(), json!(cwd));
+            fields.insert("originCwd".to_string(), json!(cwd));
+            fields.insert("createdAt".to_string(), json!(used_at));
+            fields.insert("lastActivityAt".to_string(), json!(used_at));
+            fields.insert("lastFocusedAt".to_string(), json!(used_at));
+            fields.insert("permissionMode".to_string(), json!("default"));
+            fields
+        }
+    };
+    let untitled = fields
+        .get("title")
+        .and_then(Value::as_str)
+        .is_none_or(|title| title.trim().is_empty());
+    if let (true, Some(title)) = (untitled, transcript_title(displayed)) {
+        let title_source = if displayed.custom_title.is_some() {
+            "user"
+        } else {
+            "auto"
+        };
+        fields.insert("title".to_string(), json!(title));
+        fields.insert("titleSource".to_string(), json!(title_source));
+    }
+    fields.insert("cliSessionId".to_string(), json!(displayed.session_id));
+    fields.insert("priorCliSessionIds".to_string(), json!(priors));
+    fields.insert("isArchived".to_string(), Value::Bool(false));
+    Ok(Value::Object(fields))
+}
+
+/// Write `record`, built by [`build_destination_record`], into `account_dir`
+/// as `<sessionId>.json`, replacing it whole, and take its id out of the
+/// folder's `archived-sessions.idx` if listed there, so it shows as active.
+/// Returns its path.
+///
+/// The desktop app keeps its records in memory and writes them back, so it
+/// must not be running.
+pub fn write_destination_record(account_dir: &Path, record: &Value) -> AppResult<PathBuf> {
+    let local_id = record
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .filter(|id| id.starts_with("local_") && is_folder_name(id))
+        .ok_or_else(|| AppError::Validation("the record has no valid sessionId".to_string()))?;
+    fs::create_dir_all(account_dir)?;
+    let path = account_dir.join(format!("{local_id}.json"));
+    replace_file(&path, &record.to_string())?;
+    let index_path = account_dir.join(ARCHIVED_INDEX);
+    let Some(mut index) = read_json(&index_path) else {
+        return Ok(path);
+    };
+    let Some(ids) = index.get_mut("archived").and_then(Value::as_array_mut) else {
+        return Ok(path);
+    };
+    let listed = ids.len();
+    ids.retain(|id| id.as_str() != Some(local_id));
+    if ids.len() != listed {
+        replace_file(&index_path, &index.to_string())?;
+    }
+    Ok(path)
+}
+
+/// The account a record at `path` belongs to: its `<account>` folder.
+pub fn record_account(path: &Path) -> Option<&str> {
+    path.parent()?.parent()?.file_name()?.to_str()
+}
+
+/// Whether `account_dir` marks record `local_id` deleted, so the desktop app
+/// would never show a record written under that id there.
+pub fn deleted_in(account_dir: &Path, local_id: &str) -> bool {
+    local_id
+        .strip_prefix("local_")
+        .is_some_and(|uuid| account_dir.join(format!("deleted_{uuid}")).exists())
+}
+
 /// The error for a file at `path` that isn't shaped as expected.
 fn unexpected(path: &Path) -> AppError {
     AppError::Validation(format!("{} isn't in the expected format", path.display()))
@@ -200,7 +317,6 @@ fn replace_file(path: &Path, contents: &str) -> AppResult<()> {
 /// The app names the account in `<gui-data>/config.json`. The org is the one
 /// the CLI's `.claude.json` gives when it describes the same account, else the
 /// only org folder the app has made for the account.
-#[allow(dead_code)] // Consumed by moving sessions between profiles.
 pub fn current_account_dir(home: &Home) -> Option<PathBuf> {
     account_dir(&home.gui_data_dir, &claude_json_candidates(home))
 }
@@ -644,6 +760,117 @@ mod tests {
         assert_eq!(
             fs::read_to_string(dir.join(ARCHIVED_INDEX)).unwrap(),
             "not json"
+        );
+    }
+
+    /// A transcript of session `id`, last used at `used_at` (ms), in `cwd`.
+    fn transcript(id: &str, cwd: Option<&str>) -> TranscriptSummary {
+        TranscriptSummary {
+            session_id: id.to_string(),
+            path: PathBuf::from(format!("/config/projects/-work-app/{id}.jsonl")),
+            cwd: cwd.map(str::to_string),
+            custom_title: None,
+            ai_title: Some("Fix the login bug".to_string()),
+            first_prompt: Some("fix it".to_string()),
+            last_prompt: None,
+            last_used_at: DateTime::from_timestamp_millis(1_790_113_004_345).unwrap(),
+        }
+    }
+
+    #[test]
+    fn a_moved_record_drops_what_its_account_bound_and_continues_the_moved_transcript() {
+        let root = tempdir().unwrap();
+        let dir = org_dir(root.path(), ACCOUNT, ORG);
+        write_record(
+            &dir,
+            "aaa",
+            json!({
+                "sessionId": "local_aaa",
+                "cliSessionId": "gone",
+                "priorCliSessionIds": ["earlier", "lost"],
+                "title": "Audit the API",
+                "model": "claude-opus-5-5",
+                "isArchived": true,
+                "remoteMcpServersConfig": [{ "uuid": "x" }],
+                "sessionPermissionUpdates": [],
+                "alwaysAllowedReasons": {},
+                "promptAppendSnapshot": {},
+                "toolSurfaceSnapshot": {},
+                "spawnSeed": 7,
+            }),
+        );
+        let source = read_records(root.path()).remove(0);
+
+        let record = build_destination_record(
+            Some(&source),
+            &transcript("current", Some("/work/app")),
+            &["earlier".to_string()],
+        )
+        .unwrap();
+
+        assert_eq!(
+            record,
+            json!({
+                "sessionId": "local_aaa",
+                "cliSessionId": "current",
+                "priorCliSessionIds": ["earlier"],
+                "title": "Audit the API",
+                "model": "claude-opus-5-5",
+                "isArchived": false,
+            })
+        );
+    }
+
+    #[test]
+    fn a_cli_session_gets_a_record_the_app_can_list_and_open() {
+        let record =
+            build_destination_record(None, &transcript("s", Some("/work/app")), &[]).unwrap();
+
+        let local_id = record["sessionId"].as_str().unwrap().to_string();
+        assert!(local_id.starts_with("local_"), "{local_id}");
+        assert_eq!(
+            record,
+            json!({
+                "sessionId": local_id,
+                "cliSessionId": "s",
+                "priorCliSessionIds": [],
+                "cwd": "/work/app",
+                "originCwd": "/work/app",
+                "createdAt": 1_790_113_004_345_i64,
+                "lastActivityAt": 1_790_113_004_345_i64,
+                "lastFocusedAt": 1_790_113_004_345_i64,
+                "permissionMode": "default",
+                "title": "Fix the login bug",
+                "titleSource": "auto",
+                "isArchived": false,
+            })
+        );
+    }
+
+    #[test]
+    fn a_written_record_is_listed_as_active() {
+        let root = tempdir().unwrap();
+        let dir = org_dir(root.path(), ACCOUNT, ORG);
+        write_json(
+            &dir.join(ARCHIVED_INDEX),
+            &json!({ "v": 1, "archived": ["local_other", "local_aaa"] }),
+        );
+        let record = json!({ "sessionId": "local_aaa", "cliSessionId": "s", "isArchived": false });
+
+        let path = write_destination_record(&dir, &record).unwrap();
+
+        assert_eq!(path, dir.join("local_aaa.json"));
+        assert_eq!(read_value(&path), record);
+        assert_eq!(
+            read_value(&dir.join(ARCHIVED_INDEX)),
+            json!({ "v": 1, "archived": ["local_other"] })
+        );
+        let records = read_records(root.path());
+        assert_eq!(records.len(), 1);
+        assert!(!records[0].archived);
+        assert_eq!(
+            file_names(&dir),
+            [ARCHIVED_INDEX.to_string(), "local_aaa.json".to_string()]
         );
     }
 }

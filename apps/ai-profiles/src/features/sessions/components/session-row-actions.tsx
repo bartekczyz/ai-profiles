@@ -3,8 +3,30 @@ import { useId } from 'react'
 import { MoreHorizontal } from 'lucide-react'
 
 import { cn } from '@/design'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/design/ui/dropdown-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/design/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/design/ui/tooltip'
+
+/**
+ * Somewhere an action can be pointed at, like a profile to move a session to.
+ */
+export type SessionRowActionTarget = {
+  /**
+   * Stable key among the action's targets, passed to its `onSelect`.
+   */
+  id: string
+  /**
+   * The target's name in the menu.
+   */
+  label: string
+}
 
 /**
  * One thing a row lets you do to its session.
@@ -24,9 +46,14 @@ export type SessionRowAction = {
    */
   disabledReason?: string
   /**
-   * Runs the action.
+   * Where the action can be pointed. Present means choosing the action opens
+   * a menu of these, and picking one runs it.
    */
-  onSelect: () => void
+  targets?: Array<SessionRowActionTarget>
+  /**
+   * Runs the action, pointed at the target picked, if it has targets.
+   */
+  onSelect: (targetId?: string) => void
 }
 
 type Props = {
@@ -89,6 +116,9 @@ export function SessionRowActions({ actions }: Props) {
 function InlineAction({ action }: ActionProps) {
   const reasonId = useId()
   const disabled = action.disabledReason !== undefined
+  if (!disabled && action.targets !== undefined) {
+    return <InlineTargetsAction action={action} />
+  }
   const button = (
     <button
       type="button"
@@ -123,15 +153,59 @@ function InlineAction({ action }: ActionProps) {
 }
 
 /**
+ * A side-by-side action button that opens a menu of where to point the
+ * action.
+ */
+function InlineTargetsAction({ action }: ActionProps) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className={cn(controlClasses, 'px-2')}>
+          {action.label}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        {action.targets?.map((target) => (
+          <DropdownMenuItem key={target.id} className="text-[12px]" onSelect={() => action.onSelect(target.id)}>
+            {target.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/**
+ * An action in the ⋯ menu that opens a submenu of where to point it.
+ */
+function MenuTargetsAction({ action }: ActionProps) {
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger className="px-2 py-1.5 text-[12px]">{action.label}</DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-48">
+        {action.targets?.map((target) => (
+          <DropdownMenuItem key={target.id} className="text-[12px]" onSelect={() => action.onSelect(target.id)}>
+            {target.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  )
+}
+
+/**
  * An action in the ⋯ menu. A disabled one is greyed out and carries its
  * reason as a second line, since a menu item has no hover tooltip.
  */
 function MenuAction({ action }: ActionProps) {
+  if (action.disabledReason === undefined && action.targets !== undefined) {
+    return <MenuTargetsAction action={action} />
+  }
   return (
     <DropdownMenuItem
       disabled={action.disabledReason !== undefined}
       className="flex-col items-stretch gap-0.5 px-2 py-1.5 text-[12px]"
-      onSelect={action.onSelect}
+      onSelect={() => action.onSelect()}
     >
       <span>{action.label}</span>
       {action.disabledReason === undefined ? null : (

@@ -367,3 +367,78 @@ export type ActionCheck = {
    */
   appToQuit: AppToQuit | null
 }
+
+/**
+ * What a move does with one of the session's files or folders at the
+ * destination: copies it there, leaves the same one there alone, or backs up
+ * a different one there and replaces it.
+ */
+export type ItemAction = 'copy' | 'same' | 'replace'
+
+/**
+ * What a move does about the destination's desktop app: lists the session
+ * there, finds it listed already, can't as the app isn't signed in, or can't
+ * as the destination has no desktop app.
+ */
+export type DesktopAction = 'add' | 'alreadyListed' | 'signInNeeded' | 'noDesktop'
+
+/**
+ * One file or folder a move copies.
+ */
+export type PlannedItem = {
+  /**
+   * Where it goes, relative to the destination's config dir.
+   */
+  path: string
+  /**
+   * What the move does with it.
+   */
+  action: ItemAction
+}
+
+/**
+ * What moving a session to another profile would do.
+ */
+export type MovePlan = {
+  /**
+   * One line saying what moves where: `Moves 3 files from Work to Personal`.
+   */
+  summary: string
+  /**
+   * The files and folders the move copies, transcripts last.
+   */
+  items: Array<PlannedItem>
+  /**
+   * The destination has a copy that was used more recently, which the move
+   * only replaces when the user agrees.
+   */
+  destinationNewer: boolean
+  /**
+   * What the move does about the destination's desktop app.
+   */
+  desktop: DesktopAction
+  /**
+   * Why the move can't be done, when only the user can change that.
+   */
+  blockers: Array<string>
+  /**
+   * The desktop apps that have to quit first, at the source, the destination
+   * or both.
+   */
+  appsToQuit: Array<AppToQuit>
+  /**
+   * Things worth knowing that don't stop the move.
+   */
+  notes: Array<string>
+}
+
+/**
+ * What a move did that the user should hear about.
+ */
+export type MoveReport = {
+  /**
+   * The memory files both profiles have, differently; the destination's were
+   * kept.
+   */
+  memoryConflicts: Array<string>
+}

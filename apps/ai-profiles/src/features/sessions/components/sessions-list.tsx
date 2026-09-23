@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react'
+import type { AppId } from '@/lib/app-registry'
 import type { Session, SessionAction } from '@/lib/types'
+import type { MoveTarget } from './move-session-dialog'
+import type { SessionRowAction } from './session-row-actions'
 
 import { cn } from '@/design'
 
-import { rowActions } from '../lib/session-actions'
+import { moveAvailability, rowActions } from '../lib/session-actions'
 import { SessionRow } from './session-row'
 import { SessionsListSkeleton, sessionsListClasses } from './sessions-panel-skeleton'
 
@@ -30,6 +33,14 @@ type Props = {
    */
   sessions: Array<Session>
   /**
+   * The app the profile runs.
+   */
+  app: AppId
+  /**
+   * The other profiles of the app a session can be moved to.
+   */
+  moveTargets: Array<MoveTarget>
+  /**
    * What an empty tab says.
    */
   emptyTitle: string
@@ -49,6 +60,36 @@ type Props = {
    * Asks to do `action` to `session`, from its row.
    */
   onAction: (session: Session, action: SessionAction) => void
+  /**
+   * Asks to move `session` to `target`, from its row.
+   */
+  onMove: (session: Session, target: MoveTarget) => void
+}
+
+/**
+ * What `session`'s row offers, given where it can move to.
+ */
+type RowActionsInput = {
+  /**
+   * The session the row shows.
+   */
+  session: Session
+  /**
+   * The app the profile runs.
+   */
+  app: AppId
+  /**
+   * The other profiles of the app a session can be moved to.
+   */
+  moveTargets: Array<MoveTarget>
+  /**
+   * Asks to do `action` to the session.
+   */
+  onAction: (session: Session, action: SessionAction) => void
+  /**
+   * Asks to move the session to `target`.
+   */
+  onMove: (session: Session, target: MoveTarget) => void
 }
 
 type NoticeProps = {
@@ -94,11 +135,14 @@ export function SessionsList({
   errorMessage,
   tabTotal,
   sessions,
+  app,
+  moveTargets,
   emptyTitle,
   emptyHint,
   onRetry,
   onClearSearch,
   onAction,
+  onMove,
 }: Props) {
   if (loading) {
     return <SessionsListSkeleton />
@@ -130,16 +174,41 @@ export function SessionsList({
         <SessionRow
           key={session.id}
           session={session}
-          actions={rowActions(session).map((item) => ({
-            id: item.action,
-            label: actionLabels[item.action],
-            disabledReason: item.disabledReason,
-            onSelect: () => onAction(session, item.action),
-          }))}
+          actions={sessionRowActions({ session, app, moveTargets, onAction, onMove })}
         />
       ))}
     </ul>
   )
+}
+
+/**
+ * The actions `session`'s row offers: Move, when the session can go to
+ * another profile, then Archive or Restore.
+ */
+function sessionRowActions({ session, app, moveTargets, onAction, onMove }: RowActionsInput): Array<SessionRowAction> {
+  const actions: Array<SessionRowAction> = rowActions(session).map((item) => ({
+    id: item.action,
+    label: actionLabels[item.action],
+    disabledReason: item.disabledReason,
+    onSelect: () => onAction(session, item.action),
+  }))
+  const move = moveAvailability(session, app, moveTargets.length)
+  if (move === null) {
+    return actions
+  }
+  const moveAction: SessionRowAction = {
+    id: 'move',
+    label: 'Move',
+    disabledReason: move.disabledReason,
+    targets: moveTargets,
+    onSelect: (targetId) => {
+      const target = moveTargets.find((candidate) => candidate.id === targetId)
+      if (target !== undefined) {
+        onMove(session, target)
+      }
+    },
+  }
+  return [moveAction, ...actions]
 }
 
 /**
