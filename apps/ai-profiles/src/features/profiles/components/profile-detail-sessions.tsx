@@ -6,6 +6,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { Archive, ArchiveRestore, ArrowDownToLine, ArrowRightLeft, Monitor, Terminal } from 'lucide-react'
 
 import { Button, Skeleton, StatusDot } from '@/design'
+import { formatBytes } from '@/lib/format-bytes'
 
 import { useArchivedSessions, useProfileSessions } from '../api/use-profile-sessions'
 import { ArchiveSessionDialog } from './archive-session-dialog'
@@ -98,7 +99,9 @@ export function ProfileDetailSessions({ profileId }: Props) {
             className="cursor-pointer text-meta text-muted-strong hover:text-ink"
             onClick={() => setShowArchived((value) => !value)}
           >
-            {showArchived ? 'Hide archived' : `Archived ${archived.length}`}
+            {showArchived
+              ? 'Hide archived'
+              : `Archived ${archived.length} · ${formatBytes(archived.reduce((total, entry) => total + entry.sizeBytes, 0))}`}
           </button>
         ) : null}
       </div>
@@ -260,6 +263,10 @@ function ArchivedRow({ session, onRestore }: { session: ArchivedSession; onResto
               archived {formatDistanceToNow(new Date(session.archivedAt), { addSuffix: true })}
             </span>
           ) : null}
+          <span className="shrink-0 whitespace-nowrap">
+            <span className="mx-1.5 text-border">·</span>
+            {formatBytes(session.sizeBytes)}
+          </span>
         </div>
       </div>
       <Button variant="ghost" size="sm" leadingIcon={<ArchiveRestore />} onClick={onRestore}>

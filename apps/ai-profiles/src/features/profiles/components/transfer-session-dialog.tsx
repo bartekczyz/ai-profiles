@@ -3,6 +3,7 @@ import type { SessionSummary, TransferPlan, TransferReport, TransferRequest } fr
 import { useMemo, useState } from 'react'
 
 import { Button, Dialog, Kbd } from '@/design'
+import { formatBytes } from '@/lib/format-bytes'
 
 import { useTransferPlan, useTransferSession } from '../api/use-profile-sessions'
 import { useProfiles } from '../api/use-profiles'
@@ -46,14 +47,22 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
   const fixedLabel = fixedDestinationId
     ? profiles.find((profile) => profile.id === fixedDestinationId)?.name
     : undefined
-  const [addToDesktop, setAddToDesktop] = useState(true)
-  const [archiveSource, setArchiveSource] = useState(true)
+  const [afterwards, setAfterwards] = useState<Afterwards>('archive')
   const [replaceNewer, setReplaceNewer] = useState(false)
   const [report, setReport] = useState<TransferReport | null>(null)
   const [moveError, setMoveError] = useState<string | null>(null)
 
   const request: TransferRequest | null = destinationId
-    ? { sourceId, sessionId: session.id, destinationId, addToDesktop, archiveSource }
+    ? {
+        sourceId,
+        sessionId: session.id,
+        destinationId,
+        // A session moved between Claude profiles goes to the destination's
+        // desktop app whenever it has one: the plan says when it can't.
+        addToDesktop: true,
+        archiveSource: afterwards === 'archive',
+        deleteSource: afterwards === 'delete',
+      }
     : null
   const plan = useTransferPlan(report ? null : request)
   const move = useTransferSession()
@@ -171,23 +180,12 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
             </select>
           </label>
 
-          <Checkbox
-            checked={addToDesktop}
-            onChange={setAddToDesktop}
-            label="Add it to that profile's desktop app"
-            hint={
-              plan.data?.desktop === 'unavailable'
-                ? (plan.data.desktopReason ?? undefined)
-                : plan.data?.desktop === 'alreadyListed'
-                  ? 'The desktop app already lists it.'
-                  : undefined
-            }
-          />
-          <Checkbox
-            checked={archiveSource}
-            onChange={setArchiveSource}
-            label="Take it out of this profile afterwards"
-            hint="Its transcript is kept in session-transfer-backups, so it can be put back."
+          {plan.data ? <DesktopLine plan={plan.data} /> : null}
+          <AfterwardsChoice
+            source={plan.data?.sourceLabel ?? 'this profile'}
+            sourceBytes={plan.data?.sourceBytes ?? null}
+            value={afterwards}
+            onChange={setAfterwards}
           />
 
           <PlanBody
@@ -207,33 +205,6 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
         </div>
       )}
     </Dialog>
-  )
-}
-
-function Checkbox({
-  checked,
-  onChange,
-  label,
-  hint,
-}: {
-  checked: boolean
-  onChange: (value: boolean) => void
-  label: string
-  hint?: string
-}) {
-  return (
-    <label className="flex cursor-pointer items-start gap-2 text-body text-ink-soft">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="mt-[3px] h-4 w-4 cursor-pointer accent-orange"
-      />
-      <span>
-        {label}
-        {hint ? <span className="block text-meta text-muted">{hint}</span> : null}
-      </span>
-    </label>
   )
 }
 
@@ -313,6 +284,75 @@ function PlanBody({
   )
 }
 
+/** What becomes of the copy the session leaves behind. */
+type Afterwards = 'archive' | 'delete' | 'keep'
+
+/** Whether the destination's desktop app will list the session. */
+function DesktopLine({ plan }: { plan: TransferPlan }) {
+  const text =
+    plan.desktop === 'add'
+      ? `${plan.destinationLabel}'s desktop app will list it too.`
+      : plan.desktop === 'alreadyListed'
+        ? `${plan.destinationLabel}'s desktop app already lists it.`
+        : plan.desktop === 'unavailable'
+          ? `Not in ${plan.destinationLabel}'s desktop app: ${plan.desktopReason ?? "it can't be added."}`
+          : null
+  return text ? <p className="text-meta text-muted">{text}</p> : null
+}
+
+/**
+ * What to do with the copy left in the profile the session moves from.
+ * Archiving keeps its transcript, which can be large, in the backups;
+ * deleting frees that, once the moved copy is checked, and can't be undone.
+ */
+function AfterwardsChoice({
+  source,
+  sourceBytes,
+  value,
+  onChange,
+}: {
+  source: string
+  /** What deleting frees, once the plan says. */
+  sourceBytes: number | null
+  value: Afterwards
+  onChange: (value: Afterwards) => void
+}) {
+  const options: Array<{ value: Afterwards; label: string; hint: string }> = [
+    {
+      value: 'archive',
+      label: 'Archive it',
+      hint: 'Only one profile lists it. Its transcript is kept in session-transfer-backups, and can be restored.',
+    },
+    {
+      value: 'delete',
+      label: sourceBytes === null ? 'Delete it' : `Delete it, freeing ${formatBytes(sourceBytes)}`,
+      hint: "Only once the moved copy is checked to be identical. Can't be undone. Plan files and project memory stay.",
+    },
+    { value: 'keep', label: 'Keep it', hint: 'Both profiles list it.' },
+  ]
+  return (
+    <fieldset className="space-y-1.5">
+      <legend className="mb-1.5 text-body text-ink-soft">The copy in {source}, once it has moved</legend>
+      {options.map((option) => (
+        <label key={option.value} className="flex cursor-pointer items-start gap-2 text-body text-ink-soft">
+          <input
+            type="radio"
+            name="afterwards"
+            value={option.value}
+            checked={value === option.value}
+            onChange={() => onChange(option.value)}
+            className="mt-[3px] h-4 w-4 cursor-pointer accent-orange"
+          />
+          <span>
+            {option.label}
+            <span className="block text-meta text-muted">{option.hint}</span>
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  )
+}
+
 function ReportBody({ report, destinationLabel }: { report: TransferReport; destinationLabel?: string }) {
   return (
     <div className="space-y-2 text-body text-ink-soft">
@@ -323,6 +363,14 @@ function ReportBody({ report, destinationLabel }: { report: TransferReport; dest
       {report.archivedTo ? (
         <p className="text-meta text-muted">
           The original went to <code className="font-mono text-mono">{shortenHomePath(report.archivedTo)}</code>.
+        </p>
+      ) : null}
+      {report.freedBytes !== null ? (
+        <p className="text-meta text-muted">The original was deleted, freeing {formatBytes(report.freedBytes)}.</p>
+      ) : null}
+      {report.deleteError ? (
+        <p role="alert" className="text-meta text-amber">
+          {report.deleteError}
         </p>
       ) : null}
       {report.backupDir ? (

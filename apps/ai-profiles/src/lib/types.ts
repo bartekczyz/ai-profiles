@@ -297,6 +297,11 @@ export type TransferRequest = {
   destinationId: string
   addToDesktop: boolean
   archiveSource: boolean
+  /**
+   * Delete the source's copy afterwards instead, once everything moved is
+   * checked to be identical. Can't be undone. Not with `archiveSource`.
+   */
+  deleteSource: boolean
   replaceNewer?: boolean
   /** Quit the apps the plan lists in `appsToQuit` first. */
   quitApps?: boolean
@@ -331,6 +336,8 @@ export type TransferPlan = {
   /** Apps that have to quit first. ai-profiles quits them when asked. */
   appsToQuit: Array<AppToQuit>
   notes: Array<string>
+  /** What deleting the source's copy afterwards frees, in bytes. */
+  sourceBytes: number
 }
 
 export type TransferReport = {
@@ -338,6 +345,10 @@ export type TransferReport = {
   backupDir: string | null
   desktopRecord: string | null
   archivedTo: string | null
+  /** What deleting the source's copy freed, in bytes, when asked for. */
+  freedBytes: number | null
+  /** Why the source's copy was kept although deleting it was asked for. */
+  deleteError: string | null
   memoryCopied: Array<string>
   memoryConflicts: Array<string>
 }
@@ -365,6 +376,8 @@ export type ArchivedSession = {
   cwd: string | null
   /** Restoring lists it in the desktop app again. */
   inDesktop: boolean
+  /** What the archive takes on disk, in bytes. */
+  sizeBytes: number
 }
 
 export type RestoreCheck = {

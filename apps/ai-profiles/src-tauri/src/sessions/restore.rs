@@ -38,6 +38,8 @@ pub struct ArchivedSession {
     /// The archive holds the desktop app's record, so restoring lists the
     /// session in the app again.
     pub in_desktop: bool,
+    /// What the archive takes on disk, in bytes.
+    pub size_bytes: u64,
 }
 
 /// What stands between an archived session and being restored.
@@ -98,6 +100,7 @@ pub fn list_archived(home: &Home) -> Vec<ArchivedSession> {
                 title: record_title.or_else(|| info.name().map(|(name, _)| name)),
                 cwd: info.cwd,
                 in_desktop: !contents.records.is_empty(),
+                size_bytes: super::transfer::size_of(&archive.path()),
                 archive: name,
             });
         }

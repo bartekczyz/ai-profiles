@@ -35,6 +35,11 @@ pub struct TransferRequest {
     pub add_to_desktop: bool,
     /// Take the session out of the source afterwards, so only one copy goes on.
     pub archive_source: bool,
+    /// Delete the source's copy afterwards instead, once everything the move
+    /// carried is checked to be identical in the destination: frees its
+    /// space, and can't be undone. Not with `archive_source`.
+    #[serde(default)]
+    pub delete_source: bool,
     /// Go ahead even though the destination's copy is newer than the source's.
     #[serde(default)]
     pub replace_newer: bool,
@@ -96,6 +101,9 @@ pub struct TransferPlan {
     pub apps_to_quit: Vec<AppToQuit>,
     /// Things worth knowing that don't stop the move.
     pub notes: Vec<String>,
+    /// What deleting the source's copy afterwards (`delete_source`) frees,
+    /// in bytes.
+    pub source_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -108,6 +116,11 @@ pub struct TransferReport {
     pub desktop_record: Option<String>,
     /// Where the source's transcript (and desktop record) went.
     pub archived_to: Option<String>,
+    /// What deleting the source's copy freed, in bytes, when asked for.
+    pub freed_bytes: Option<u64>,
+    /// Why the source's copy was kept although deleting it was asked for:
+    /// the move itself is done.
+    pub delete_error: Option<String>,
     /// Memory files the destination did not have, now copied.
     pub memory_copied: Vec<String>,
     /// Memory files both sides changed differently. The destination's are kept.
@@ -143,6 +156,11 @@ pub fn plan(request: &TransferRequest) -> AppResult<TransferPlan> {
 /// newer destination copy unless `replace_newer` is set. Apps the plan lists
 /// to quit are quit first when `quit_apps` is set, and refused otherwise.
 pub fn transfer(request: &TransferRequest) -> AppResult<TransferReport> {
+    if request.archive_source && request.delete_source {
+        return Err(AppError::Validation(
+            "Archive the copy left behind, or delete it: not both.".into(),
+        ));
+    }
     let mut prepared = prepare(request)?;
     if prepared.plan.blockers.is_empty()
         && !prepared.plan.apps_to_quit.is_empty()
@@ -164,7 +182,75 @@ pub fn transfer(request: &TransferRequest) -> AppResult<TransferReport> {
             plan.destination_label
         )));
     }
-    execute(&prepared, request.archive_source)
+    let afterwards = if request.delete_source {
+        Afterwards::Delete
+    } else if request.archive_source {
+        Afterwards::Archive
+    } else {
+        Afterwards::Keep
+    };
+    execute(&prepared, afterwards)
+}
+
+/// What becomes of the source's copy once the session has moved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Afterwards {
+    Keep,
+    /// Its transcript and desktop record go to its backups, and can be put
+    /// back.
+    Archive,
+    /// Deleted, once the moved copy is checked to be identical.
+    Delete,
+}
+
+/// Whether `item` is the session's own, so its source copy can go once the
+/// session has moved: everything but plan files, which other sessions may
+/// name too.
+fn session_own(item: &Item) -> bool {
+    !item.rel.starts_with("plans")
+}
+
+/// What a file, folder or link takes, as the sum of its files' lengths.
+pub(super) fn size_of(path: &Path) -> u64 {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if !meta.is_dir() {
+        return meta.len();
+    }
+    fs::read_dir(path)
+        .map(|entries| entries.flatten().map(|entry| size_of(&entry.path())).sum())
+        .unwrap_or(0)
+}
+
+/// Delete the source's copy of the session: its own items, once every one of
+/// them is checked to be identical in the destination (nothing is deleted
+/// unless all are), and the source desktop app's records of it. Returns what
+/// it freed.
+fn delete_source(items: &[Item], records: &[DesktopRecord]) -> AppResult<u64> {
+    let own: Vec<&Item> = items.iter().filter(|item| session_own(item)).collect();
+    for item in &own {
+        if fs::symlink_metadata(&item.to).is_err() || !identical(&item.from, &item.to)? {
+            return Err(AppError::Validation(format!(
+                "{} isn't the same as the moved copy",
+                item.rel.display()
+            )));
+        }
+    }
+    let mut freed = 0;
+    for path in own
+        .iter()
+        .map(|item| &item.from)
+        .chain(records.iter().map(|record| &record.path))
+    {
+        freed += size_of(path);
+        match fs::symlink_metadata(path) {
+            Ok(meta) if meta.is_dir() => fs::remove_dir_all(path)?,
+            Ok(_) => fs::remove_file(path)?,
+            Err(_) => {}
+        }
+    }
+    Ok(freed)
 }
 
 fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
@@ -247,7 +333,7 @@ fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
         .into_iter()
         .filter(|record| record.cli_session_id == id)
         .collect();
-    if request.archive_source
+    if (request.archive_source || request.delete_source)
         && !source_records.is_empty()
         && desktop::app_running(&source, &processes)
     {
@@ -292,6 +378,12 @@ fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
         blockers,
         apps_to_quit,
         notes,
+        source_bytes: items
+            .iter()
+            .filter(|item| session_own(item))
+            .map(|item| size_of(&item.from))
+            .chain(source_records.iter().map(|record| size_of(&record.path)))
+            .sum(),
     };
     Ok(Prepared {
         plan,
@@ -406,7 +498,7 @@ fn item(from: PathBuf, destination: &Home, rel: PathBuf) -> AppResult<Item> {
     })
 }
 
-fn execute(prepared: &Prepared, archive_source: bool) -> AppResult<TransferReport> {
+fn execute(prepared: &Prepared, afterwards: Afterwards) -> AppResult<TransferReport> {
     let id = &prepared.plan.session_id;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
     let backup_root = prepared
@@ -483,7 +575,7 @@ fn execute(prepared: &Prepared, archive_source: bool) -> AppResult<TransferRepor
         _ => None,
     };
 
-    let archived_to = if archive_source {
+    let archived_to = if afterwards == Afterwards::Archive {
         let root = archive_files(
             &prepared.source,
             id,
@@ -495,8 +587,24 @@ fn execute(prepared: &Prepared, archive_source: bool) -> AppResult<TransferRepor
     } else {
         None
     };
+    let (freed_bytes, delete_error) = if afterwards == Afterwards::Delete {
+        match delete_source(&prepared.items, &prepared.source_records) {
+            Ok(freed) => (Some(freed), None),
+            Err(err) => (
+                None,
+                Some(format!(
+                    "The copy in {} was kept: {err}.",
+                    prepared.source.label
+                )),
+            ),
+        }
+    } else {
+        (None, None)
+    };
 
     Ok(TransferReport {
+        freed_bytes,
+        delete_error,
         destination_transcript: prepared
             .items
             .last()
@@ -818,6 +926,7 @@ mod tests {
                 blockers: Vec::new(),
                 apps_to_quit: Vec::new(),
                 notes: Vec::new(),
+                source_bytes: 0,
             },
             source,
             destination,
@@ -842,7 +951,7 @@ mod tests {
             ),
         );
         let prepared = prepared(dir.path());
-        let report = execute(&prepared, true).unwrap();
+        let report = execute(&prepared, Afterwards::Archive).unwrap();
 
         let destination = &prepared.destination.config_dir;
         assert_eq!(
@@ -904,7 +1013,7 @@ mod tests {
             "stale copy",
         );
         let prepared = prepared(dir.path());
-        let report = execute(&prepared, false).unwrap();
+        let report = execute(&prepared, Afterwards::Keep).unwrap();
         let backup = PathBuf::from(report.backup_dir.unwrap());
         assert_eq!(
             fs::read_to_string(backup.join(format!("projects/-work/{ID}.jsonl"))).unwrap(),
@@ -912,6 +1021,64 @@ mod tests {
         );
         assert!(prepared.source_transcript.exists());
         assert!(report.archived_to.is_none());
+    }
+
+    #[test]
+    fn execute_deletes_the_source_copy_once_it_arrived_intact() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path()
+                .join("a/gui-data/claude-code-sessions/acct/org/local_old.json"),
+            &format!(r#"{{"sessionId":"local_old","cliSessionId":"{ID}","title":"Audit"}}"#),
+        );
+        let prepared = prepared(dir.path());
+        let report = execute(&prepared, Afterwards::Delete).unwrap();
+
+        let source = &prepared.source.config_dir;
+        assert_eq!(report.delete_error, None);
+        assert!(report.freed_bytes.unwrap() > 0);
+        assert!(report.archived_to.is_none());
+        assert!(!prepared.source_transcript.exists());
+        assert!(!source.join(format!("projects/-work/{ID}")).exists());
+        assert!(!source.join(format!("file-history/{ID}")).exists());
+        assert!(!dir
+            .path()
+            .join("a/gui-data/claude-code-sessions/acct/org/local_old.json")
+            .exists());
+        assert!(
+            source.join("plans/the-plan.md").is_file(),
+            "plans may be shared"
+        );
+        assert!(
+            !source.join(BACKUPS_DIR).exists(),
+            "nothing archived either"
+        );
+        assert!(prepared
+            .destination
+            .config_dir
+            .join(format!("projects/-work/{ID}.jsonl"))
+            .is_file());
+    }
+
+    #[test]
+    fn delete_keeps_everything_when_a_moved_copy_differs() {
+        let dir = tempfile::tempdir().unwrap();
+        let prepared = prepared(dir.path());
+        for item in &prepared.items {
+            copy_into_place(&item.from, &item.to).unwrap();
+        }
+        let moved = prepared
+            .destination
+            .config_dir
+            .join(format!("file-history/{ID}/f@v1"));
+        fs::write(&moved, "changed since").unwrap();
+        assert!(delete_source(&prepared.items, &prepared.source_records).is_err());
+        assert!(prepared.source_transcript.is_file());
+        assert!(prepared
+            .source
+            .config_dir
+            .join(format!("file-history/{ID}/f@v1"))
+            .is_file());
     }
 
     #[test]

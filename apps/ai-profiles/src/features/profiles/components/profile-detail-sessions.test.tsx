@@ -83,6 +83,7 @@ function plan(overrides: Partial<TransferPlan> = {}): TransferPlan {
     blockers: [],
     appsToQuit: [],
     notes: ["Connectors come from Personal's own settings."],
+    sourceBytes: 2048,
     ...overrides,
   }
 }
@@ -167,6 +168,8 @@ describe('ProfileDetailSessions', () => {
       desktopRecord: '/p/personal/gui-data/claude-code-sessions/a/o/local_x.json',
       archivedTo:
         '/Users/ada/Library/Application Support/ai-profiles/profiles/work/cli-config/session-transfer-backups/s1/t-archived',
+      freedBytes: null,
+      deleteError: null,
       memoryCopied: [],
       memoryConflicts: ['notes.md'],
     })
@@ -174,7 +177,12 @@ describe('ProfileDetailSessions', () => {
     const { user, dialog } = await openMoveDialog()
 
     await user.selectOptions(within(dialog).getByRole('combobox'), 'personal')
-    await user.click(within(dialog).getByRole('checkbox', { name: /Take it out of this profile/ }))
+    const afterwards = within(dialog).getByRole('group', { name: /The copy in Work/ })
+    // Archiving stays the default: it can be undone.
+    expect(within(afterwards).getByRole('radio', { name: /Archive it/ })).toBeChecked()
+    expect(within(dialog).queryByRole('checkbox', { name: /desktop app/ })).toBeNull()
+    expect(await within(dialog).findByText("Personal's desktop app will list it too.")).toBeInTheDocument()
+    await user.click(within(afterwards).getByRole('radio', { name: /Keep it/ }))
     await within(dialog).findByText('Files: 2 to copy.')
     await user.click(within(dialog).getByRole('button', { name: /^Move/ }))
 
@@ -185,6 +193,7 @@ describe('ProfileDetailSessions', () => {
         destinationId: 'personal',
         addToDesktop: true,
         archiveSource: false,
+        deleteSource: false,
         replaceNewer: false,
         quitApps: false,
       }),
@@ -192,6 +201,37 @@ describe('ProfileDetailSessions', () => {
     const done = await screen.findByRole('dialog', { name: 'Session moved' })
     expect(within(done).getByText(/and its desktop app lists it/)).toBeInTheDocument()
     expect(within(done).getByText(/notes\.md/)).toBeInTheDocument()
+  })
+
+  it('deletes the original once moved when asked to, saying what that freed', async () => {
+    vi.mocked(listSessions).mockResolvedValue([session()])
+    vi.mocked(planSessionTransfer).mockResolvedValue(plan({ sourceBytes: 174_063_616 }))
+    vi.mocked(transferSession).mockResolvedValue({
+      destinationTranscript: '/p/personal/cli-config/projects/-code/s1.jsonl',
+      backupDir: null,
+      desktopRecord: '/r',
+      archivedTo: null,
+      freedBytes: 174_063_616,
+      deleteError: null,
+      memoryCopied: [],
+      memoryConflicts: [],
+    })
+    renderWithQuery(<ProfileDetailSessions profileId="work" />)
+    const { user, dialog } = await openMoveDialog()
+
+    await user.selectOptions(within(dialog).getByRole('combobox'), 'personal')
+    const afterwards = within(dialog).getByRole('group', { name: /The copy in Work/ })
+    await user.click(await within(afterwards).findByRole('radio', { name: /Delete it, freeing 166 MB/ }))
+    await within(dialog).findByText('Files: 2 to copy.')
+    await user.click(within(dialog).getByRole('button', { name: /^Move/ }))
+
+    await waitFor(() =>
+      expect(transferSession).toHaveBeenCalledWith(
+        expect.objectContaining({ archiveSource: false, deleteSource: true }),
+      ),
+    )
+    const done = await screen.findByRole('dialog', { name: 'Session moved' })
+    expect(within(done).getByText(/The original was deleted, freeing 166 MB/)).toBeInTheDocument()
   })
 
   it('brings a session left in the Default folder into the profile, with nothing to choose', async () => {
@@ -204,6 +244,8 @@ describe('ProfileDetailSessions', () => {
       backupDir: null,
       desktopRecord: null,
       archivedTo: '/Users/ada/.claude/session-transfer-backups/s1/t-archived',
+      freedBytes: null,
+      deleteError: null,
       memoryCopied: [],
       memoryConflicts: [],
     })
@@ -226,6 +268,7 @@ describe('ProfileDetailSessions', () => {
         destinationId: 'work',
         addToDesktop: true,
         archiveSource: true,
+        deleteSource: false,
         replaceNewer: false,
         quitApps: false,
       }),
@@ -242,6 +285,8 @@ describe('ProfileDetailSessions', () => {
       backupDir: null,
       desktopRecord: '/r',
       archivedTo: null,
+      freedBytes: null,
+      deleteError: null,
       memoryCopied: [],
       memoryConflicts: [],
     })
@@ -327,6 +372,7 @@ describe('ProfileDetailSessions — restore', () => {
     title: 'Old work',
     cwd: '/Users/ada/code/old',
     inDesktop: true,
+    sizeBytes: 3 * 1024 * 1024,
   }
 
   it('hides the archived list until asked, then restores after quitting the app', async () => {
@@ -340,10 +386,11 @@ describe('ProfileDetailSessions — restore', () => {
     renderWithQuery(<ProfileDetailSessions profileId="work" />)
     const user = userEvent.setup()
 
-    await user.click(await screen.findByRole('button', { name: 'Archived 1' }))
+    await user.click(await screen.findByRole('button', { name: 'Archived 1 · 3.0 MB' }))
     const list = screen.getByRole('list', { name: 'Archived sessions' })
     expect(within(list).getByText('Old work')).toBeInTheDocument()
     expect(within(list).getByText(/archived .* ago/)).toBeInTheDocument()
+    expect(within(list).getByText('3.0 MB')).toBeInTheDocument()
 
     await user.click(within(list).getByRole('button', { name: 'Restore' }))
     const dialog = await screen.findByRole('dialog', { name: 'Restore session?' })
@@ -370,7 +417,7 @@ describe('ProfileDetailSessions — restore', () => {
     renderWithQuery(<ProfileDetailSessions profileId="work" />)
     const user = userEvent.setup()
 
-    await user.click(await screen.findByRole('button', { name: 'Archived 1' }))
+    await user.click(await screen.findByRole('button', { name: 'Archived 1 · 3.0 MB' }))
     await user.click(screen.getByRole('button', { name: 'Restore' }))
     const dialog = await screen.findByRole('dialog', { name: 'Restore session?' })
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('already has this session')
