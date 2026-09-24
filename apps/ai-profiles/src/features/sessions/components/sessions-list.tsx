@@ -4,6 +4,7 @@ import type { MoveTarget } from './move-session-dialog'
 import type { SessionRowAction } from './session-row-actions'
 
 import { cn } from '@/design'
+import { TooltipProvider } from '@/design/ui/tooltip'
 
 import { moveAvailability, rowActions } from '../lib/session-actions'
 import { SessionRow } from './session-row'
@@ -136,7 +137,8 @@ const quietButtonClasses =
 /**
  * The open tab's body: a skeleton while the first listing loads, why the
  * profile can't list sessions, the failure with a Retry, an empty or no-match
- * notice, or the rows.
+ * notice, or the rows, which share one tooltip provider for why their
+ * actions are held back.
  */
 export function SessionsList({
   loading,
@@ -186,16 +188,18 @@ export function SessionsList({
     )
   }
   return (
-    <ul aria-label="Sessions" className={sessionsListClasses}>
-      {sessions.map((session) => (
-        <SessionRow
-          key={session.id}
-          session={session}
-          app={app}
-          actions={sessionRowActions({ session, app, moveTargets, onAction, onMove })}
-        />
-      ))}
-    </ul>
+    <TooltipProvider>
+      <ul aria-label="Sessions" className={sessionsListClasses}>
+        {sessions.map((session) => (
+          <SessionRow
+            key={session.id}
+            session={session}
+            app={app}
+            actions={sessionRowActions({ session, app, moveTargets, onAction, onMove })}
+          />
+        ))}
+      </ul>
+    </TooltipProvider>
   )
 }
 

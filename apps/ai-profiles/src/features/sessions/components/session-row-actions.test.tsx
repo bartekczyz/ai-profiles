@@ -1,8 +1,11 @@
+import type { ReactElement } from 'react'
 import type { SessionRowAction } from './session-row-actions'
 
-import { render, screen } from '@testing-library/react'
+import { render as renderUnwrapped, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+
+import { TooltipProvider } from '@/design/ui/tooltip'
 
 import { SessionRowActions } from './session-row-actions'
 
@@ -14,6 +17,13 @@ function makeActions(): Array<SessionRowAction> {
     { id: 'archive', label: 'Archive', onSelect: vi.fn() },
     { id: 'move', label: 'Move', disabledReason: 'Close it in the terminal first', onSelect: vi.fn() },
   ]
+}
+
+/**
+ * Renders `ui` under the tooltip provider the list puts above its rows.
+ */
+function render(ui: ReactElement) {
+  return renderUnwrapped(ui, { wrapper: TooltipProvider })
 }
 
 // Both presentations are in the DOM at once — a container query decides
@@ -34,6 +44,34 @@ describe('SessionRowActions — inline', () => {
     expect(move).toHaveAccessibleDescription('Close it in the terminal first')
     await userEvent.setup().click(move)
     expect(actions[1].onSelect).not.toHaveBeenCalled()
+  })
+
+  it('keeps focus on an action as it is held back and let go again', async () => {
+    const archive: SessionRowAction = { id: 'archive', label: 'Archive', onSelect: vi.fn() }
+    const { rerender } = render(<SessionRowActions actions={[archive]} />)
+    await userEvent.setup().tab()
+    expect(screen.getByRole('button', { name: 'Archive' })).toHaveFocus()
+
+    rerender(<SessionRowActions actions={[{ ...archive, disabledReason: 'Close it in the terminal first' }]} />)
+    expect(screen.getByRole('button', { name: 'Archive' })).toHaveFocus()
+
+    rerender(<SessionRowActions actions={[archive]} />)
+    expect(screen.getByRole('button', { name: 'Archive' })).toHaveFocus()
+  })
+
+  it('keeps focus on an action with targets as it is held back', async () => {
+    const move: SessionRowAction = {
+      id: 'move',
+      label: 'Move',
+      targets: [{ id: 'p2', label: 'Personal' }],
+      onSelect: vi.fn(),
+    }
+    const { rerender } = render(<SessionRowActions actions={[move]} />)
+    await userEvent.setup().tab()
+    expect(screen.getByRole('button', { name: 'Move' })).toHaveFocus()
+
+    rerender(<SessionRowActions actions={[{ ...move, disabledReason: 'Close it in the terminal first' }]} />)
+    expect(screen.getByRole('button', { name: 'Move' })).toHaveFocus()
   })
 
   it('shows why on hover, outside the row, where a scrolling list can’t clip it', async () => {
