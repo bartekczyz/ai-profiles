@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use profile_shim::VENDOR_BINARY_SUFFIX;
 
-use crate::app_kind::{AppKind, AppSpec};
+use crate::app_kind::AppSpec;
 use crate::error::{AppError, AppResult};
 use crate::launchers::gui;
 use crate::launchers::wrapper::{self, WrapperState};
@@ -223,8 +223,8 @@ where
 /// account from it and Claude's Code tab its config and history, so without it
 /// a profile would open on the stock ones. `None` for the default entry, which
 /// is the stock app on its own home. `open` hands its environment on to the app
-/// it starts, so the config homes ai-profiles itself was started with are taken
-/// out first (see [`open_command`]).
+/// it starts, so the config homes ai-profiles itself was started with, and any
+/// Claude Code session it runs inside, are taken out first (see [`open_command`]).
 ///
 /// Launches by resolved absolute bundle path rather than a registered app
 /// name, so it keeps working across a bundle rename (as happened when OpenAI
@@ -257,19 +257,15 @@ pub fn open_new_instance(
     Ok(())
 }
 
-/// `open`, without every app's config-home variable (`CLAUDE_CONFIG_DIR`,
-/// `CODEX_HOME`) in what it passes on. Every app ai-profiles starts is started
-/// through this, so no launch can leave them in.
-///
-/// `open` hands the app it starts ai-profiles' own environment, and ai-profiles
-/// may have been started with one of these set (from a shell running under some
-/// profile, say). The app would then run on that profile's config: the stock
-/// app, which is given none of its own, always, and a launcher that sets none of
-/// its own too. A profile's own is set on the command afterwards, and wins.
+/// `open`, without what ai-profiles was started with that the app it starts
+/// must not have (see [`crate::inherited_env`]): the config homes always, and a
+/// Claude Code session's variables when ai-profiles runs inside one. Every app
+/// ai-profiles starts is started through this, so no launch can leave them in.
+/// A profile's own config home is set on the command afterwards, and wins.
 fn open_command() -> Command {
     let mut command = Command::new("open");
-    for kind in [AppKind::Claude, AppKind::Codex] {
-        command.env_remove(kind.spec().cli_config_env);
+    for key in crate::inherited_env::current() {
+        command.env_remove(key);
     }
     command
 }
