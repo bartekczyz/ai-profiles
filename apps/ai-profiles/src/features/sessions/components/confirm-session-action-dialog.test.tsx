@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { QueryClient } from '@tanstack/react-query'
 import type { ActionCheck, Session } from '@/lib/types'
 
 import { screen, waitFor } from '@testing-library/react'
@@ -8,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '@/design'
 import { archiveSession, checkSessionAction, restoreSession } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
-import { renderWithQuery } from '@/test/render-with-query'
+import { makeRetryingClient, renderWithQuery } from '@/test/render-with-query'
 
 import { ConfirmSessionActionDialog } from './confirm-session-action-dialog'
 
@@ -54,11 +55,12 @@ function withToasts(ui: ReactNode) {
 /**
  * Renders the dialog for `session` and waits for its check to land.
  */
-async function renderDialog(session: Session, action: 'archive' | 'restore' = 'archive') {
+async function renderDialog(session: Session, action: 'archive' | 'restore' = 'archive', client?: QueryClient) {
   const onClose = vi.fn()
   const user = userEvent.setup()
   const result = renderWithQuery(
     withToasts(<ConfirmSessionActionDialog profileId="p1" session={session} action={action} onClose={onClose} />),
+    { client },
   )
   await waitFor(() => expect(checkSessionAction).toHaveBeenCalledWith('p1', session.id, action))
   return { ...result, onClose, user }
@@ -121,8 +123,9 @@ describe('ConfirmSessionActionDialog', () => {
       kind: 'NotInstalled',
       message: 'Install the Codex CLI to archive or restore this session',
     })
-    await renderDialog(makeSession())
+    await renderDialog(makeSession(), 'archive', makeRetryingClient())
     expect(await screen.findByText('Install the Codex CLI to archive or restore this session')).toBeInTheDocument()
+    expect(checkSessionAction).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByRole('button', { name: /^Archive/ })).toBeDisabled()
   })

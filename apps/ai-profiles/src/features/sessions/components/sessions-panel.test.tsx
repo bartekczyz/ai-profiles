@@ -1,6 +1,5 @@
 import type { Profile, Session, SessionList, SidebarEntry } from '@/lib/types'
 
-import { QueryClient } from '@tanstack/react-query'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -8,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '@/design'
 import { useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
 import { archiveSession, checkSessionAction, listSessions, moveSession, planSessionMove } from '@/lib/commands'
-import { renderWithQuery } from '@/test/render-with-query'
+import { makeRetryingClient, renderWithQuery } from '@/test/render-with-query'
 
 import { SessionsPanel } from './sessions-panel'
 
@@ -101,17 +100,6 @@ function rowTitles(): Array<string> {
   return within(list)
     .getAllByRole('listitem')
     .map((row) => row.getAttribute('aria-label') ?? '')
-}
-
-/**
- * A client that retries a failed query once, as the app's does, but at once.
- */
-function retryingClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { retry: 1, retryDelay: 0, staleTime: Number.POSITIVE_INFINITY, refetchOnWindowFocus: false },
-    },
-  })
 }
 
 /**
@@ -247,7 +235,7 @@ describe('SessionsPanel', () => {
       .mockRejectedValueOnce(failure)
       .mockResolvedValueOnce({ sessions: mixed, repairCount: 0 })
     const user = userEvent.setup()
-    renderWithQuery(<SessionsPanel profileId="default:codex" app="codex" />, { client: retryingClient() })
+    renderWithQuery(<SessionsPanel profileId="default:codex" app="codex" />, { client: makeRetryingClient() })
 
     expect(await screen.findByRole('alert')).toHaveTextContent('codex app-server exited')
     expect(listSessions).toHaveBeenCalledTimes(2)
@@ -263,7 +251,7 @@ describe('SessionsPanel', () => {
       kind: 'NotInstalled',
       message: "Install the Codex CLI to see this profile's sessions",
     })
-    renderWithQuery(<SessionsPanel profileId="default:codex" app="codex" />, { client: retryingClient() })
+    renderWithQuery(<SessionsPanel profileId="default:codex" app="codex" />, { client: makeRetryingClient() })
 
     expect(await screen.findAllByText("Install the Codex CLI to see this profile's sessions")).not.toHaveLength(0)
     expect(listSessions).toHaveBeenCalledTimes(1)

@@ -1,3 +1,4 @@
+import type { QueryClient } from '@tanstack/react-query'
 import type { MovePlan, Session } from '@/lib/types'
 
 import { screen, waitFor } from '@testing-library/react'
@@ -7,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '@/design'
 import { moveSession, planSessionMove } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
-import { renderWithQuery } from '@/test/render-with-query'
+import { makeRetryingClient, renderWithQuery } from '@/test/render-with-query'
 
 import { MoveSessionDialog } from './move-session-dialog'
 
@@ -54,7 +55,7 @@ function mockPlan(overrides: Partial<MovePlan> = {}) {
 /**
  * Renders the dialog moving the session to Personal and waits for its plan.
  */
-async function renderDialog() {
+async function renderDialog(client?: QueryClient) {
   const onClose = vi.fn()
   const user = userEvent.setup()
   const result = renderWithQuery(
@@ -66,6 +67,7 @@ async function renderDialog() {
         onClose={onClose}
       />
     </ToastProvider>,
+    { client },
   )
   await waitFor(() => expect(planSessionMove).toHaveBeenCalledWith('work', 's1', 'personal'))
   return { ...result, onClose, user }
@@ -146,8 +148,9 @@ describe('MoveSessionDialog', () => {
       kind: 'NotInstalled',
       message: 'Install the Codex CLI to move this session',
     })
-    await renderDialog()
+    await renderDialog(makeRetryingClient())
     expect(await screen.findByText('Install the Codex CLI to move this session')).toBeInTheDocument()
+    expect(planSessionMove).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByRole('button', { name: /^Move/ })).toBeDisabled()
   })

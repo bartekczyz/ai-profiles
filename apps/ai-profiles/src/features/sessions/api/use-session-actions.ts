@@ -12,6 +12,7 @@ import {
   restoreSession,
 } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
+import { retryUnlessNotInstalled } from '@/lib/query/retry'
 
 /**
  * What a session action is asked to do.
@@ -57,7 +58,7 @@ type MoveInput = {
  * What stands between a session and an action: a blocker, or the desktop app
  * that has to quit first. Looked up whenever it is asked for and again on
  * every window focus, as the user may close a terminal or quit the app
- * themselves while the question is open.
+ * themselves while the question is open. A missing tool isn't retried.
  */
 export function useSessionActionCheck(profileId: string, sessionId: string, action: SessionAction) {
   return useQuery({
@@ -66,6 +67,7 @@ export function useSessionActionCheck(profileId: string, sessionId: string, acti
     staleTime: 0,
     gcTime: 0,
     refetchOnWindowFocus: 'always',
+    retry: retryUnlessNotInstalled,
   })
 }
 
@@ -93,7 +95,8 @@ export function useSessionAction(profileId: string) {
  * Looked up whenever it is asked for. Planning reads every profile's
  * sessions, so it is looked up again on window focus only while something
  * the user may clear meanwhile stands in the way: a terminal to close, or a
- * desktop app to quit. The move itself plans again before it starts.
+ * desktop app to quit. The move itself plans again before it starts. A
+ * missing tool isn't retried.
  */
 export function useSessionMovePlan(profileId: string, sessionId: string, destinationId: string) {
   return useQuery({
@@ -102,6 +105,7 @@ export function useSessionMovePlan(profileId: string, sessionId: string, destina
     staleTime: 0,
     gcTime: 0,
     refetchOnWindowFocus: (query) => (waitsOnUser(query.state.data) ? 'always' : false),
+    retry: retryUnlessNotInstalled,
   })
 }
 
