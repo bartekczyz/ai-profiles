@@ -1,23 +1,23 @@
 //! Codex usage provider. Drives `codex app-server` over newline-delimited
 //! JSON-RPC to read account rate limits, reusing Codex's own auth + token
-//! refresh (per-CODEX_HOME). See plan §"Codex usage — verified live".
+//! refresh (per-CODEX_HOME).
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::Path;
-use std::process::Stdio;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::TimeZone;
 use serde::Deserialize;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use serde_json::Value;
 
+use crate::codex_rpc::{CodexRpc, CodexRpcError, CodexTransport};
 use crate::usage::{
     credentials, QuotaError, QuotaProvider, QuotaUsage, RateLimitResetCredits, Window,
 };
 
 const APP_SERVER_TIMEOUT: Duration = Duration::from_secs(12);
-const RATE_LIMITS_ID: i64 = 2;
 
 #[derive(Deserialize)]
 struct RateLimitsResult {
@@ -102,41 +102,8 @@ fn into_window(raw: RateLimitWindow) -> Window {
     }
 }
 
-/// Pure: scan newline-delimited JSON-RPC messages for the response whose `id`
-/// matches, returning its `result` body as raw JSON text (or a categorised
-/// error for a JSON-RPC error object).
-fn extract_result_for_id(lines: &[String], id: i64) -> Result<String, QuotaError> {
-    for line in lines {
-        let value: serde_json::Value = match serde_json::from_str(line) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        if value.get("id").and_then(|candidate| candidate.as_i64()) != Some(id) {
-            continue;
-        }
-        if value.get("error").is_some() {
-            return Err(QuotaError::Unauthorized);
-        }
-        if let Some(result) = value.get("result") {
-            return Ok(result.to_string());
-        }
-    }
-    Err(QuotaError::Network)
-}
-
-pub struct CodexQuotaProvider {
-    user_agent_name: String,
-    version: String,
-}
-
-impl CodexQuotaProvider {
-    pub fn new(user_agent_name: String, version: String) -> Self {
-        Self {
-            user_agent_name,
-            version,
-        }
-    }
-}
+/// Reads a Codex home's rate limits through its `codex app-server`.
+pub struct CodexQuotaProvider;
 
 #[async_trait]
 impl QuotaProvider for CodexQuotaProvider {
@@ -145,84 +112,56 @@ impl QuotaProvider for CodexQuotaProvider {
         if !credentials::codex_is_signed_in(config_dir) {
             return Err(QuotaError::NoCredentials);
         }
-        let body = self.read_rate_limits(config_dir).await?;
+        let body = read_rate_limits(config_dir).await?;
         parse_rate_limits(body.as_bytes())
     }
 }
 
-impl CodexQuotaProvider {
-    async fn read_rate_limits(&self, codex_home: &Path) -> Result<String, QuotaError> {
-        // A Tauri app launched from Finder doesn't inherit the shell PATH, so a
-        // bare `codex` spawn would fail with ENOENT and surface as a misleading
-        // "couldn't reach" error. Resolve the absolute binary path (and pass the
-        // resolved PATH through) so usage works regardless of how we were
-        // launched. NoCredentials would be wrong here, so use Unknown.
-        let codex_binary =
-            crate::deps::resolve_cli_binary_path("codex").ok_or(QuotaError::Unknown)?;
-        let mut child = tokio::process::Command::new(&codex_binary)
-            .arg("app-server")
-            .env("CODEX_HOME", codex_home)
-            .env("PATH", crate::deps::shell_path())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|_| QuotaError::Network)?;
+/// The `account/rateLimits/read` result for `codex_home`, as raw JSON text.
+///
+/// App-server is launched without waiting for its answer to `initialize`, so
+/// only the rate limits' answer decides the outcome.
+async fn read_rate_limits(codex_home: &Path) -> Result<String, QuotaError> {
+    read_rate_limits_from(CodexRpc::launch(codex_home), APP_SERVER_TIMEOUT).await
+}
 
-        let mut stdin = child.stdin.take().ok_or(QuotaError::Network)?;
-        let stdout = child.stdout.take().ok_or(QuotaError::Network)?;
+/// The `account/rateLimits/read` result, as raw JSON text, read from the
+/// app-server `start` gives, all within `budget`.
+async fn read_rate_limits_from(
+    start: impl Future<Output = Result<CodexRpc, CodexRpcError>>,
+    budget: Duration,
+) -> Result<String, QuotaError> {
+    let read = async {
+        let mut rpc = start.await?;
+        rpc.request("account/rateLimits/read", Value::Null).await
+    };
+    match tokio::time::timeout(budget, read).await {
+        Ok(Ok(result)) => Ok(result.to_string()),
+        Ok(Err(error)) => Err(quota_error(&error)),
+        Err(_) => Err(QuotaError::Network),
+    }
+}
 
-        let init = format!(
-            "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{{\"clientInfo\":{{\"name\":\"{}\",\"version\":\"{}\"}}}}}}\n",
-            self.user_agent_name, self.version
-        );
-        stdin
-            .write_all(init.as_bytes())
-            .await
-            .map_err(|_| QuotaError::Network)?;
-        stdin
-            .write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"initialized\"}\n")
-            .await
-            .map_err(|_| QuotaError::Network)?;
-        stdin
-            .write_all(
-                format!("{{\"jsonrpc\":\"2.0\",\"id\":{RATE_LIMITS_ID},\"method\":\"account/rateLimits/read\"}}\n")
-                    .as_bytes(),
-            )
-            .await
-            .map_err(|_| QuotaError::Network)?;
-        stdin.flush().await.map_err(|_| QuotaError::Network)?;
-        // Keep stdin OPEN across the read. codex app-server (v0.135.0) stops
-        // emitting output the instant stdin hits EOF — closing it here, before
-        // the `account/rateLimits/read` reply arrives, yields an empty stream
-        // and a spurious Network error. Verified live: immediate EOF → no
-        // output at all; stdin held open → the full id:2 result. We therefore
-        // hold the handle until after the read completes, then drop it.
-
-        // Read lines until the matching id arrives or the deadline passes.
-        let read = async {
-            let mut lines: Vec<String> = Vec::new();
-            let mut reader = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                lines.push(line);
-                if let Ok(found) = extract_result_for_id(&lines, RATE_LIMITS_ID) {
-                    return Ok(found);
-                }
-            }
-            extract_result_for_id(&lines, RATE_LIMITS_ID)
-        };
-        let outcome = match tokio::time::timeout(APP_SERVER_TIMEOUT, read).await {
-            Ok(result) => result,
-            Err(_) => Err(QuotaError::Network),
-        };
-        drop(stdin);
-        outcome
+/// How a failed app-server call shows on the usage card. A missing binary
+/// isn't a missing login, so it is `Unknown` rather than `NoCredentials`; a
+/// JSON-RPC error answer means the home can't read its limits (signed out).
+fn quota_error(error: &CodexRpcError) -> QuotaError {
+    match error {
+        CodexRpcError::NotInstalled => QuotaError::Unknown,
+        CodexRpcError::Rpc(_) => QuotaError::Unauthorized,
+        CodexRpcError::Io(_)
+        | CodexRpcError::Closed
+        | CodexRpcError::Timeout
+        | CodexRpcError::Unexpected(_) => QuotaError::Network,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use tokio::process::Command;
+
     use super::*;
 
     // Captured live from codex app-server v0.135.0.
@@ -294,23 +233,92 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn extract_matching_response_skips_interleaved_notifications() {
-        let lines = [
-            r#"{"id":1,"result":{"codexHome":"/x"}}"#,
-            r#"{"method":"remoteControl/status/changed","params":{}}"#,
-            r#"{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":5,"windowDurationMins":300,"resetsAt":1}}}}"#,
-        ];
-        let result = extract_result_for_id(&lines.map(String::from), 2).unwrap();
-        assert!(result.contains("\"rateLimits\""));
+    /// A stand-in app-server that answers `initialize` with an error, right
+    /// away or, if `deferred`, only once the rate limits are asked for, and
+    /// answers those.
+    fn refusing_initialize(dir: &Path, deferred: bool) -> Command {
+        let (on_initialize, on_read) = if deferred {
+            ("", REFUSED)
+        } else {
+            (REFUSED, "")
+        };
+        let script = format!(
+            "#!/bin/sh
+while IFS= read -r line; do
+  case \"$line\" in
+    *'\"method\":\"initialize\"'*) {on_initialize} ;;
+    *'\"method\":\"account/rateLimits/read\"'*)
+      {on_read}
+      echo '{{\"id\":2,\"result\":{{\"rateLimits\":{{\"primary\":{{\"usedPercent\":5}}}}}}}}' ;;
+  esac
+done
+"
+        );
+        let path = dir.join("app-server");
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        Command::new(path)
+    }
+
+    /// Answers `initialize` with a JSON-RPC error.
+    const REFUSED: &str =
+        "echo '{\"id\":1,\"error\":{\"code\":-32600,\"message\":\"Not initialized\"}}'";
+
+    #[tokio::test]
+    async fn the_rate_limits_decide_whatever_initialize_said() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let body = read_rate_limits_from(
+            CodexRpc::introduce(refusing_initialize(dir.path(), false), APP_SERVER_TIMEOUT),
+            APP_SERVER_TIMEOUT,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            parse_rate_limits(body.as_bytes())
+                .unwrap()
+                .primary
+                .unwrap()
+                .utilization,
+            Some(5.0)
+        );
+    }
+
+    #[tokio::test]
+    async fn the_rate_limits_are_asked_for_without_waiting_for_initialize() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let body = read_rate_limits_from(
+            CodexRpc::introduce(refusing_initialize(dir.path(), true), APP_SERVER_TIMEOUT),
+            Duration::from_secs(2),
+        )
+        .await;
+
+        assert!(body.is_ok(), "{:?}", body.err());
     }
 
     #[test]
-    fn extract_returns_jsonrpc_error_as_unauthorized() {
-        let lines = [r#"{"id":2,"error":{"code":-32000,"message":"not signed in"}}"#.to_string()];
+    fn a_jsonrpc_error_maps_to_unauthorized() {
         assert!(matches!(
-            extract_result_for_id(&lines, 2),
-            Err(QuotaError::Unauthorized)
+            quota_error(&CodexRpcError::Rpc("not signed in".to_string())),
+            QuotaError::Unauthorized
+        ));
+    }
+
+    #[test]
+    fn a_missing_binary_maps_to_unknown_and_a_dead_server_to_network() {
+        assert!(matches!(
+            quota_error(&CodexRpcError::NotInstalled),
+            QuotaError::Unknown
+        ));
+        assert!(matches!(
+            quota_error(&CodexRpcError::Closed),
+            QuotaError::Network
+        ));
+        assert!(matches!(
+            quota_error(&CodexRpcError::Timeout),
+            QuotaError::Network
         ));
     }
 }

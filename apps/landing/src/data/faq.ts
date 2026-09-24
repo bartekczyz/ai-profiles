@@ -35,6 +35,11 @@ export const faqEntries: ReadonlyArray<FaqEntry> = [
       'Each profile gets its own Keychain entry, derived from the per-profile config directory. ai-profiles does not read or copy your credentials — Claude Code handles all of that itself. The isolation depends on undocumented Claude Code internals and could break in a future Claude Code release; if it does, we will patch.',
   },
   {
+    question: 'Can I move a session from one account to another?',
+    answer:
+      "Yes, between profiles of the same app: a Claude Code session to another Claude profile, a Codex session to another ChatGPT profile. You can't move a session from Claude to Codex or back. The move copies the session to the destination and archives it at the source, so you can restore it if you change your mind. Anything the move would overwrite is backed up first. Chats on claude.ai and in ChatGPT live on the server, so they aren't listed.",
+  },
+  {
     question: 'How does the per-profile usage card work?',
     answer:
       "Each profile's detail page shows that profile's quota utilization and auto-refreshes every 5 minutes. Claude profiles display three meters (5-hour, 7-day, 7-day Sonnet) by reading the profile's OAuth token from its dedicated Keychain entry and calling Anthropic's /api/oauth/usage endpoint. ChatGPT profiles display two meters (5-hour and weekly) by querying the Codex app-server over its JSON-RPC protocol — no extra auth needed, the app-server handles it via the profile's own auth.json. Both quota endpoints are undocumented internals, so the meters may render as dashes if the response shape changes.",

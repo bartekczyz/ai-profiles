@@ -4,11 +4,14 @@ import type { GuiLaunch } from './use-gui-launch'
 import { Suspense, useState } from 'react'
 
 import { PaneLayout } from '@/components/pane-layout'
+import { SessionsPanel } from '@/features/sessions/components/sessions-panel'
 import { appSpecs } from '@/lib/app-registry'
 import { useAppState } from '@/lib/app-state/use-app-state'
 import { copyToClipboard, openDefaultGui, profilePaths } from '@/lib/commands'
 
+import { useProfileAccount } from '../api/use-profile-account'
 import { useProfilePaths } from '../api/use-profile-paths'
+import { accountLabel, accountTitle } from './account-line'
 import { BrandSwatch, ProfileDetailHeader } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
 import { ProfileDetailMigrateAction } from './profile-detail-migrate-action'
@@ -44,17 +47,31 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
   const [renaming, setRenaming] = useState(false)
   const appState = useAppState()
   const displayName = appSpecs[entry.app].displayName
+  const account = useProfileAccount(entry.id)
+  const signedInAs = accountLabel(account)
+  const stockInstall = entry.customName === null ? 'stock install' : `${displayName} · stock install`
   // Above the boundary below, which swaps one surfaces panel for another as
   // soon as the paths land.
   const launch = useGuiLaunch()
   return (
     <PaneLayout
+      aside={<SessionsPanel key={entry.id} profileId={entry.id} app={entry.app} />}
       header={
         <ProfileDetailHeader
           name={entry.customName ?? displayName}
           swatch={<BrandSwatch app={entry.app} />}
           action={<ProfileDetailMigrateAction onMigrate={onMigrate} />}
-          subline={entry.customName === null ? 'stock install' : `${displayName} · stock install`}
+          subline={
+            signedInAs ? (
+              <>
+                <span>{stockInstall}</span>
+                <span className="mx-2 text-border">·</span>
+                <span title={accountTitle(account)}>{signedInAs}</span>
+              </>
+            ) : (
+              stockInstall
+            )
+          }
           info={<ProfileDetailInfo app={entry.app} />}
           menu={
             // Its own boundary, as on the managed pane: the identity block and
@@ -74,7 +91,9 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
     >
       <ProfileDetailUsageCard app={entry.app} profileId={entry.id} cliEnabled={entry.surfaces.cli} />
 
-      <div className="mb-6">
+      {/* Stacked, the sessions card follows 14px below, as the cards above
+          space themselves; beside it, this ends the column. */}
+      <div className="mb-3.5 pane-wide:mb-6">
         <Suspense key={entry.id} fallback={<DefaultSurfaces entry={entry} launch={launch} onError={setActionError} />}>
           <ResolvedDefaultSurfaces entry={entry} launch={launch} onError={setActionError} />
         </Suspense>

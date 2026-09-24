@@ -61,25 +61,19 @@ describe('DockIconConsentDialog', () => {
     finish()
   })
 
-  it('names what an app loses only for an app that loses something', () => {
-    const { cost } = appSpecs.codex.dockIcon
-    expect(cost).not.toBeNull()
-
-    setup('codex')
-    expect(screen.getByText(cost as string)).toBeInTheDocument()
-  })
-
-  it('lists what an app loses among what turning it on changes, not among what leaving it off does', () => {
-    const { cost } = appSpecs.codex.dockIcon
-    setup('codex')
+  it.each([
+    ['claude', /Cowork can't use folders/],
+    ['codex', /Notifications don't work/],
+  ] as const)('names what %s loses, among what turning it on changes', (app, loss) => {
+    setup(app)
 
     const onColumn = 1
-    expect(screen.getByText(cost as string).closest('td')?.cellIndex).toBe(onColumn)
+    expect(screen.getByText(loss).closest('td')?.cellIndex).toBe(onColumn)
   })
 
-  it('has nothing to say about a loss for an app that has none', () => {
+  it("names only the app's own loss", () => {
     setup('claude')
-    expect(screen.queryByText(appSpecs.codex.dockIcon.cost as string)).toBeNull()
+    expect(screen.queryByText(/Notifications don't work/)).toBeNull()
   })
 
   describe('when it has nothing to confirm', () => {
