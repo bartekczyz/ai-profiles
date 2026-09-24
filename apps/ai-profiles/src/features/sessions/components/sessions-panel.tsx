@@ -133,29 +133,6 @@ export function SessionsPanel({ profileId, app }: Props) {
     void sessionsQuery.refetch()
   }
 
-  const list = (
-    <>
-      {refreshFailed ? <RefreshFailedNote retrying={sessionsQuery.isFetching} onRetry={retry} /> : null}
-      <SessionsList
-        loading={sessionsQuery.isPending}
-        retrying={sessionsQuery.isFetching}
-        failure={failure}
-        tabTotal={inTab.length}
-        sessions={visible}
-        app={app}
-        moveTargets={moveTargets}
-        emptyTitle={tab === 'active' ? 'No sessions yet' : 'No archived sessions'}
-        emptyHint={
-          tab === 'active' ? `${appSpecs[app].cliDisplayName} sessions this profile starts show up here.` : undefined
-        }
-        onRetry={retry}
-        onClearSearch={() => setQuery('')}
-        onAction={(session, action) => setPendingAction({ session, action })}
-        onMove={(session, destination) => setPendingMove({ session, destination })}
-      />
-    </>
-  )
-
   return (
     <Tabs
       value={tab}
@@ -179,16 +156,35 @@ export function SessionsPanel({ profileId, app }: Props) {
         onKindChange={setKindChoice}
         onDirectionChange={setDirection}
       />
-      <TabsContent value="active" className={tabContentClasses}>
-        <RepairBanner
-          profileId={profileId}
-          profileLabel={profileLabel}
-          repairCount={sessionsQuery.data?.repairCount ?? 0}
+      {/* One content slot, for whichever tab is open: the rows below the
+          controls are the same list either way, filtered by the tab. Keyed
+          by the tab, so switching starts it afresh as separate tabs would. */}
+      <TabsContent key={tab} value={tab} className={tabContentClasses}>
+        {tab === 'active' ? (
+          <RepairBanner
+            profileId={profileId}
+            profileLabel={profileLabel}
+            repairCount={sessionsQuery.data?.repairCount ?? 0}
+          />
+        ) : null}
+        {refreshFailed ? <RefreshFailedNote retrying={sessionsQuery.isFetching} onRetry={retry} /> : null}
+        <SessionsList
+          loading={sessionsQuery.isPending}
+          retrying={sessionsQuery.isFetching}
+          failure={failure}
+          tabTotal={inTab.length}
+          sessions={visible}
+          app={app}
+          moveTargets={moveTargets}
+          emptyTitle={tab === 'active' ? 'No sessions yet' : 'No archived sessions'}
+          emptyHint={
+            tab === 'active' ? `${appSpecs[app].cliDisplayName} sessions this profile starts show up here.` : undefined
+          }
+          onRetry={retry}
+          onClearSearch={() => setQuery('')}
+          onAction={(session, action) => setPendingAction({ session, action })}
+          onMove={(session, destination) => setPendingMove({ session, destination })}
         />
-        {list}
-      </TabsContent>
-      <TabsContent value="archived" className={tabContentClasses}>
-        {list}
       </TabsContent>
       {pendingAction === null ? null : (
         <ConfirmSessionActionDialog
