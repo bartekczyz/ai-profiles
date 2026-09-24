@@ -308,6 +308,18 @@ describe('SessionsPanel', () => {
     expect(archive).toHaveAccessibleDescription('Codex has it open — close it first')
   })
 
+  it('says what has an open session open in the words of the session’s app', async () => {
+    mockSessions([makeSession({ id: 'busy', title: 'Busy', state: 'openInTerminal' })])
+    renderWithQuery(
+      <ToastProvider>
+        <SessionsPanel profileId="default:codex" app="codex" />
+      </ToastProvider>,
+    )
+    await screen.findByRole('list', { name: 'Sessions' })
+
+    expect(within(row('Busy')).getByTitle('Codex has it open')).toHaveTextContent('Open')
+  })
+
   it('moves a session to another profile of the app picked from its row', async () => {
     mockSessions(mixed)
     const { user } = await renderPanel()

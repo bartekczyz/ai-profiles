@@ -191,6 +191,7 @@ export function SessionsList({
         <SessionRow
           key={session.id}
           session={session}
+          app={app}
           actions={sessionRowActions({ session, app, moveTargets, onAction, onMove })}
         />
       ))}

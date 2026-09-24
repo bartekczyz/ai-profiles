@@ -1,4 +1,4 @@
-import type { Session, SessionKind, SessionState } from '@/lib/types'
+import type { AppId, Session, SessionKind, SessionState } from '@/lib/types'
 import type { SessionRowAction } from './session-row-actions'
 
 import { Monitor, Terminal } from 'lucide-react'
@@ -14,6 +14,10 @@ type Props = {
    * The session this row describes.
    */
   session: Session
+  /**
+   * The app the session is of.
+   */
+  app: AppId
   /**
    * What the row lets you do to the session. None renders no actions slot.
    */
@@ -32,6 +36,10 @@ type StateMarkerProps = {
    * What the session's files are doing right now.
    */
   state: SessionState
+  /**
+   * The app the session is of.
+   */
+  app: AppId
 }
 
 /**
@@ -48,6 +56,15 @@ const kindLabels: Record<SessionKind, string> = {
 }
 
 /**
+ * What an open session's marker says has it open, per app. Codex can't tell a
+ * terminal from its other clients, so it says Codex has it open.
+ */
+const openStateTitles: Record<AppId, string> = {
+  claude: 'Open in a terminal',
+  codex: 'Codex has it open',
+}
+
+/**
  * One session: its title and where it was started on the first line; its
  * state, folder and age on the second, in the pane's mono metadata type; and
  * its actions trailing. A session whose transcript is gone is dimmed — there
@@ -56,7 +73,7 @@ const kindLabels: Record<SessionKind, string> = {
  * The row carries no label of its own: its content names it, so a screen
  * reader announces the kind, state and folder along with the title.
  */
-export function SessionRow({ session, actions = [] }: Props) {
+export function SessionRow({ session, app, actions = [] }: Props) {
   const title = session.title ?? untitledSessionLabel
   const lastUsed = formatSessionLastUsed(session.lastUsedAt)
   return (
@@ -81,7 +98,7 @@ export function SessionRow({ session, actions = [] }: Props) {
         {/* Each part after the first is preceded by a middle dot, so a
             missing folder or age leaves no dangling separator. */}
         <div className="mt-0.5 flex min-w-0 items-center font-mono text-[11px] text-muted-strong [&>*+*]:before:mx-1.5 [&>*+*]:before:text-border [&>*+*]:before:content-['·']">
-          <StateMarker state={session.state} />
+          <StateMarker state={session.state} app={app} />
           {session.cwd === null ? null : (
             <span title={session.cwd} className="min-w-0 truncate">
               {shortenHomePath(session.cwd)}
@@ -110,14 +127,15 @@ function KindPill({ kind }: KindPillProps) {
 
 /**
  * Leads the metadata line when the session's state limits what can be done
- * with it: open in a terminal (it can't be moved or archived until closed),
- * or its transcript deleted. Idle sessions, and sessions held by a desktop
- * app — which the app can quit for you — carry no marker.
+ * with it: open (it can't be moved or archived until closed), saying what
+ * has it open on hover, or its transcript deleted. Idle sessions, and
+ * sessions held by a desktop app — which the app can quit for you — carry no
+ * marker.
  */
-function StateMarker({ state }: StateMarkerProps) {
+function StateMarker({ state, app }: StateMarkerProps) {
   if (state === 'openInTerminal') {
     return (
-      <span title="Open in a terminal" className="inline-flex shrink-0 items-center gap-1.5 text-green">
+      <span title={openStateTitles[app]} className="inline-flex shrink-0 items-center gap-1.5 text-green">
         <StatusDot pulse tone="success" />
         Open
       </span>
