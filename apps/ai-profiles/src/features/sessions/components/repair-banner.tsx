@@ -19,6 +19,9 @@ type Props = {
   repairCount: number
 }
 
+/**
+ * The banner's Repair button: a quiet bordered pill that fits the row.
+ */
 const repairButtonClasses =
   'inline-flex h-7 shrink-0 cursor-pointer items-center rounded-[7px] border border-border bg-white/60 px-2.5 text-[12px] text-ink-soft outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:border-border-strong hover:bg-white focus-visible:ring-2 focus-visible:ring-orange/40 dark:bg-white/[0.05] dark:hover:bg-white/[0.09]'
 

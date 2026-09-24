@@ -70,6 +70,10 @@ type ActionProps = {
   action: SessionRowAction
 }
 
+/**
+ * A row action's trigger, inline or the ⋯ menu: borderless until hovered,
+ * dimmed while the action is unavailable.
+ */
 const controlClasses =
   'inline-flex h-7 shrink-0 cursor-pointer items-center rounded-[7px] text-[12px] text-muted outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-ink/[0.06] hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40 aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted'
 

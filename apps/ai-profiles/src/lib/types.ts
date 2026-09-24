@@ -275,6 +275,10 @@ export type SessionKind = 'desktop' | 'cli'
  */
 export type SessionState = 'idle' | 'openInTerminal' | 'openInDesktop' | 'transcriptMissing'
 
+/**
+ * One coding session a profile owns, as its row shows it: a Claude Code
+ * session (CLI or the desktop app's Code tab) or a Codex thread.
+ */
 export type Session = {
   /**
    * Claude: the id of the transcript shown, which for a desktop session is its
@@ -323,6 +327,10 @@ export type Session = {
   unmovableReason: string | null
 }
 
+/**
+ * What listing a profile's sessions returns: every session it owns, and how
+ * many of them need repair.
+ */
 export type SessionList = {
   /**
    * Active and archived, most recently used first.

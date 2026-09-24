@@ -120,6 +120,8 @@ mod tests {
     const PROFILE_DIR: &str =
         "/Users/me/Library/Application Support/ai-profiles/profiles/abc/gui-data";
 
+    /// A Codex home whose desktop app keeps its data in `gui_data_dir`,
+    /// `stock` or a profile's.
     fn home(gui_data_dir: &str, stock: bool) -> Home {
         Home {
             id: "abc".to_string(),

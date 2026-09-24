@@ -424,23 +424,29 @@ mod tests {
     const OTHER_ACCOUNT: &str = "a99c6b36-dd42-44d7-b3ae-9496265549fd";
     const OTHER_ORG: &str = "527aadd2-01c3-49a6-a770-e65e047242c3";
 
+    /// Makes the folder of `account`'s records in `org` under `gui_data_dir`,
+    /// and returns it.
     fn org_dir(gui_data_dir: &Path, account: &str, org: &str) -> PathBuf {
         let dir = gui_data_dir.join(RECORDS_DIR).join(account).join(org);
         fs::create_dir_all(&dir).unwrap();
         dir
     }
 
+    /// Writes `value` to `path`, making its folder.
     fn write_json(path: &Path, value: &Value) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, value.to_string()).unwrap();
     }
 
+    /// Writes desktop record `local_<uuid>` of `fields` into `org_dir`.
+    /// Returns its path.
     fn write_record(org_dir: &Path, uuid: &str, fields: Value) -> PathBuf {
         let path = org_dir.join(format!("local_{uuid}.json"));
         write_json(&path, &fields);
         path
     }
 
+    /// `records`, by their local id.
     fn sorted(mut records: Vec<DesktopRecord>) -> Vec<DesktopRecord> {
         records.sort_by(|left, right| left.local_id.cmp(&right.local_id));
         records
@@ -559,6 +565,8 @@ mod tests {
         assert_eq!(read_records(root.path()), []);
     }
 
+    /// Writes the desktop app's config under `gui_data_dir`, naming `account`
+    /// the one it last signed in to.
     fn write_config(gui_data_dir: &Path, account: &str) {
         write_json(
             &gui_data_dir.join("config.json"),
@@ -566,6 +574,8 @@ mod tests {
         );
     }
 
+    /// Writes the CLI's `.claude.json` at `path`, signed in to `account` in
+    /// `org`.
     fn write_claude_json(path: &Path, account: &str, org: &str) {
         write_json(
             path,

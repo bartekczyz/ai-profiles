@@ -295,6 +295,7 @@ mod tests {
     const ACCOUNT: &str = "1a19a582-d7b1-4f72-acef-cbe78c1a68e4";
     const ORG: &str = "18d53058-434e-4c78-9624-e290f7a80ccb";
 
+    /// A Claude home `id`, under `root`, `stock` or a profile's.
     fn home(root: &Path, id: &str, stock: bool) -> Home {
         Home {
             id: id.to_string(),
@@ -306,6 +307,7 @@ mod tests {
         }
     }
 
+    /// Gives `home` transcript `session` of `lines`.
     fn write_transcript(home: &Home, session: &str, lines: &[Value]) {
         let dir = home.config_dir.join("projects").join("-work-app");
         fs::create_dir_all(&dir).unwrap();
@@ -313,6 +315,8 @@ mod tests {
         fs::write(dir.join(format!("{session}.jsonl")), body).unwrap();
     }
 
+    /// A user record of `session`, written at `timestamp` in `cwd`, saying
+    /// `text`.
     fn user(session: &str, timestamp: &str, cwd: &str, text: &str) -> Value {
         json!({
             "type": "user",
@@ -324,6 +328,7 @@ mod tests {
         })
     }
 
+    /// Writes `home`'s desktop record `local_<local>` of `fields`.
     fn write_record(home: &Home, local: &str, fields: Value) {
         let dir = home
             .gui_data_dir
@@ -334,6 +339,8 @@ mod tests {
         fs::write(dir.join(format!("local_{local}.json")), fields.to_string()).unwrap();
     }
 
+    /// Registers `session` of `home` as open in process `pid`, started from
+    /// `entrypoint`.
     fn write_registry(home: &Home, pid: i32, session: &str, entrypoint: &str) {
         let dir = home.config_dir.join("sessions");
         fs::create_dir_all(&dir).unwrap();
@@ -341,14 +348,18 @@ mod tests {
         fs::write(dir.join(format!("{pid}.json")), entry.to_string()).unwrap();
     }
 
+    /// `timestamp`, an RFC 3339 time.
     fn utc(timestamp: &str) -> DateTime<Utc> {
         timestamp.parse().unwrap()
     }
 
+    /// `timestamp`, an RFC 3339 time, in milliseconds since the epoch.
     fn millis(timestamp: &str) -> i64 {
         utc(timestamp).timestamp_millis()
     }
 
+    /// An idle session `id` of `kind` in `/work/app`, last used at
+    /// `last_used_at`, with nothing else known of it.
     fn session(id: &str, kind: SessionKind, last_used_at: &str) -> Session {
         Session {
             id: id.to_string(),

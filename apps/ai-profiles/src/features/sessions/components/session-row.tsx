@@ -39,6 +39,9 @@ type StateMarkerProps = {
  */
 export const untitledSessionLabel = 'Untitled session'
 
+/**
+ * How a row names where its session was started.
+ */
 const kindLabels: Record<SessionKind, string> = {
   desktop: 'Desktop',
   cli: 'CLI',

@@ -402,6 +402,8 @@ mod tests {
 
     use super::*;
 
+    /// Writes `manifest` as the manifest of session `session`'s archive stamped
+    /// `stamp` in `config_dir`. Returns the archive's folder.
     fn write_manifest(config_dir: &Path, session: &str, stamp: &str, manifest: &Value) -> PathBuf {
         let dir = config_dir.join(ARCHIVE_DIR).join(session).join(stamp);
         fs::create_dir_all(&dir).unwrap();

@@ -118,10 +118,11 @@ fn transcript_index<'a>(
 }
 
 /// The ids of the transcripts in `home_id`'s config dir that a record, of
-/// this home or another, claims. A record claims the copy in its own home's config dir when
-/// there is one; only when there isn't does it claim another home's, the
-/// first that has one, as [`transcript_index`] finds it (an orphan). So a
-/// session moved to another home and restored here still lists here.
+/// this home or another, claims. A record claims the copy in its own home's
+/// config dir when there is one; only when there isn't does it claim another
+/// home's, the first that has one, as [`transcript_index`] finds it (an
+/// orphan). So a session moved to another home and restored here still lists
+/// here.
 fn claimed_from<'a>(home_id: &str, scans: &'a [HomeScan]) -> HashSet<&'a str> {
     let holders = holders(scans);
     scans
@@ -232,10 +233,12 @@ mod tests {
     const PERSONAL: &str = "personal";
     const WORK: &str = "work";
 
+    /// Transcript `session_id`, last used at the tests' usual time.
     fn transcript(session_id: &str) -> TranscriptSummary {
         transcript_used_at(session_id, 1_790_000_000)
     }
 
+    /// Transcript `session_id`, last used `used_at` seconds after the epoch.
     fn transcript_used_at(session_id: &str, used_at: i64) -> TranscriptSummary {
         TranscriptSummary {
             session_id: session_id.to_string(),
@@ -249,6 +252,8 @@ mod tests {
         }
     }
 
+    /// Desktop record `local_<local>` of transcript `cli_session_id`, last
+    /// active `active_at` seconds after the epoch.
     fn record(local: &str, cli_session_id: Option<&str>, active_at: i64) -> DesktopRecord {
         DesktopRecord {
             path: PathBuf::from(format!("/gui/claude-code-sessions/a/o/local_{local}.json")),
@@ -262,6 +267,8 @@ mod tests {
         }
     }
 
+    /// Desktop record `local_<local>` of transcript `cli_session_id`, which
+    /// continued the transcripts `priors`.
     fn continued(local: &str, cli_session_id: Option<&str>, priors: &[&str]) -> DesktopRecord {
         DesktopRecord {
             prior_cli_session_ids: priors.iter().map(|id| id.to_string()).collect(),
@@ -269,6 +276,7 @@ mod tests {
         }
     }
 
+    /// What home `home_id` holds: `transcripts`, by id, and `records`.
     fn scan(home_id: &str, transcripts: &[&str], records: Vec<DesktopRecord>) -> HomeScan {
         HomeScan {
             home_id: home_id.to_string(),
@@ -277,6 +285,7 @@ mod tests {
         }
     }
 
+    /// Each of `owned`'s id, record and the home of its shown transcript.
     fn summary(owned: &[Owned]) -> Vec<(&str, Option<&str>, Option<&str>)> {
         owned
             .iter()
@@ -296,6 +305,7 @@ mod tests {
             .collect()
     }
 
+    /// The id and holding home of each transcript `owned` claims.
     fn claimed(owned: &Owned) -> Vec<(&str, &str)> {
         owned
             .claimed_transcripts

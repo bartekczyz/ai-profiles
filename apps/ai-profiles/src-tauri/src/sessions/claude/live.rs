@@ -86,6 +86,8 @@ mod tests {
 
     use super::*;
 
+    /// Registers session `session` as open in process `pid`, started from
+    /// `entrypoint`, in `config_dir`.
     fn write_registry(config_dir: &Path, pid: i32, session: &str, entrypoint: &str) {
         let entry = json!({
             "pid": pid,

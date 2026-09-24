@@ -38,12 +38,18 @@ type Props = {
   onDirectionChange: (direction: SortDirection) => void
 }
 
+/**
+ * The kind filter's segments, in order.
+ */
 const kindOptions: ReadonlyArray<SegmentedOption<KindFilter>> = [
   { value: 'all', label: 'All' },
   { value: 'desktop', label: 'Desktop' },
   { value: 'cli', label: 'CLI' },
 ]
 
+/**
+ * What the sort toggle says for each order.
+ */
 const directionLabels: Record<SortDirection, string> = {
   desc: 'Newest first',
   asc: 'Oldest first',

@@ -77,10 +77,12 @@ mod tests {
     use crate::profiles::Surfaces;
     use crate::test_support::APP_DIR_TEST_LOCK;
 
+    /// Removes the app's data dir, so each test starts without profiles.
     fn purge() {
         let _ = std::fs::remove_dir_all(crate::paths::app_data_dir().unwrap());
     }
 
+    /// A profile `id` of `app` named `name`, with both surfaces.
     fn profile(id: &str, app: AppKind, name: &str) -> Profile {
         Profile {
             id: id.to_string(),

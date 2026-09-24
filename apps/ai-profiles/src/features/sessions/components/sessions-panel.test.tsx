@@ -116,6 +116,9 @@ async function renderPanel() {
   return { ...result, user }
 }
 
+/**
+ * Three active sessions of both kinds, newest first, and an archived one.
+ */
 const mixed = [
   makeSession({ id: 'a', kind: 'cli', title: 'Refactor the parser', lastUsedAt: '2026-09-03T10:00:00Z' }),
   makeSession({ id: 'b', kind: 'desktop', title: 'Plan the launch', lastUsedAt: '2026-09-02T10:00:00Z' }),

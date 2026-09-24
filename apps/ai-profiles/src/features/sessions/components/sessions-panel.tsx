@@ -70,8 +70,14 @@ type TabLabelProps = {
   count?: number
 }
 
+/**
+ * A tab's body: a column that can shrink, so only its rows scroll.
+ */
 const tabContentClasses = 'flex min-h-0 flex-col'
 
+/**
+ * An Active or Archived tab: compact, muted until selected.
+ */
 const tabTriggerClasses = 'flex-none px-0.5 pb-1 text-[13px] tracking-[-0.005em] text-muted data-active:text-ink'
 
 /**

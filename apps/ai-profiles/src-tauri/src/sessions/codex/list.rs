@@ -321,6 +321,8 @@ mod tests {
     }
 
     impl FakeServer {
+        /// A server answering the active listing with the pages `active`, then
+        /// the archived one with `archived`.
         fn new(active: Vec<Value>, archived: Vec<Value>) -> Self {
             Self {
                 pages: HashMap::from([(false, active.into()), (true, archived.into())]),
@@ -343,18 +345,22 @@ mod tests {
         }
     }
 
+    /// The recorded `thread/list` page the tests read.
     fn page() -> Value {
         serde_json::from_str(PAGE).unwrap()
     }
 
+    /// A listed thread `id`, with the fields a row needs.
     fn thread(id: &str) -> Value {
         json!({ "id": id, "preview": "Hi", "cwd": "/work/app", "updatedAt": 1789000000 })
     }
 
+    /// The time `seconds` after the epoch.
     fn utc(seconds: i64) -> DateTime<Utc> {
         DateTime::from_timestamp(seconds, 0).unwrap()
     }
 
+    /// The threads of `value`, a `thread/list` page, each `archived` or not.
     fn threads_of(value: Value, archived: bool) -> Vec<Thread> {
         let page: ThreadPage = serde_json::from_value(value).unwrap();
         page.data

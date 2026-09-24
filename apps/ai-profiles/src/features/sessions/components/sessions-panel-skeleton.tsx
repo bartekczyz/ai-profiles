@@ -21,6 +21,9 @@ export const sessionsPanelClasses =
 export const sessionsListClasses =
   'relative min-h-0 overflow-y-auto rounded-[10px] border border-border bg-white/50 [scrollbar-gutter:stable] dark:bg-white/[0.035]'
 
+/**
+ * Stable keys for the placeholder rows, one per row.
+ */
 const skeletonRowKeys = ['first', 'second', 'third']
 
 /**

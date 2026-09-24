@@ -345,12 +345,14 @@ mod tests {
 
     const SESSION: &str = "0b7c5a1e-4f7a-4c55-9d1e-3a2b1c0d9e8f";
 
+    /// Writes `lines` to `path`, one JSON record per line, making its folder.
     fn write_lines(path: &Path, lines: &[Value]) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         let body: String = lines.iter().map(|line| format!("{line}\n")).collect();
         fs::write(path, body).unwrap();
     }
 
+    /// Where transcript `session` is in `config_dir`.
     fn transcript_path(config_dir: &Path, session: &str) -> PathBuf {
         config_dir
             .join("projects")
@@ -358,6 +360,8 @@ mod tests {
             .join(format!("{session}.jsonl"))
     }
 
+    /// A user record of the tests' session, written at `timestamp` in `cwd`,
+    /// saying `content`.
     fn user(timestamp: &str, cwd: &str, content: Value) -> Value {
         json!({
             "type": "user",
@@ -371,6 +375,8 @@ mod tests {
         })
     }
 
+    /// An assistant record of the tests' session, written at `timestamp` in
+    /// `cwd`.
     fn assistant(timestamp: &str, cwd: &str) -> Value {
         json!({
             "type": "assistant",
@@ -383,6 +389,7 @@ mod tests {
         })
     }
 
+    /// `timestamp`, an RFC 3339 time.
     fn utc(timestamp: &str) -> DateTime<Utc> {
         timestamp.parse().unwrap()
     }
