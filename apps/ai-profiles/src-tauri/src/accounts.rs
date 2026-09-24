@@ -145,9 +145,44 @@ fn desktop_sign_in(gui_data: &Path) -> Desktop {
     }
 }
 
+/// The account with id `id`, as a Claude desktop app with data at `gui_data`
+/// recorded it. Each Cowork session there runs its own CLI, whose
+/// `.claude.json` lives at
+/// `local-agent-mode-sessions/<account>/<organization>/<session>/.claude/`
+/// and names the account the app ran it as. The most recently written of
+/// those naming `id` wins; an app that has never run Cowork names no one.
+fn desktop_account(gui_data: &Path, id: &str) -> Option<ProfileAccount> {
+    let mut candidates: Vec<(std::time::SystemTime, PathBuf)> =
+        fs::read_dir(gui_data.join("local-agent-mode-sessions").join(id))
+            .ok()?
+            .flatten()
+            .filter_map(|organization| fs::read_dir(organization.path()).ok())
+            .flatten()
+            .flatten()
+            .map(|session| session.path().join(".claude").join(".claude.json"))
+            .filter_map(|path| Some((fs::metadata(&path).ok()?.modified().ok()?, path)))
+            .collect();
+    // Newest first; the path settles equal timestamps.
+    candidates.sort_by(|left, right| right.cmp(left));
+    candidates
+        .iter()
+        .filter_map(|(_, path)| read_json(path))
+        .filter(|document| names_account(document, id))
+        .find_map(|document| account_from_claude_json(&document))
+}
+
+/// Pure: whether a parsed `.claude.json` is signed in as account `id`.
+fn names_account(document: &Value, id: &str) -> bool {
+    document
+        .pointer("/oauthAccount/accountUuid")
+        .and_then(Value::as_str)
+        == Some(id)
+}
+
 /// Claude's stock install: its desktop app, whose data is at `gui_data`,
 /// says whether it is signed in and as which account; the first of
-/// `claude_jsons` naming that account says who that is.
+/// `claude_jsons` naming that account says who that is, else the app's own
+/// Cowork sessions do.
 ///
 /// `$HOME/.claude.json` goes on naming the account of a stock install that
 /// has since been imported into a profile (the import moves `~/.claude` and
@@ -164,13 +199,9 @@ fn stock_claude_status(claude_jsons: &[PathBuf], gui_data: &Path) -> AccountStat
         Desktop::SignedIn(id) => AccountStatus::from_account(
             documents
                 .iter()
-                .filter(|document| {
-                    document
-                        .pointer("/oauthAccount/accountUuid")
-                        .and_then(Value::as_str)
-                        == Some(id.as_str())
-                })
-                .find_map(account_from_claude_json),
+                .filter(|document| names_account(document, &id))
+                .find_map(account_from_claude_json)
+                .or_else(|| desktop_account(gui_data, &id)),
             AccountStatus::Unknown,
         ),
         // The CLI may still be signed in, as whoever the file names, or that
@@ -185,7 +216,8 @@ fn stock_claude_status(claude_jsons: &[PathBuf], gui_data: &Path) -> AccountStat
 /// A managed Claude profile keeps its CLI's account in the `.claude.json`
 /// inside its config dir, which is what `CLAUDE_CONFIG_DIR` points at. Until
 /// its CLI signs in, that file names no one, though its desktop app may be
-/// signed in: then who is unknown, not signed out.
+/// signed in: then its Cowork sessions may name the account, and if they
+/// don't, who is unknown, not signed out.
 fn claude_status(config_dir: &Path, gui_data: &Path) -> AccountStatus {
     if let Some(account) = read_json(&config_dir.join(".claude.json"))
         .as_ref()
@@ -194,7 +226,10 @@ fn claude_status(config_dir: &Path, gui_data: &Path) -> AccountStatus {
         return AccountStatus::SignedIn { account };
     }
     match desktop_sign_in(gui_data) {
-        Desktop::SignedIn(_) | Desktop::Unsure => AccountStatus::Unknown,
+        Desktop::SignedIn(id) => {
+            AccountStatus::from_account(desktop_account(gui_data, &id), AccountStatus::Unknown)
+        }
+        Desktop::Unsure => AccountStatus::Unknown,
         Desktop::SignedOut | Desktop::Absent => AccountStatus::SignedOut,
     }
 }
@@ -397,6 +432,21 @@ mod tests {
         gui_data.to_path_buf()
     }
 
+    /// A Cowork session's CLI config in the desktop data at `gui_data`,
+    /// filed under `folder` and naming account `id`.
+    fn cowork_session(gui_data: &Path, folder: &str, session: &str, id: &str, email: &str) {
+        claude_json(
+            &gui_data
+                .join("local-agent-mode-sessions")
+                .join(folder)
+                .join("org")
+                .join(session)
+                .join(".claude/.claude.json"),
+            Some(id),
+            email,
+        );
+    }
+
     fn signed_in_as(status: AccountStatus) -> Option<String> {
         match status {
             AccountStatus::SignedIn { account } => account.email,
@@ -453,6 +503,35 @@ mod tests {
         );
         let gui = desktop(&dir.path().join("gui"), Some("now"), Some(true));
         assert_eq!(stock_claude_status(&[home], &gui), AccountStatus::Unknown);
+    }
+
+    #[test]
+    fn stock_names_the_desktop_account_from_its_cowork_sessions_when_no_file_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = claude_json(
+            &dir.path().join(".claude.json"),
+            Some("moved"),
+            "old@example.com",
+        );
+        let gui = desktop(&dir.path().join("gui"), Some("now"), Some(true));
+        cowork_session(&gui, "now", "local_1", "now", "now@example.com");
+        // Another account's sessions, and a stray file, don't count.
+        cowork_session(&gui, "other", "local_2", "other", "other@example.com");
+        fs::write(gui.join("local-agent-mode-sessions/now/.DS_Store"), b"").unwrap();
+        assert_eq!(
+            signed_in_as(stock_claude_status(&[home], &gui)).as_deref(),
+            Some("now@example.com")
+        );
+    }
+
+    #[test]
+    fn a_cowork_session_names_the_account_only_if_its_file_agrees() {
+        // Filed under the account, but its CLI signed in as someone else.
+        let dir = tempfile::tempdir().unwrap();
+        let gui = desktop(&dir.path().join("gui"), Some("now"), Some(true));
+        cowork_session(&gui, "now", "local_1", "else", "else@example.com");
+        assert_eq!(desktop_account(&gui, "now"), None);
+        assert_eq!(stock_claude_status(&[], &gui), AccountStatus::Unknown);
     }
 
     #[test]
@@ -552,6 +631,13 @@ mod tests {
         claude_json(&config_dir.join(".claude.json"), None, "");
         let gui = desktop(&dir.path().join("gui"), Some("a"), Some(true));
         assert_eq!(claude_status(&config_dir, &gui), AccountStatus::Unknown);
+
+        cowork_session(&gui, "a", "local_1", "a", "ada@example.com");
+        assert_eq!(
+            signed_in_as(claude_status(&config_dir, &gui)).as_deref(),
+            Some("ada@example.com"),
+            "named once its Cowork sessions say who"
+        );
 
         let signed_out = desktop(&dir.path().join("gui-out"), Some("a"), Some(false));
         assert_eq!(
