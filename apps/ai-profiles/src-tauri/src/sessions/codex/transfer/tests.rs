@@ -999,3 +999,37 @@ async fn a_destination_answer_with_an_unreadable_path_cant_say_whether_it_took_i
 
     assert_eq!(taken, None);
 }
+
+#[test]
+fn a_refusal_that_couldnt_be_finished_still_says_why_and_where_the_copy_was_put() {
+    let setup = Setup::new();
+    let failed = AppError::Io(std::io::Error::other("task 7 panicked"));
+    let refusal = |taken| {
+        unfinished(
+            taken,
+            &setup.copy(),
+            &setup.work,
+            &setup.personal,
+            "boom",
+            &failed,
+        )
+        .message()
+    };
+
+    assert_eq!(
+        refusal(Some(false)),
+        format!(
+            "Personal couldn't take it (Codex: boom). Couldn't finish setting its copy aside \
+             (task 7 panicked); it was put in {}",
+            setup.copy().display()
+        )
+    );
+    assert_eq!(
+        refusal(None),
+        format!(
+            "Couldn't tell whether Personal took it (Codex: boom). It is still in Work; check \
+             Personal before moving it again. Its copy was put in {}",
+            setup.copy().display()
+        )
+    );
+}

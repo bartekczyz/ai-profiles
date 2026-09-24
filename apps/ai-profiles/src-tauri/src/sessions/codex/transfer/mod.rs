@@ -281,14 +281,20 @@ where
     {
         let taken = taken(to, &error, restart, &destination, &session_id).await;
         if taken != Some(true) {
-            let (source, destination) = (source.clone(), destination.clone());
-            let refusal = blocking(move || {
-                Ok(match taken {
-                    Some(_) => not_taken(&copy, &destination, &error),
-                    None => undecided(&copy, &source, &destination, &error),
+            let error_text = error.to_string();
+            let refusal = {
+                let (copy, source, destination) =
+                    (copy.clone(), source.clone(), destination.clone());
+                blocking(move || {
+                    Ok(match taken {
+                        Some(_) => not_taken(&copy, &destination, &error),
+                        None => undecided(&copy, &source, &destination, &error),
+                    })
                 })
-            });
-            return Err(refusal.await.unwrap_or_else(|failed| failed));
+            };
+            return Err(refusal.await.unwrap_or_else(|failed| {
+                unfinished(taken, &copy, &source, &destination, &error_text, &failed)
+            }));
         }
     }
     let ps_output = processes().await?;
@@ -463,7 +469,7 @@ fn connection_lost(error: &CodexRpcError) -> bool {
 /// `error`, after setting it aside with [`set_aside`] if it is still there. A
 /// place is only named once the copy is known to be there.
 fn not_taken(copy: &Path, destination: &Home, error: &CodexRpcError) -> AppError {
-    let refused = format!("{} couldn't take it (Codex: {error})", destination.label);
+    let refused = refused(destination, &error.to_string());
     if !occupied(copy) {
         return AppError::Validation(refused);
     }
@@ -514,14 +520,56 @@ fn set_aside(copy: &Path) -> std::io::Result<(PathBuf, Option<PathBuf>)> {
 /// without it being told whether `destination` took the session. Nothing more
 /// is done: the session stays in `source`, and `copy` where it is, if it is.
 fn undecided(copy: &Path, source: &Home, destination: &Home, error: &CodexRpcError) -> AppError {
-    let mut message = format!(
-        "Couldn't tell whether {} took it (Codex: {error}). It is still in {}; check {} before \
-         moving it again.",
-        destination.label, source.label, destination.label
-    );
+    let mut message = unknown(source, destination, &error.to_string());
     if occupied(copy) {
         message.push_str(&format!(" Its copy is in {}", copy.display()));
     }
+    AppError::Validation(message)
+}
+
+/// What refusing a move `destination` didn't take in, its unarchive having
+/// failed with `error`, says first.
+fn refused(destination: &Home, error: &str) -> String {
+    format!("{} couldn't take it (Codex: {error})", destination.label)
+}
+
+/// What refusing a move says first when it can't be told whether
+/// `destination` took it from `source`, its unarchive having failed with
+/// `error`.
+fn unknown(source: &Home, destination: &Home, error: &str) -> String {
+    format!(
+        "Couldn't tell whether {} took it (Codex: {error}). It is still in {}; check {} before \
+         moving it again.",
+        destination.label, source.label, destination.label
+    )
+}
+
+/// The refusal of a move `destination` didn't take in (`taken` is
+/// `Some(false)`), or can't say it did (`None`), its unarchive having failed
+/// with `error`, when finishing that refusal — setting the copy aside, or
+/// looking for it — failed with `failed`: what the refusal says first, and
+/// where the copy was put.
+fn unfinished(
+    taken: Option<bool>,
+    copy: &Path,
+    source: &Home,
+    destination: &Home,
+    error: &str,
+    failed: &AppError,
+) -> AppError {
+    let message = match taken {
+        Some(_) => format!(
+            "{}. Couldn't finish setting its copy aside ({}); it was put in {}",
+            refused(destination, error),
+            failed.message(),
+            copy.display()
+        ),
+        None => format!(
+            "{} Its copy was put in {}",
+            unknown(source, destination, error),
+            copy.display()
+        ),
+    };
     AppError::Validation(message)
 }
 
