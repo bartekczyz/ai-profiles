@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { AppId, Session, SessionAction } from '@/lib/types'
+import type { DescribedFailure } from '../lib/describe-failure'
 import type { MoveTarget } from './move-session-dialog'
 import type { SessionRowAction } from './session-row-actions'
 
@@ -21,14 +22,11 @@ type Props = {
    */
   retrying: boolean
   /**
-   * Why the listing failed, when there is nothing listed to show instead.
+   * Why the listing failed, when there is nothing listed to show instead. A
+   * missing tool shows as a notice, without a Retry; anything else as an
+   * alert with one.
    */
-  errorMessage: string | null
-  /**
-   * Why the profile can't list sessions until the user changes something,
-   * such as installing a missing tool; shown as a notice, without a Retry.
-   */
-  unavailableMessage: string | null
+  failure: DescribedFailure | null
   /**
    * How many sessions the open tab holds before search and kind narrow it.
    */
@@ -143,8 +141,7 @@ const quietButtonClasses =
 export function SessionsList({
   loading,
   retrying,
-  errorMessage,
-  unavailableMessage,
+  failure,
   tabTotal,
   sessions,
   app,
@@ -159,15 +156,15 @@ export function SessionsList({
   if (loading) {
     return <SessionsListSkeleton />
   }
-  if (unavailableMessage !== null) {
+  if (failure?.missingTool) {
     return (
       <Notice>
-        <p className="text-[12.5px] text-ink">{unavailableMessage}</p>
+        <p className="text-[12.5px] text-ink">{failure.message}</p>
       </Notice>
     )
   }
-  if (errorMessage !== null) {
-    return <ListError retrying={retrying} message={errorMessage} onRetry={onRetry} />
+  if (failure !== null) {
+    return <ListError retrying={retrying} message={failure.message} onRetry={onRetry} />
   }
   if (tabTotal === 0) {
     return (

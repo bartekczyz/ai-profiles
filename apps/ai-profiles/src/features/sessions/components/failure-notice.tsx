@@ -1,4 +1,4 @@
-import { extractErrorKind, extractErrorMessage } from '@/lib/extract-error-message'
+import { describeFailure } from '../lib/describe-failure'
 
 type Props = {
   /**
@@ -12,12 +12,13 @@ type Props = {
  * explain, said calmly; anything else is announced as an alert.
  */
 export function FailureNotice({ failure }: Props) {
-  if (extractErrorKind(failure) === 'NotInstalled') {
-    return <p className="text-body text-ink-soft">{extractErrorMessage(failure)}</p>
+  const { missingTool, message } = describeFailure(failure)
+  if (missingTool) {
+    return <p className="text-body text-ink-soft">{message}</p>
   }
   return (
     <p role="alert" className="text-body text-red">
-      {extractErrorMessage(failure)}
+      {message}
     </p>
   )
 }
