@@ -140,4 +140,15 @@ describe('MoveSessionDialog', () => {
     expect(onClose).not.toHaveBeenCalled()
     await waitFor(() => expect(planSessionMove).toHaveBeenCalledTimes(2))
   })
+
+  it('explains calmly that the Codex CLI is needed, with no way to go ahead', async () => {
+    vi.mocked(planSessionMove).mockRejectedValue({
+      kind: 'NotInstalled',
+      message: 'Install the Codex CLI to move this session',
+    })
+    await renderDialog()
+    expect(await screen.findByText('Install the Codex CLI to move this session')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('button', { name: /^Move/ })).toBeDisabled()
+  })
 })

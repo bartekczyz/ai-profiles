@@ -314,8 +314,8 @@ fn lsof_error() -> AppError {
 /// message reaches the user verbatim, prefixed so its source is clear.
 fn action_error(error: &CodexRpcError) -> AppError {
     match error {
-        CodexRpcError::NotInstalled => AppError::Validation(
-            "Codex CLI not found. Install it to archive or restore this session.".to_string(),
+        CodexRpcError::NotInstalled => AppError::NotInstalled(
+            "Install the Codex CLI to archive or restore this session".to_string(),
         ),
         _ => AppError::Validation(format!("Codex: {error}")),
     }
@@ -801,9 +801,11 @@ mod tests {
         let rpc = action_error(&CodexRpcError::Rpc("not signed in".to_string()));
         let other = action_error(&CodexRpcError::Closed);
 
-        assert!(
-            matches!(missing, AppError::Validation(message) if message.starts_with("Codex CLI not found"))
-        );
+        assert!(matches!(
+            missing,
+            AppError::NotInstalled(message)
+                if message == "Install the Codex CLI to archive or restore this session"
+        ));
         assert!(matches!(rpc, AppError::Validation(message) if message == "Codex: not signed in"));
         assert!(
             matches!(other, AppError::Validation(message) if message == "Codex: codex app-server exited before answering")

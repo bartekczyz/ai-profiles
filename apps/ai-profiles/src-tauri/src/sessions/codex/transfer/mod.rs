@@ -334,9 +334,9 @@ fn refuse_other(source: &Home, destination: &Home) -> AppResult<()> {
 /// The error starting app-server for a move fails with.
 fn start_error(error: &CodexRpcError) -> AppError {
     match error {
-        CodexRpcError::NotInstalled => AppError::Validation(
-            "Codex CLI not found. Install it to move this session.".to_string(),
-        ),
+        CodexRpcError::NotInstalled => {
+            AppError::NotInstalled("Install the Codex CLI to move this session".to_string())
+        }
         _ => AppError::Validation(format!("Codex: {error}")),
     }
 }

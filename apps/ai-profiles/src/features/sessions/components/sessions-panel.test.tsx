@@ -1,5 +1,6 @@
 import type { Profile, Session, SessionList, SidebarEntry } from '@/lib/types'
 
+import { QueryClient } from '@tanstack/react-query'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -100,6 +101,17 @@ function rowTitles(): Array<string> {
   return within(list)
     .getAllByRole('listitem')
     .map((row) => row.getAttribute('aria-label') ?? '')
+}
+
+/**
+ * A client that retries a failed query once, as the app's does, but at once.
+ */
+function retryingClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: 1, retryDelay: 0, staleTime: Number.POSITIVE_INFINITY, refetchOnWindowFocus: false },
+    },
+  })
 }
 
 /**
@@ -228,17 +240,20 @@ describe('SessionsPanel', () => {
     expect(rowTitles()).toEqual(['Untitled session'])
   })
 
-  it('shows a listing error inline and refetches on Retry', async () => {
+  it('retries a failed listing once, then shows the error inline and refetches on Retry', async () => {
+    const failure = { kind: 'Io', message: 'codex app-server exited' }
     vi.mocked(listSessions)
-      .mockRejectedValueOnce({ kind: 'Io', message: 'codex app-server exited' })
+      .mockRejectedValueOnce(failure)
+      .mockRejectedValueOnce(failure)
       .mockResolvedValueOnce({ sessions: mixed, repairCount: 0 })
     const user = userEvent.setup()
-    renderWithQuery(<SessionsPanel profileId="default:codex" app="codex" />)
+    renderWithQuery(<SessionsPanel profileId="default:codex" app="codex" />, { client: retryingClient() })
 
     expect(await screen.findByRole('alert')).toHaveTextContent('codex app-server exited')
+    expect(listSessions).toHaveBeenCalledTimes(2)
     await user.click(screen.getByRole('button', { name: 'Retry' }))
     await screen.findByRole('list', { name: 'Sessions' })
-    expect(listSessions).toHaveBeenCalledTimes(2)
+    expect(listSessions).toHaveBeenCalledTimes(3)
     expect(listSessions).toHaveBeenLastCalledWith('default:codex')
     expect(screen.queryByRole('alert')).toBeNull()
   })
@@ -248,9 +263,10 @@ describe('SessionsPanel', () => {
       kind: 'NotInstalled',
       message: "Install the Codex CLI to see this profile's sessions",
     })
-    renderWithQuery(<SessionsPanel profileId="default:codex" app="codex" />)
+    renderWithQuery(<SessionsPanel profileId="default:codex" app="codex" />, { client: retryingClient() })
 
     expect(await screen.findAllByText("Install the Codex CLI to see this profile's sessions")).not.toHaveLength(0)
+    expect(listSessions).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
   })

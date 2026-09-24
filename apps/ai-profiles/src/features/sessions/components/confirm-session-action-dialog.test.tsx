@@ -115,4 +115,15 @@ describe('ConfirmSessionActionDialog', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Claude (Work) didn’t quit')
     expect(onClose).not.toHaveBeenCalled()
   })
+
+  it('explains calmly that the Codex CLI is needed, with no way to go ahead', async () => {
+    vi.mocked(checkSessionAction).mockRejectedValue({
+      kind: 'NotInstalled',
+      message: 'Install the Codex CLI to archive or restore this session',
+    })
+    await renderDialog(makeSession())
+    expect(await screen.findByText('Install the Codex CLI to archive or restore this session')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('button', { name: /^Archive/ })).toBeDisabled()
+  })
 })

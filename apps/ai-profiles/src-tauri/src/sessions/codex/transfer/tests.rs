@@ -925,3 +925,18 @@ async fn a_rollout_outside_the_sources_sessions_or_named_for_another_thread_is_r
         );
     }
 }
+
+#[test]
+fn a_missing_cli_explains_itself_and_a_failed_start_says_why() {
+    let missing = start_error(&CodexRpcError::NotInstalled);
+    let failed = start_error(&CodexRpcError::Closed);
+
+    assert!(matches!(
+        missing,
+        AppError::NotInstalled(message) if message == "Install the Codex CLI to move this session"
+    ));
+    assert_eq!(
+        failed.message(),
+        "Codex: codex app-server exited before answering"
+    );
+}

@@ -2,7 +2,7 @@ import type { ActionCheck, Session, SessionAction } from '@/lib/types'
 
 import { Button, Dialog, Kbd, useToast } from '@/design'
 import { shortenHomePath } from '@/features/profiles/components/shorten-home-path'
-import { extractErrorMessage } from '@/lib/extract-error-message'
+import { extractErrorKind, extractErrorMessage } from '@/lib/extract-error-message'
 
 import { useSessionAction, useSessionActionCheck } from '../api/use-session-actions'
 import { untitledSessionLabel } from './session-row'
@@ -33,7 +33,12 @@ type NoticeProps = {
    */
   check: ActionCheck | undefined
   /**
-   * Why the check, or the action itself, failed.
+   * What the action needs installed first, when that is why the check or
+   * the action failed.
+   */
+  unavailableMessage: string | null
+  /**
+   * Why the check, or the action itself, failed otherwise.
    */
   errorMessage: string | null
   /**
@@ -105,7 +110,10 @@ export function ConfirmSessionActionDialog({ profileId, session, action, onClose
   const primaryLabel = appToQuit === null ? verb : `Quit ${appToQuit.label} and ${verb.toLowerCase()}`
   const canConfirm = check !== undefined && blocker === null && !sessionAction.isPending
   const failure = sessionAction.error ?? (checkQuery.isError ? checkQuery.error : null)
-  const errorMessage = failure === null ? null : extractErrorMessage(failure)
+  // A missing tool is a state to explain, not a failure to raise the alarm over.
+  const missingTool = failure !== null && extractErrorKind(failure) === 'NotInstalled'
+  const unavailableMessage = missingTool ? extractErrorMessage(failure) : null
+  const errorMessage = failure !== null && !missingTool ? extractErrorMessage(failure) : null
 
   function handleConfirm() {
     if (!canConfirm) {
@@ -138,16 +146,25 @@ export function ConfirmSessionActionDialog({ profileId, session, action, onClose
         </>
       }
     >
-      <ActionNotice check={check} errorMessage={errorMessage} cwd={session.cwd} />
+      <ActionNotice
+        check={check}
+        unavailableMessage={unavailableMessage}
+        errorMessage={errorMessage}
+        cwd={session.cwd}
+      />
     </Dialog>
   )
 }
 
 /**
- * The dialog's body: why the action failed, else that the check is still
- * looking, else the desktop app that quits first, else the session's folder.
+ * The dialog's body: what the action needs installed, else why the action
+ * failed, else that the check is still looking, else the desktop app that
+ * quits first, else the session's folder.
  */
-function ActionNotice({ check, errorMessage, cwd }: NoticeProps) {
+function ActionNotice({ check, unavailableMessage, errorMessage, cwd }: NoticeProps) {
+  if (unavailableMessage !== null) {
+    return <p className="text-body text-ink-soft">{unavailableMessage}</p>
+  }
   if (errorMessage !== null) {
     return (
       <p role="alert" className="text-body text-red">
