@@ -159,7 +159,7 @@ export function SessionsPanel({ profileId, app }: Props) {
       className={sessionsPanelClasses}
       onValueChange={(value) => setTab(value === 'archived' ? 'archived' : 'active')}
     >
-      <TabsList variant="line" aria-label="Sessions" className="h-auto gap-4 p-0">
+      <TabsList variant="line" aria-label="Sessions" className="gap-4 p-0">
         <TabsTrigger value="active" className={tabTriggerClasses}>
           <TabLabel label="Active" count={listed === undefined ? undefined : counts.active} />
         </TabsTrigger>
