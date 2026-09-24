@@ -336,13 +336,26 @@ describe('CreateProfileDialog — Dock icon', () => {
   })
 
   it('starts on, once acknowledged, for an app where it costs nothing they would notice', async () => {
-    const { user, onCreate } = setup({ dockIconAcknowledged: true })
-    expect(dockIconOption()).toBeChecked()
-    await create(user)
-    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ distinctDockIcon: true }))
+    const claude = appSpecs.claude.dockIcon
+    appSpecs.claude.dockIcon = { defaultOn: true, cost: null }
+    try {
+      const { user, onCreate } = setup({ dockIconAcknowledged: true })
+      expect(dockIconOption()).toBeChecked()
+      await create(user)
+      expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ distinctDockIcon: true }))
+    } finally {
+      appSpecs.claude.dockIcon = claude
+    }
   })
 
-  it('starts off, even once acknowledged, for an app where it has a cost', async () => {
+  it('starts off, even once acknowledged, for Claude, whose Cowork loses attached folders', async () => {
+    const { user, onCreate } = setup({ dockIconAcknowledged: true })
+    expect(dockIconOption()).not.toBeChecked()
+    await create(user)
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ app: 'claude', distinctDockIcon: false }))
+  })
+
+  it('starts off, even once acknowledged, for ChatGPT, whose notifications stop', async () => {
     const { user, onCreate } = setup({ dependencies: onlyCodexInstalled, dockIconAcknowledged: true })
     expect(dockIconOption()).not.toBeChecked()
     await create(user)
@@ -383,7 +396,6 @@ describe('CreateProfileDialog — Dock icon', () => {
 
   it('does not explain itself again once acknowledged', async () => {
     const { user, onAcknowledgeDockIcon } = setup({ dockIconAcknowledged: true })
-    await user.click(dockIconOption())
     expect(dockIconOption()).not.toBeChecked()
 
     await user.click(dockIconOption())
@@ -451,18 +463,16 @@ describe('CreateProfileDialog — Dock icon', () => {
     )
   })
 
-  it('puts what the app loses next to the option, before the user turns it on', () => {
-    const { cost } = appSpecs.codex.dockIcon
-    expect(cost).not.toBeNull()
-
+  it("puts what the app loses next to the option, before the user turns it on, and only that app's loss", () => {
     setup({ dependencies: onlyCodexInstalled })
-
-    expect(dockIconOption()).toHaveTextContent(cost as string)
+    expect(dockIconOption()).toHaveTextContent(/Notifications don't work/)
+    expect(dockIconOption()).not.toHaveTextContent(/Cowork/)
   })
 
-  it('says nothing of a loss for an app that has none', () => {
+  it("warns that Claude's Cowork can't use attached folders with it", () => {
     setup()
-    expect(dockIconOption()).not.toHaveTextContent(appSpecs.codex.dockIcon.cost as string)
+    expect(dockIconOption()).toHaveTextContent(/Cowork can't use folders you attach/)
+    expect(dockIconOption()).not.toHaveTextContent(/Notifications/)
   })
 })
 

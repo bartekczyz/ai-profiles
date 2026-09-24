@@ -106,7 +106,10 @@ const claude: AppSpec = {
     description: 'Exposes claude-{slug} in ~/.local/bin, pointed at this profile.',
     installUrl: 'https://docs.anthropic.com/en/docs/claude-code/overview',
   },
-  dockIcon: { defaultOn: true, cost: null },
+  // The wrapper is re-signed on this Mac, so it isn't Anthropic's app any
+  // more, and Cowork won't share a folder with it (#59). Off unless asked for,
+  // as for any app it costs something.
+  dockIcon: { defaultOn: false, cost: "Cowork can't use folders you attach in this profile." },
   usage: {
     noCredentials: 'Sign in to Claude Code once with this profile to see usage.',
     unauthorized: 'Token refresh needed — run `claude` in a terminal once, then retry.',
