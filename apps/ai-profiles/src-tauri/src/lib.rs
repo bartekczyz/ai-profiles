@@ -8,6 +8,7 @@ mod codex_rpc;
 mod commands;
 mod deps;
 mod error;
+mod inherited_env;
 mod launch;
 mod launchers;
 mod migration;

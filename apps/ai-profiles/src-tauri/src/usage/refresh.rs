@@ -218,6 +218,27 @@ fn wait_until_settled(saw_output: &AtomicBool, last_byte: &StdMutex<Instant>) {
     }
 }
 
+/// Give the refresh's `claude` the environment it runs on. `cmd` starts out
+/// with ai-profiles' own, which may carry another profile's config home or the
+/// Claude Code session ai-profiles was started from: `dropped` (see
+/// [`crate::inherited_env`]) is taken out, and the profile's own config home
+/// set only when `set_config` (see [`spawn_claude`] for why the stock entry
+/// gets none). An inherited one left in would refresh that other profile's
+/// token instead.
+fn refresh_env(
+    cmd: &mut portable_pty::CommandBuilder,
+    dropped: &[std::ffi::OsString],
+    cli_config_dir: &Path,
+    set_config: bool,
+) {
+    for key in dropped {
+        cmd.env_remove(key);
+    }
+    if set_config {
+        cmd.env("CLAUDE_CONFIG_DIR", cli_config_dir);
+    }
+}
+
 /// Drives a real interactive `claude` under a pty far enough to refresh +
 /// persist its token, then exits. Best-effort: any failure just returns, and
 /// the caller verifies success by re-reading the credential.
@@ -235,9 +256,12 @@ fn run_pty_refresh(binary: &Path, cli_config_dir: &Path, cwd: &Path, set_config:
     let portable_pty::PtyPair { master, slave } = pair;
 
     let mut cmd = CommandBuilder::new(binary);
-    if set_config {
-        cmd.env("CLAUDE_CONFIG_DIR", cli_config_dir);
-    }
+    refresh_env(
+        &mut cmd,
+        &crate::inherited_env::current(),
+        cli_config_dir,
+        set_config,
+    );
     // Run in an empty scratch dir, never `$HOME` — see the module header for why
     // (avoids TCC prompts from claude's startup scan descending into protected
     // home folders).
@@ -404,6 +428,41 @@ mod tests {
     fn prompt_is_ready_at_the_settle_ceiling_regardless_of_output() {
         // Even if claude never produced output, stop waiting at the cap.
         assert!(prompt_is_ready(false, Duration::ZERO, SETTLE_CAP));
+    }
+
+    // --- refresh_env ---
+
+    /// A builder for the refresh that inherited another profile's config home
+    /// and a Claude Code session, and what [`refresh_env`] is told to drop.
+    fn inherited() -> (portable_pty::CommandBuilder, Vec<std::ffi::OsString>) {
+        let mut cmd = portable_pty::CommandBuilder::new("claude");
+        cmd.env("CLAUDE_CONFIG_DIR", "/p/other/cli-config");
+        cmd.env("CLAUDECODE", "1");
+        let dropped = crate::inherited_env::not_passed_on(["CLAUDE_CONFIG_DIR", "CLAUDECODE"]);
+        (cmd, dropped)
+    }
+
+    #[test]
+    fn the_stock_refresh_runs_on_no_inherited_config_home() {
+        let (mut cmd, dropped) = inherited();
+
+        refresh_env(&mut cmd, &dropped, Path::new("/Users/me/.claude"), false);
+
+        assert_eq!(cmd.get_env("CLAUDE_CONFIG_DIR"), None);
+        assert_eq!(cmd.get_env("CLAUDECODE"), None);
+    }
+
+    #[test]
+    fn a_profile_refresh_runs_on_its_own_config_home() {
+        let (mut cmd, dropped) = inherited();
+
+        refresh_env(&mut cmd, &dropped, Path::new("/p/work/cli-config"), true);
+
+        assert_eq!(
+            cmd.get_env("CLAUDE_CONFIG_DIR"),
+            Some(std::ffi::OsStr::new("/p/work/cli-config"))
+        );
+        assert_eq!(cmd.get_env("CLAUDECODE"), None);
     }
 
     // --- manual end-to-end smoke (real claude + keychain) ---

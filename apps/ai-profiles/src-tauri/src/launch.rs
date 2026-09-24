@@ -223,7 +223,8 @@ where
 /// account from it and Claude's Code tab its config and history, so without it
 /// a profile would open on the stock ones. `None` for the default entry, which
 /// is the stock app on its own home. `open` hands its environment on to the app
-/// it starts.
+/// it starts, so the config homes ai-profiles itself was started with, and any
+/// Claude Code session it runs inside, are taken out first (see [`open_command`]).
 ///
 /// Launches by resolved absolute bundle path rather than a registered app
 /// name, so it keeps working across a bundle rename (as happened when OpenAI
@@ -236,7 +237,7 @@ pub fn open_new_instance(
 ) -> AppResult<()> {
     let resolved = crate::paths::resolve_gui_app(spec)
         .ok_or_else(|| AppError::Validation(format!("{} isn't installed", spec.display_name)))?;
-    let mut command = Command::new("open");
+    let mut command = open_command();
     command
         .arg("-n")
         .arg("-a")
@@ -256,13 +257,23 @@ pub fn open_new_instance(
     Ok(())
 }
 
+/// `open`, without what ai-profiles was started with that the app it starts
+/// must not have (see [`crate::inherited_env`]): the config homes always, and a
+/// Claude Code session's variables when ai-profiles runs inside one. Every app
+/// ai-profiles starts is started through this, so no launch can leave them in.
+/// A profile's own config home is set on the command afterwards, and wins.
+fn open_command() -> Command {
+    let mut command = Command::new("open");
+    for key in crate::inherited_env::current() {
+        command.env_remove(key);
+    }
+    command
+}
+
 /// Open the app at `bundle` the way a click on its Dock tile does: no `-n`, no
 /// arguments. That a wrapper starts right this way is the point of it.
 fn open_bundle(bundle: &Path) -> AppResult<()> {
-    let output = Command::new("open")
-        .arg(bundle)
-        .output()
-        .map_err(AppError::Io)?;
+    let output = open_command().arg(bundle).output().map_err(AppError::Io)?;
     if !output.status.success() {
         return Err(AppError::Validation(format!(
             "`open {}` exited with status {}: {}",
@@ -666,6 +677,27 @@ mod tests {
     use std::fs;
 
     use super::*;
+
+    #[test]
+    fn apps_are_started_without_a_config_home_ai_profiles_inherited() {
+        let removed = |command: &Command, name: &str| {
+            command
+                .get_envs()
+                .any(|(key, value)| key == name && value.is_none())
+        };
+        let stock = open_command();
+        assert_eq!(stock.get_program(), "open");
+        assert!(removed(&stock, "CLAUDE_CONFIG_DIR"));
+        assert!(removed(&stock, "CODEX_HOME"));
+
+        // A profile's own is set after, and wins.
+        let mut profile = open_command();
+        profile.env("CLAUDE_CONFIG_DIR", "/p/work/cli-config");
+        assert!(profile
+            .get_envs()
+            .any(|(key, value)| key == "CLAUDE_CONFIG_DIR"
+                && value == Some(std::ffi::OsStr::new("/p/work/cli-config"))));
+    }
 
     const STOCK_DIR: &str = "/Users/me/Library/Application Support/Claude";
     const PROFILE_DIR: &str =
