@@ -1,6 +1,6 @@
 import type { Profile, Session, SessionList, SidebarEntry } from '@/lib/types'
 
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -234,6 +234,25 @@ describe('SessionsPanel', () => {
     expect(listSessions).toHaveBeenCalledTimes(3)
     expect(listSessions).toHaveBeenLastCalledWith('default:codex')
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('keeps the last list when a refresh fails, and refreshes again on Retry', async () => {
+    const failure = { kind: 'Io', message: 'codex app-server exited' }
+    mockSessions(mixed)
+    const user = userEvent.setup()
+    const { client } = renderWithQuery(<SessionsPanel profileId="p1" app="claude" />, { client: makeRetryingClient() })
+    await screen.findByRole('list', { name: 'Sessions' })
+    vi.mocked(listSessions).mockRejectedValueOnce(failure).mockRejectedValueOnce(failure)
+    await act(() => client.refetchQueries())
+
+    const retry = await screen.findByRole('button', { name: 'Retry' })
+    expectRows(['Refactor the parser', 'Plan the launch', 'Fix the build'])
+    expect(screen.queryByRole('alert')).toBeNull()
+    await user.click(retry)
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull())
+    expect(listSessions).toHaveBeenCalledTimes(4)
+    expectRows(['Refactor the parser', 'Plan the launch', 'Fix the build'])
   })
 
   it('explains calmly, without a Retry, that a Codex profile needs the CLI', async () => {

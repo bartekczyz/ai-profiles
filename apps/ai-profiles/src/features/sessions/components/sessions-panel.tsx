@@ -14,6 +14,7 @@ import { describeFailure } from '../lib/describe-failure'
 import { countByTab, filterSessions, hasBothKinds, sortSessions } from '../lib/session-filters'
 import { ConfirmSessionActionDialog } from './confirm-session-action-dialog'
 import { MoveSessionDialog } from './move-session-dialog'
+import { RefreshFailedNote } from './refresh-failed-note'
 import { RepairBanner } from './repair-banner'
 import { SessionsControls } from './sessions-controls'
 import { SessionsList } from './sessions-list'
@@ -93,6 +94,8 @@ const tabTriggerClasses = 'flex-none px-0.5 pb-1 text-[13px] tracking-[-0.005em]
  * An active session's row offers Move, a menu of the app's other profiles
  * (Default included); picking one asks to confirm the move. While some
  * sessions need repair, a banner heads the Active tab offering to repair them.
+ * A refresh that fails leaves the last list on screen under a quiet note
+ * with a Retry.
  *
  * The kind filter only exists while the open tab mixes both kinds. When it
  * goes away, the choice made on it is set aside rather than reset, so the
@@ -122,30 +125,35 @@ export function SessionsPanel({ profileId, app }: Props) {
   const kindFilterShown = hasBothKinds(inTab)
   const kind = kindFilterShown ? kindChoice : 'all'
   const visible = sortSessions(filterSessions(inTab, { tab, kind, query }), direction)
-  // A failed refetch keeps the rows it already has; only a listing that never
-  // landed shows the failure.
+  // A failed refetch keeps the rows it already has, under a quiet note; only
+  // a listing that never landed shows the failure.
   const failure = listed === undefined && sessionsQuery.isError ? describeFailure(sessionsQuery.error) : null
+  const refreshFailed = listed !== undefined && sessionsQuery.isError
+  const retry = () => {
+    void sessionsQuery.refetch()
+  }
 
   const list = (
-    <SessionsList
-      loading={sessionsQuery.isPending}
-      retrying={sessionsQuery.isFetching}
-      failure={failure}
-      tabTotal={inTab.length}
-      sessions={visible}
-      app={app}
-      moveTargets={moveTargets}
-      emptyTitle={tab === 'active' ? 'No sessions yet' : 'No archived sessions'}
-      emptyHint={
-        tab === 'active' ? `${appSpecs[app].cliDisplayName} sessions this profile starts show up here.` : undefined
-      }
-      onRetry={() => {
-        void sessionsQuery.refetch()
-      }}
-      onClearSearch={() => setQuery('')}
-      onAction={(session, action) => setPendingAction({ session, action })}
-      onMove={(session, destination) => setPendingMove({ session, destination })}
-    />
+    <>
+      {refreshFailed ? <RefreshFailedNote retrying={sessionsQuery.isFetching} onRetry={retry} /> : null}
+      <SessionsList
+        loading={sessionsQuery.isPending}
+        retrying={sessionsQuery.isFetching}
+        failure={failure}
+        tabTotal={inTab.length}
+        sessions={visible}
+        app={app}
+        moveTargets={moveTargets}
+        emptyTitle={tab === 'active' ? 'No sessions yet' : 'No archived sessions'}
+        emptyHint={
+          tab === 'active' ? `${appSpecs[app].cliDisplayName} sessions this profile starts show up here.` : undefined
+        }
+        onRetry={retry}
+        onClearSearch={() => setQuery('')}
+        onAction={(session, action) => setPendingAction({ session, action })}
+        onMove={(session, destination) => setPendingMove({ session, destination })}
+      />
+    </>
   )
 
   return (
