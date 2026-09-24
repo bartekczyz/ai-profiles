@@ -74,6 +74,22 @@ describe('SessionRowActions — inline', () => {
     expect(screen.getByRole('button', { name: 'Move' })).toHaveFocus()
   })
 
+  it('announces a menu only on an action whose menu can open', () => {
+    const move: SessionRowAction = {
+      id: 'move',
+      label: 'Move',
+      targets: [{ id: 'p2', label: 'Personal' }],
+      onSelect: vi.fn(),
+    }
+    const { rerender } = render(<SessionRowActions actions={[move]} />)
+    expect(screen.getByRole('button', { name: 'Move' })).toHaveAttribute('aria-haspopup', 'menu')
+    expect(screen.getByRole('button', { name: 'Move' })).toHaveAttribute('aria-expanded', 'false')
+
+    rerender(<SessionRowActions actions={[{ ...move, disabledReason: 'Close it in the terminal first' }]} />)
+    expect(screen.getByRole('button', { name: 'Move' })).not.toHaveAttribute('aria-haspopup')
+    expect(screen.getByRole('button', { name: 'Move' })).not.toHaveAttribute('aria-expanded')
+  })
+
   it('shows why on hover, outside the row, where a scrolling list can’t clip it', async () => {
     const { container } = render(<SessionRowActions actions={makeActions()} />)
     await userEvent.setup().hover(screen.getByRole('button', { name: 'Move' }))

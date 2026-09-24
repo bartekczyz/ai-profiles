@@ -163,8 +163,9 @@ function InlineAction({ action }: ActionProps) {
 
 /**
  * A side-by-side action button that opens a menu of where to point the
- * action. Held back, it keeps its menu shut and says why, as a plain action
- * button does, without changing the elements it is made of.
+ * action. Held back, it keeps its menu shut, announces no menu, and says
+ * why, as a plain action button does, without changing the elements it is
+ * made of.
  */
 function InlineTargetsAction({ action }: ActionProps) {
   const reasonId = useId()
@@ -176,10 +177,15 @@ function InlineTargetsAction({ action }: ActionProps) {
       <DropdownMenu open={!disabled && menuOpen} onOpenChange={(open) => setMenuOpen(open && !disabled)}>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
+            {/* The trigger's own popup semantics are set here too, so that
+                while held back — the menu can't open — these undefined
+                values win the merge and the button announces no menu. */}
             <button
               type="button"
               aria-disabled={disabled}
               aria-describedby={disabled ? reasonId : undefined}
+              aria-haspopup={disabled ? undefined : 'menu'}
+              aria-expanded={disabled ? undefined : menuOpen}
               className={cn(controlClasses, 'px-2')}
             >
               {action.label}
