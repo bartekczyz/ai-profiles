@@ -1,8 +1,9 @@
 //! Codex usage provider. Drives `codex app-server` over newline-delimited
 //! JSON-RPC to read account rate limits, reusing Codex's own auth + token
-//! refresh (per-CODEX_HOME). See plan §"Codex usage — verified live".
+//! refresh (per-CODEX_HOME).
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::Path;
 use std::time::Duration;
 
@@ -117,12 +118,24 @@ impl QuotaProvider for CodexQuotaProvider {
 }
 
 /// The `account/rateLimits/read` result for `codex_home`, as raw JSON text.
+///
+/// App-server is launched without waiting for its answer to `initialize`, so
+/// only the rate limits' answer decides the outcome.
 async fn read_rate_limits(codex_home: &Path) -> Result<String, QuotaError> {
+    read_rate_limits_from(CodexRpc::launch(codex_home), APP_SERVER_TIMEOUT).await
+}
+
+/// The `account/rateLimits/read` result, as raw JSON text, read from the
+/// app-server `start` gives, all within `budget`.
+async fn read_rate_limits_from(
+    start: impl Future<Output = Result<CodexRpc, CodexRpcError>>,
+    budget: Duration,
+) -> Result<String, QuotaError> {
     let read = async {
-        let mut rpc = CodexRpc::start(codex_home).await?;
+        let mut rpc = start.await?;
         rpc.request("account/rateLimits/read", Value::Null).await
     };
-    match tokio::time::timeout(APP_SERVER_TIMEOUT, read).await {
+    match tokio::time::timeout(budget, read).await {
         Ok(Ok(result)) => Ok(result.to_string()),
         Ok(Err(error)) => Err(quota_error(&error)),
         Err(_) => Err(QuotaError::Network),
@@ -145,6 +158,10 @@ fn quota_error(error: &CodexRpcError) -> QuotaError {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use tokio::process::Command;
+
     use super::*;
 
     // Captured live from codex app-server v0.135.0.
@@ -214,6 +231,71 @@ mod tests {
             parse_rate_limits(b"not json"),
             Err(QuotaError::Unknown)
         ));
+    }
+
+    /// A stand-in app-server that answers `initialize` with an error, right
+    /// away or, if `deferred`, only once the rate limits are asked for, and
+    /// answers those.
+    fn refusing_initialize(dir: &Path, deferred: bool) -> Command {
+        let (on_initialize, on_read) = if deferred {
+            ("", REFUSED)
+        } else {
+            (REFUSED, "")
+        };
+        let script = format!(
+            "#!/bin/sh
+while IFS= read -r line; do
+  case \"$line\" in
+    *'\"method\":\"initialize\"'*) {on_initialize} ;;
+    *'\"method\":\"account/rateLimits/read\"'*)
+      {on_read}
+      echo '{{\"id\":2,\"result\":{{\"rateLimits\":{{\"primary\":{{\"usedPercent\":5}}}}}}}}' ;;
+  esac
+done
+"
+        );
+        let path = dir.join("app-server");
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        Command::new(path)
+    }
+
+    /// Answers `initialize` with a JSON-RPC error.
+    const REFUSED: &str =
+        "echo '{\"id\":1,\"error\":{\"code\":-32600,\"message\":\"Not initialized\"}}'";
+
+    #[tokio::test]
+    async fn the_rate_limits_decide_whatever_initialize_said() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let body = read_rate_limits_from(
+            CodexRpc::introduce(refusing_initialize(dir.path(), false), APP_SERVER_TIMEOUT),
+            APP_SERVER_TIMEOUT,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            parse_rate_limits(body.as_bytes())
+                .unwrap()
+                .primary
+                .unwrap()
+                .utilization,
+            Some(5.0)
+        );
+    }
+
+    #[tokio::test]
+    async fn the_rate_limits_are_asked_for_without_waiting_for_initialize() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let body = read_rate_limits_from(
+            CodexRpc::introduce(refusing_initialize(dir.path(), true), APP_SERVER_TIMEOUT),
+            Duration::from_secs(2),
+        )
+        .await;
+
+        assert!(body.is_ok(), "{:?}", body.err());
     }
 
     #[test]

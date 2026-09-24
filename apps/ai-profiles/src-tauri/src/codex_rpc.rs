@@ -71,26 +71,57 @@ pub struct CodexRpc {
 }
 
 impl CodexRpc {
-    /// Start app-server on `codex_home` and initialize it.
-    ///
-    /// A Tauri app launched from Finder doesn't inherit the shell PATH, so a
-    /// bare `codex` spawn would fail with ENOENT. The binary is resolved to an
-    /// absolute path, and the resolved PATH passed on, so this works however
-    /// ai-profiles was launched.
+    /// Start app-server on `codex_home` and initialize it: an error answer to
+    /// `initialize` fails the start.
     pub async fn start(codex_home: &Path) -> Result<Self, CodexRpcError> {
-        let binary =
-            crate::deps::resolve_cli_binary_path("codex").ok_or(CodexRpcError::NotInstalled)?;
-        let mut command = Command::new(binary);
-        command
-            .arg("app-server")
-            .env("CODEX_HOME", codex_home)
-            .env("PATH", crate::deps::shell_path());
-        Self::connect(command, REQUEST_TIMEOUT).await
+        Self::connect(server_command(codex_home)?, REQUEST_TIMEOUT).await
+    }
+
+    /// Start app-server on `codex_home` and introduce ai-profiles to it
+    /// without waiting for its answer, which the first request's then comes
+    /// after: that saves a round trip, and leaves it to that request to say
+    /// whether the server works. See [`CodexRpc::introduce`].
+    pub async fn launch(codex_home: &Path) -> Result<Self, CodexRpcError> {
+        Self::introduce(server_command(codex_home)?, REQUEST_TIMEOUT).await
     }
 
     /// Spawn `command` as the server, with piped stdio, and initialize it,
     /// giving it `timeout` to answer each request.
-    async fn connect(mut command: Command, timeout: Duration) -> Result<Self, CodexRpcError> {
+    async fn connect(command: Command, timeout: Duration) -> Result<Self, CodexRpcError> {
+        let mut rpc = Self::spawn(command, timeout)?;
+        rpc.request("initialize", client_info()).await?;
+        rpc.send(&json!({ "jsonrpc": "2.0", "method": "initialized" }))
+            .await?;
+        Ok(rpc)
+    }
+
+    /// Spawn `command` as the server, with piped stdio, and introduce
+    /// ai-profiles to it, giving it `timeout` to answer each request.
+    ///
+    /// `initialize` gets id 1 and its answer is never waited for: each
+    /// request reads past it, as it reads past anything not answering its own
+    /// id, so an error answer to it fails nothing by itself.
+    pub(crate) async fn introduce(
+        command: Command,
+        timeout: Duration,
+    ) -> Result<Self, CodexRpcError> {
+        let mut rpc = Self::spawn(command, timeout)?;
+        rpc.last_id += 1;
+        let initialize = json!({
+            "jsonrpc": "2.0",
+            "id": rpc.last_id,
+            "method": "initialize",
+            "params": client_info(),
+        });
+        rpc.send(&initialize).await?;
+        rpc.send(&json!({ "jsonrpc": "2.0", "method": "initialized" }))
+            .await?;
+        Ok(rpc)
+    }
+
+    /// Spawn `command` as the server, with piped stdio, giving it `timeout`
+    /// to answer each request.
+    fn spawn(mut command: Command, timeout: Duration) -> Result<Self, CodexRpcError> {
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -99,20 +130,13 @@ impl CodexRpc {
             .spawn()?;
         let stdin = child.stdin.take().ok_or(CodexRpcError::Closed)?;
         let stdout = child.stdout.take().ok_or(CodexRpcError::Closed)?;
-        let mut rpc = Self {
+        Ok(Self {
             _child: child,
             stdin,
             lines: BufReader::new(stdout).lines(),
             last_id: 0,
             timeout,
-        };
-        let client_info = json!({
-            "clientInfo": { "name": CLIENT_NAME, "version": env!("CARGO_PKG_VERSION") },
-        });
-        rpc.request("initialize", client_info).await?;
-        rpc.send(&json!({ "jsonrpc": "2.0", "method": "initialized" }))
-            .await?;
-        Ok(rpc)
+        })
     }
 
     /// Write `message` to the server as one line.
@@ -151,6 +175,30 @@ impl CodexTransport for CodexRpc {
             .await
             .map_err(|_| CodexRpcError::Timeout)?
     }
+}
+
+/// The command running app-server on `codex_home`.
+///
+/// A Tauri app launched from Finder doesn't inherit the shell PATH, so a bare
+/// `codex` spawn would fail with ENOENT. The binary is resolved to an absolute
+/// path, and the resolved PATH passed on, so this works however ai-profiles
+/// was launched.
+fn server_command(codex_home: &Path) -> Result<Command, CodexRpcError> {
+    let binary =
+        crate::deps::resolve_cli_binary_path("codex").ok_or(CodexRpcError::NotInstalled)?;
+    let mut command = Command::new(binary);
+    command
+        .arg("app-server")
+        .env("CODEX_HOME", codex_home)
+        .env("PATH", crate::deps::shell_path());
+    Ok(command)
+}
+
+/// The `initialize` params introducing ai-profiles.
+fn client_info() -> Value {
+    json!({
+        "clientInfo": { "name": CLIENT_NAME, "version": env!("CARGO_PKG_VERSION") },
+    })
 }
 
 /// The outcome of the request with `id` if `line` is its response: its
