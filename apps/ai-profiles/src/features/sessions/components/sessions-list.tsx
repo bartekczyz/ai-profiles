@@ -24,6 +24,11 @@ type Props = {
    */
   errorMessage: string | null
   /**
+   * Why the profile can't list sessions until the user changes something,
+   * such as installing a missing tool; shown as a notice, without a Retry.
+   */
+  unavailableMessage: string | null
+  /**
    * How many sessions the open tab holds before search and kind narrow it.
    */
   tabTotal: number
@@ -117,13 +122,15 @@ const quietButtonClasses =
   'inline-flex h-7 shrink-0 cursor-pointer items-center rounded-[7px] border border-border bg-white/60 px-2.5 text-[12px] text-ink-soft outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:border-border-strong hover:bg-white focus-visible:ring-2 focus-visible:ring-orange/40 disabled:cursor-default disabled:opacity-60 dark:bg-white/[0.05] dark:hover:bg-white/[0.09]'
 
 /**
- * The open tab's body: a skeleton while the first listing loads, the failure
- * with a Retry, an empty or no-match notice, or the rows.
+ * The open tab's body: a skeleton while the first listing loads, why the
+ * profile can't list sessions, the failure with a Retry, an empty or no-match
+ * notice, or the rows.
  */
 export function SessionsList({
   loading,
   retrying,
   errorMessage,
+  unavailableMessage,
   tabTotal,
   sessions,
   moveTargets,
@@ -136,6 +143,13 @@ export function SessionsList({
 }: Props) {
   if (loading) {
     return <SessionsListSkeleton />
+  }
+  if (unavailableMessage !== null) {
+    return (
+      <Notice>
+        <p className="text-[12.5px] text-ink">{unavailableMessage}</p>
+      </Notice>
+    )
   }
   if (errorMessage !== null) {
     return <ListError retrying={retrying} message={errorMessage} onRetry={onRetry} />

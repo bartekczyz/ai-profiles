@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/design/ui/tabs'
 import { appFromEntry, entryId, useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
 import { appSpecs } from '@/lib/app-registry'
-import { extractErrorMessage } from '@/lib/extract-error-message'
+import { extractErrorKind, extractErrorMessage } from '@/lib/extract-error-message'
 
 import { useSessions } from '../api/use-sessions'
 import { countByTab, filterSessions, hasBothKinds, sortSessions } from '../lib/session-filters'
@@ -117,14 +117,19 @@ export function SessionsPanel({ profileId, app }: Props) {
   const kind = kindFilterShown ? kindChoice : 'all'
   const visible = sortSessions(filterSessions(inTab, { tab, kind, query }), direction)
   // A failed refetch keeps the rows it already has; only a listing that never
-  // landed shows the failure.
-  const errorMessage = listed === undefined && sessionsQuery.isError ? extractErrorMessage(sessionsQuery.error) : null
+  // landed shows the failure. A missing tool is a state to explain, not a
+  // failure to retry.
+  const failure = listed === undefined && sessionsQuery.isError ? sessionsQuery.error : null
+  const missingTool = failure !== null && extractErrorKind(failure) === 'NotInstalled'
+  const unavailableMessage = missingTool ? extractErrorMessage(failure) : null
+  const errorMessage = failure !== null && !missingTool ? extractErrorMessage(failure) : null
 
   const list = (
     <SessionsList
       loading={sessionsQuery.isPending}
       retrying={sessionsQuery.isFetching}
       errorMessage={errorMessage}
+      unavailableMessage={unavailableMessage}
       tabTotal={inTab.length}
       sessions={visible}
       moveTargets={moveTargets}

@@ -286,13 +286,12 @@ pub(super) fn lock_path(codex_home: &Path, id: &str) -> PathBuf {
 
 /// The error a failed listing shows as.
 fn listing_error(error: &CodexRpcError) -> AppError {
-    let message = match error {
-        CodexRpcError::NotInstalled => {
-            "Codex CLI not found. Install it to see this profile's Codex sessions.".to_string()
-        }
-        _ => format!("Couldn't read Codex sessions: {error}"),
-    };
-    AppError::Validation(message)
+    match error {
+        CodexRpcError::NotInstalled => AppError::NotInstalled(
+            "Install the Codex CLI to see this profile's sessions".to_string(),
+        ),
+        _ => AppError::Validation(format!("Couldn't read Codex sessions: {error}")),
+    }
 }
 
 #[cfg(test)]
@@ -610,9 +609,11 @@ mod tests {
         let missing = listing_error(&CodexRpcError::NotInstalled);
         let failed = listing_error(&CodexRpcError::Closed);
 
-        assert!(
-            matches!(missing, AppError::Validation(message) if message.starts_with("Codex CLI not found"))
-        );
+        assert!(matches!(
+            missing,
+            AppError::NotInstalled(message)
+                if message == "Install the Codex CLI to see this profile's sessions"
+        ));
         assert!(matches!(
             failed,
             AppError::Validation(message)

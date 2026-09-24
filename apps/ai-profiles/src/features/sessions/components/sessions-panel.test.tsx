@@ -240,6 +240,18 @@ describe('SessionsPanel', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it('explains calmly, without a Retry, that a Codex profile needs the CLI', async () => {
+    vi.mocked(listSessions).mockRejectedValue({
+      kind: 'NotInstalled',
+      message: "Install the Codex CLI to see this profile's sessions",
+    })
+    renderWithQuery(<SessionsPanel profileId="default:codex" app="codex" />)
+
+    expect(await screen.findAllByText("Install the Codex CLI to see this profile's sessions")).not.toHaveLength(0)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+  })
+
   it('archives a session from its row once the user confirms', async () => {
     mockSessions(mixed)
     const { user } = await renderPanel()

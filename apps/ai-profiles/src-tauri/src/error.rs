@@ -15,6 +15,11 @@ pub enum AppError {
 
     #[error("not found: {0}")]
     NotFound(String),
+
+    /// A tool the app needs isn't installed: a lasting state the user fixes
+    /// by installing it, not a failure that trying again gets past.
+    #[error("not installed: {0}")]
+    NotInstalled(String),
 }
 
 impl AppError {
@@ -24,7 +29,9 @@ impl AppError {
         match self {
             AppError::Io(error) => error.to_string(),
             AppError::Json(error) => error.to_string(),
-            AppError::Validation(message) | AppError::NotFound(message) => message.clone(),
+            AppError::Validation(message)
+            | AppError::NotFound(message)
+            | AppError::NotInstalled(message) => message.clone(),
         }
     }
 }
@@ -39,6 +46,7 @@ impl Serialize for AppError {
             AppError::Json(_) => "Json",
             AppError::Validation(_) => "Validation",
             AppError::NotFound(_) => "NotFound",
+            AppError::NotInstalled(_) => "NotInstalled",
         };
         let mut map = serializer.serialize_map(Some(2))?;
         map.serialize_entry("kind", kind)?;

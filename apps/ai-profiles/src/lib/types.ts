@@ -41,7 +41,7 @@ export type DefaultEntry = {
 export type SidebarEntry = { kind: 'managed'; profile: Profile } | { kind: 'default'; entry: DefaultEntry }
 
 export type AppError = {
-  kind: 'Io' | 'Json' | 'Validation' | 'NotFound'
+  kind: 'Io' | 'Json' | 'Validation' | 'NotFound' | 'NotInstalled'
   message: string
 }
 
