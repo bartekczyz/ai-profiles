@@ -37,7 +37,8 @@ export function QueryProvider({ children }: QueryProviderProps) {
         dehydrateOptions: {
           // Persist only the usage queries, and only while they hold data —
           // so the last good snapshot survives a restart even when the most
-          // recent fetch errored (its data is retained, see Phase 1). Every
+          // recent fetch errored: a failed usage fetch throws rather than
+          // returning data, so the query keeps the snapshot before it. Every
           // other query stays in-memory and re-fetches on launch as before.
           shouldDehydrateQuery: (query) => query.queryKey[0] === 'profile-usage' && query.state.data !== undefined,
         },
