@@ -5,8 +5,7 @@ import { Skeleton } from '@/design'
  * the pane the same way: a flex column that, in the two-column layout, fills
  * the sessions column's height.
  */
-export const sessionsPanelClasses =
-  '@container/sessions mb-6 flex flex-col gap-2.5 @min-[1072px]/pane:min-h-0 @min-[1072px]/pane:flex-1'
+export const sessionsPanelClasses = '@container/sessions mb-6 flex flex-col gap-2.5 pane-wide:min-h-0 pane-wide:flex-1'
 
 /**
  * The same inset grouped panel as the surfaces block. It scrolls on its own

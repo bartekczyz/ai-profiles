@@ -38,35 +38,31 @@ type Props = {
  * pane renders carries its own 24px bottom margin, so 16px here lands the
  * same gutter as the 40px above.
  *
- * With an `aside`, the pane becomes a size container. Below 1072px of pane
- * width — the default window less the sidebar — the aside simply follows the
- * body and the whole column scrolls as before. From 1072px the body turns
- * into two columns under a header widened to span both: the body column
- * scrolls on its own, and the aside gets the full height to lay out as it
- * likes. The aside is rendered once either way and only CSS moves it, so its
- * state (a half-typed search, say) survives a resize across the breakpoint.
+ * With an `aside`, the pane becomes the size container `pane-wide:` queries
+ * (see `index.css`). Narrower, the aside simply follows the body and the
+ * whole column scrolls as before. Wide, the body turns into two columns under
+ * a header widened to span both: the body column scrolls on its own, and the
+ * aside gets the full height to lay out as it likes. The aside is rendered
+ * once either way and only CSS moves it, so its state (a half-typed search,
+ * say) survives a resize across the breakpoint.
  */
 export function PaneLayout({ header, children, aside, className }: Props) {
   const hasAside = aside !== undefined
   return (
-    <main className={cn('flex flex-1 flex-col overflow-hidden', hasAside && '@container/pane', className)}>
+    <main className={cn('flex flex-1 flex-col overflow-hidden', hasAside && 'pane-container', className)}>
       <div className="shrink-0 overflow-hidden px-10 pt-10 [scrollbar-gutter:stable]">
-        <div className={cn('mx-auto w-full max-w-[640px]', hasAside && '@min-[1072px]/pane:max-w-[1120px]')}>
-          {header}
-        </div>
+        <div className={cn('mx-auto w-full max-w-[640px]', hasAside && 'pane-wide:max-w-[1120px]')}>{header}</div>
       </div>
       <div
         className={cn(
           'flex-1 overflow-y-auto px-10 pt-5 pb-4 [scrollbar-gutter:stable]',
-          hasAside && 'min-h-0 @min-[1072px]/pane:overflow-hidden',
+          hasAside && 'min-h-0 pane-wide:overflow-hidden',
         )}
       >
         {hasAside ? (
-          <div className="mx-auto w-full max-w-[640px] @min-[1072px]/pane:grid @min-[1072px]/pane:h-full @min-[1072px]/pane:max-w-[1120px] @min-[1072px]/pane:grid-cols-[minmax(0,640px)_minmax(0,1fr)] @min-[1072px]/pane:grid-rows-[minmax(0,1fr)] @min-[1072px]/pane:gap-8">
-            <div className="@min-[1072px]/pane:min-h-0 @min-[1072px]/pane:overflow-y-auto">{children}</div>
-            <div className="@min-[1072px]/pane:flex @min-[1072px]/pane:min-h-0 @min-[1072px]/pane:flex-col">
-              {aside}
-            </div>
+          <div className="mx-auto w-full max-w-[640px] pane-wide:grid pane-wide:h-full pane-wide:max-w-[1120px] pane-wide:grid-cols-[minmax(0,640px)_minmax(0,1fr)] pane-wide:grid-rows-[minmax(0,1fr)] pane-wide:gap-8">
+            <div className="pane-wide:min-h-0 pane-wide:overflow-y-auto">{children}</div>
+            <div className="pane-wide:flex pane-wide:min-h-0 pane-wide:flex-col">{aside}</div>
           </div>
         ) : (
           <div className="mx-auto w-full max-w-[640px]">{children}</div>
