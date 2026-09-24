@@ -112,12 +112,70 @@ jobs:
           prerelease: false
           args: --target universal-apple-darwin
 
-      # release-please publishes the GitHub Release as a draft so users
-      # never see a release without its .dmg attached. Flip it to
-      # published only after tauri-action successfully uploaded every
-      # asset — implicit `if: success()` skips this on failure, leaving
-      # the broken release as a draft for inspection.
+  # The server for Linux hosts, statically linked (musl) so it runs on any
+  # distribution, built natively on each architecture and attached to the
+  # same release.
+  server:
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: '${{ matrix.arch }}-unknown-linux-musl'
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './apps/ai-profiles/src-tauri -> target'
+          key: server-${{ matrix.arch }}
+
+      # ring compiles C with musl-gcc for the musl target.
+      - name: Install musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build
+        working-directory: apps/ai-profiles/src-tauri
+        run: cargo build --release --locked -p ai-profiles-server --target ${{ matrix.arch }}-unknown-linux-musl
+
+      - name: Package
+        run: |
+          out=ai-profiles-server-${{ matrix.arch }}-linux
+          cp apps/ai-profiles/src-tauri/target/${{ matrix.arch }}-unknown-linux-musl/release/ai-profiles-server "$out"
+          "./$out" --version
+          sha256sum "$out" > "$out.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.arch }}
+          path: ai-profiles-server-*
+
+  # release-please publishes the GitHub Release as a draft so users never see
+  # a release without its files. Attach the servers, then flip it to
+  # published, only once the .dmg and both servers are there: a failure
+  # anywhere leaves the draft for inspection.
+  release:
+    needs: [publish, server]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: server-*
+          merge-multiple: true
+
+      - name: Attach the servers
+        run: gh release upload "$TAG" ai-profiles-server-* --clobber --repo "$GITHUB_REPOSITORY"
+
       - name: Publish release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ inputs.tag || github.ref_name }}" --draft=false
+        run: gh release edit "$TAG" --draft=false --repo "$GITHUB_REPOSITORY"

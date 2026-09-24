@@ -36,6 +36,32 @@ jobs:
         run: cargo test -- --test-threads=1
         working-directory: apps/ai-profiles/src-tauri
 
+  # ai-profiles-server runs on Linux, where it reads /proc and drives tmux:
+  # its crates are also checked there, with a real tmux for the launch tests.
+  server-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './apps/ai-profiles/src-tauri -> target'
+
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: cargo clippy
+        run: cargo clippy --locked -p ai-profiles-core -p ai-profiles-server --all-targets -- -D warnings
+        working-directory: apps/ai-profiles/src-tauri
+
+      - name: cargo test
+        run: cargo test --locked -p ai-profiles-core -p ai-profiles-server
+        working-directory: apps/ai-profiles/src-tauri
+
   frontend:
     runs-on: macos-latest
     steps:
