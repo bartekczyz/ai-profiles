@@ -122,7 +122,8 @@ pub struct PreparedRepair {
 /// - while a terminal has one of its transcripts open;
 /// - while another home's active desktop record claims the same copy of one
 ///   of them, as moving it would take it from there; a home keeping its own
-///   copy, as one a session was moved to does, claims that one instead;
+///   copy, as one a session was moved to does, claims that one instead, and
+///   does so archived too, as Restore there brings it back;
 /// - when one of them has an id that isn't a single plain folder name, as its
 ///   files are found by it;
 /// - when `home` has different files where one of them goes: a bulk repair
@@ -265,20 +266,28 @@ struct Context<'a> {
     listers: &'a HashMap<(String, String), Vec<String>>,
 }
 
-/// The ids of the homes whose active desktop records claim each copy of a
+/// The ids of the homes whose desktop records claim each copy of a
 /// transcript, by the transcript's id and the id of the home holding the
 /// copy. A record claims its own home's copy when there is one (see
 /// [`claimed_copy`]), so a home that keeps its own copy of a transcript
-/// doesn't list the one a repair takes.
+/// doesn't list the one a repair takes. An archived record counts only for
+/// its own home's copy: that is its session's, to restore, while one in
+/// another home is left to be repaired.
 fn listers(scans: &[HomeScan]) -> HashMap<(String, String), Vec<String>> {
     let holders = holders(scans);
     let mut listers: HashMap<(String, String), Vec<String>> = HashMap::new();
     for scan in scans {
-        let active = scan.records.iter().filter(|record| !record.archived);
-        for id in active.flat_map(claimed_ids) {
+        for (record, id) in scan
+            .records
+            .iter()
+            .flat_map(|record| claimed_ids(record).map(move |id| (record, id)))
+        {
             let Some(copy) = claimed_copy(&scan.home_id, id, &holders) else {
                 continue;
             };
+            if record.archived && copy != scan.home_id {
+                continue;
+            }
             let homes = listers
                 .entry((id.to_string(), copy.to_string()))
                 .or_default();
@@ -1017,6 +1026,35 @@ mod tests {
 
         assert_eq!(report.repaired, 1);
         assert!(!default.config_dir.join(transcript_path("now")).exists());
+    }
+
+    #[test]
+    fn a_copy_an_archived_record_claims_as_its_own_stays_in_its_profile() {
+        let root = tempdir().unwrap();
+        let personal = home(root.path(), "Personal");
+        let work = home(root.path(), "Work");
+        transcript(&personal, "s");
+        record(
+            &personal,
+            "p1",
+            json!({ "cliSessionId": "s", "isArchived": true }),
+        );
+        record(&work, "w1", json!({ "cliSessionId": "s" }));
+        let homes = vec![personal.clone(), work.clone()];
+        let at_personal = tree(&personal.config_dir);
+
+        let report = repair(&work, &homes, "");
+
+        assert_eq!(report.repaired, 0);
+        assert_eq!(
+            report.skipped,
+            [SkippedSession {
+                id: "s".to_string(),
+                reason: "Claude (Personal) lists it too".to_string(),
+            }]
+        );
+        assert_eq!(tree(&personal.config_dir), at_personal);
+        assert!(!work.config_dir.join(transcript_path("s")).exists());
     }
 
     #[test]
