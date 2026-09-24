@@ -23,7 +23,7 @@ use super::archive_store::{
     ArchivedBundle,
 };
 use super::copy::{compare, move_new, place, ItemAction};
-use super::live::LiveHolder;
+use super::live::{live_sessions, registrations, LiveHolder};
 use super::memory::merge_memory;
 use super::ownership::{
     claimed_copy, claimed_ids, holders, owned_by, HeldTranscript, HomeScan, Owned,
@@ -36,7 +36,7 @@ use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
 use crate::sessions::actions::{ActionCheck, AppToQuit, Checked};
 use crate::sessions::instance::{desktop_label, desktop_pid};
-use crate::sessions::list::{home_scans, live_anywhere, transcript_title, OPEN_IN_TERMINAL};
+use crate::sessions::list::{home_scans, transcript_title, OPEN_IN_TERMINAL};
 use crate::sessions::Home;
 
 /// A session a repair left as it was, and why.
@@ -119,7 +119,8 @@ pub struct PreparedRepair {
 /// An active session of `home` needs repair when a transcript it claims is in
 /// another home's config dir; archived ones are left as they are. One is
 /// skipped, and said why:
-/// - while a terminal has one of its transcripts open;
+/// - while a terminal has one of its transcripts open, or another home's
+///   desktop app does, as only `home`'s is quit;
 /// - while another home's active desktop record claims the same copy of one
 ///   of them, as moving it would take it from there; a home keeping its own
 ///   copy, as one a session was moved to does, claims that one instead, and
@@ -135,7 +136,7 @@ pub struct PreparedRepair {
 /// there is something to repair.
 pub fn check(home: &Home, homes: &[Home], ps_output: &str) -> AppResult<Checked<PreparedRepair>> {
     let scans = home_scans(homes);
-    let live = live_anywhere(homes, ps_output);
+    let live = live_by_home(homes, ps_output);
     let listers = listers(&scans);
     let context = Context {
         home,
@@ -193,8 +194,10 @@ pub fn check(home: &Home, homes: &[Home], ps_output: &str) -> AppResult<Checked<
 ///
 /// `home`'s desktop app must not run while its config dir is written, so one
 /// that started again since the check is looked for right before the first
-/// write, and the repair refused if it runs. A terminal may have opened a
-/// session since, so that is looked for right before each session moves.
+/// write, and the repair refused if it runs. A terminal or another desktop
+/// app may have opened a session since, so that is looked for right before
+/// each session moves: a process that has a session open registers it, so
+/// only a session something registered has the running processes listed.
 pub fn apply(prepared: PreparedRepair, at: DateTime<Utc>) -> AppResult<RepairReport> {
     apply_with(prepared, at, &mut move_exclusive, &mut process_list)
 }
@@ -219,18 +222,12 @@ fn apply_with(
     let mut repaired: u32 = 0;
     let mut memory_conflicts: Vec<String> = Vec::new();
     for session in sessions {
-        let outcome = processes()
-            .map_err(|error| error.message())
-            .and_then(|ps_output| {
-                let live = live_anywhere(&homes, &ps_output);
-                if open_in_terminal(&session.transcript_ids, &live) {
-                    return Err(OPEN_IN_TERMINAL.to_string());
-                }
-                let backup = replaced_dir(&home.config_dir, &session.session_id, at)
-                    .map_err(|error| error.message())?;
-                repair_session(&home.config_dir, &session, &backup, at, rename)
-                    .map_err(|error| failure(&error, &backup))
-            });
+        let outcome = still_free(&session, &home, &homes, processes).and_then(|()| {
+            let backup = replaced_dir(&home.config_dir, &session.session_id, at)
+                .map_err(|error| error.message())?;
+            repair_session(&home.config_dir, &session, &backup, at, rename)
+                .map_err(|error| failure(&error, &backup))
+        });
         match outcome {
             Ok(conflicts) => {
                 repaired += 1;
@@ -259,8 +256,8 @@ struct Context<'a> {
     home: &'a Home,
     /// Every home of the app.
     homes: &'a [Home],
-    /// The sessions open anywhere, by transcript id.
-    live: &'a HashMap<String, LiveHolder>,
+    /// The sessions open in each home's config dir, by transcript id.
+    live: &'a [(&'a Home, HashMap<String, LiveHolder>)],
     /// The homes whose active desktop records claim each copy of a
     /// transcript, by its id and the home holding the copy.
     listers: &'a HashMap<(String, String), Vec<String>>,
@@ -299,11 +296,70 @@ fn listers(scans: &[HomeScan]) -> HashMap<(String, String), Vec<String>> {
     listers
 }
 
-/// Whether a terminal has any of `ids`, a session's transcripts, open, of
-/// the sessions `live` anywhere.
-fn open_in_terminal(ids: &[String], live: &HashMap<String, LiveHolder>) -> bool {
-    ids.iter()
-        .any(|id| live.get(id) == Some(&LiveHolder::Terminal))
+/// The sessions open in each of `homes`' config dirs, by transcript id,
+/// given the output of `ps -ax -o pid=,command=`. A process registers the
+/// session it has open in the config dir its transcript is in.
+fn live_by_home<'a>(
+    homes: &'a [Home],
+    ps_output: &str,
+) -> Vec<(&'a Home, HashMap<String, LiveHolder>)> {
+    homes
+        .iter()
+        .map(|each| (each, live_sessions(&each.config_dir, ps_output)))
+        .collect()
+}
+
+/// Why a session of `home` whose transcripts are `ids` can't be moved while
+/// the sessions `live` in each home are open, if it can't: a terminal has one
+/// open, or another home's desktop app does. `home`'s own desktop app quits
+/// before anything moves.
+fn in_use(
+    ids: &[String],
+    home: &Home,
+    live: &[(&Home, HashMap<String, LiveHolder>)],
+) -> Option<String> {
+    let mut reason = None;
+    for (each, open) in live {
+        for id in ids {
+            match open.get(id) {
+                Some(LiveHolder::Terminal) => return Some(OPEN_IN_TERMINAL.to_string()),
+                Some(LiveHolder::Desktop) if each.id != home.id && reason.is_none() => {
+                    reason = Some(format!("{} has it open", desktop_label(each)));
+                }
+                _ => {}
+            }
+        }
+    }
+    reason
+}
+
+/// Whether `session` of `home`, one of `homes`, is still free to move: `Err`
+/// with the reason when [`in_use`]. The running processes are listed with
+/// `processes` only when a process registered one of its transcripts in any
+/// home; one that can't be listed then keeps the session where it is.
+fn still_free(
+    session: &SessionRepair,
+    home: &Home,
+    homes: &[Home],
+    processes: &mut impl FnMut() -> AppResult<String>,
+) -> Result<(), String> {
+    let registered = homes.iter().any(|each| {
+        registrations(&each.config_dir)
+            .iter()
+            .any(|registration| session.transcript_ids.contains(&registration.session_id))
+    });
+    if !registered {
+        return Ok(());
+    }
+    let ps_output = processes().map_err(|error| error.message())?;
+    match in_use(
+        &session.transcript_ids,
+        home,
+        &live_by_home(homes, &ps_output),
+    ) {
+        Some(reason) => Err(reason),
+        None => Ok(()),
+    }
 }
 
 /// What repairing `owned`, a session of the context's home, does, or why it
@@ -328,8 +384,8 @@ fn session_repair(context: &Context, owned: &Owned) -> Result<SessionRepair, Str
             transcript_ids.push(held.summary.session_id.clone());
         }
     }
-    if open_in_terminal(&transcript_ids, context.live) {
-        return Err(OPEN_IN_TERMINAL.to_string());
+    if let Some(reason) = in_use(&transcript_ids, home, context.live) {
+        return Err(reason);
     }
     for held in &orphans {
         let other = context
@@ -364,7 +420,14 @@ fn session_repair(context: &Context, owned: &Owned) -> Result<SessionRepair, Str
                     held.summary.session_id
                 )
             })?;
-        transcripts.push(transcript_move(home, holder, held, title.as_deref())?);
+        let shown = Some(held.summary.session_id.as_str()) == displayed;
+        transcripts.push(transcript_move(
+            home,
+            holder,
+            held,
+            title.as_deref(),
+            shown,
+        )?);
         for slug in plan_slugs(&held.summary.path) {
             let relative = Path::new(PLANS_DIR).join(format!("{slug}.md"));
             let from = holder.config_dir.join(&relative);
@@ -385,15 +448,18 @@ fn session_repair(context: &Context, owned: &Owned) -> Result<SessionRepair, Str
 
 /// What moving `held`, a transcript in `holder`'s config dir, into `home`'s
 /// does: the files and folders of its bundle `home` lacks, the transcript
-/// last. A session shown under `title` is archived under it, should the
-/// transcript be copied. Refused, with the reason, for a transcript whose id
-/// isn't a single plain folder name, as its bundle's paths are made of it,
-/// and when `home` has different files where one goes.
+/// last. Should the transcript be copied, it is archived under the title of
+/// its session, `title`, else its own; one the session isn't `shown` by is
+/// marked the session's earlier part, so the two tell apart in the Archived
+/// list. Refused, with the reason, for a transcript whose id isn't a single
+/// plain folder name, as its bundle's paths are made of it, and when `home`
+/// has different files where one goes.
 fn transcript_move(
     home: &Home,
     holder: &Home,
     held: &HeldTranscript,
     title: Option<&str>,
+    shown: bool,
 ) -> Result<TranscriptMove, String> {
     let summary = &held.summary;
     if !is_session_dir_name(&summary.session_id) {
@@ -418,11 +484,19 @@ fn transcript_move(
             }
         }
     }
+    let title = title
+        .map(str::to_string)
+        .or_else(|| transcript_title(summary))
+        .map(|title| {
+            if shown {
+                title
+            } else {
+                format!("{title} (earlier part)")
+            }
+        });
     let described = ArchivedBundle {
         session_id: summary.session_id.clone(),
-        title: title
-            .map(str::to_string)
-            .or_else(|| transcript_title(summary)),
+        title,
         cwd: summary.cwd.clone(),
         last_prompt: summary.last_prompt.clone(),
         last_used_at: summary.last_used_at,
@@ -437,6 +511,12 @@ fn transcript_move(
 /// A step of a session's repair, to take back should a later one fail.
 #[derive(Debug)]
 enum Step {
+    /// These folders were made in the config dir to put items in, the
+    /// outermost first.
+    MadeFolders {
+        /// The folders.
+        folders: Vec<PathBuf>,
+    },
     /// These items were moved here from the config dir `from`.
     Moved {
         /// The config dir they came from.
@@ -541,6 +621,10 @@ fn relocate(
     if pending.is_empty() {
         return Ok(());
     }
+    let folders = missing_folders(&pending, config_dir);
+    if !folders.is_empty() {
+        steps.push(Step::MadeFolders { folders });
+    }
     let failed = match move_all(&pending, from, config_dir, rename) {
         Ok(()) => {
             steps.push(Step::Moved {
@@ -571,9 +655,33 @@ fn relocate(
     Ok(())
 }
 
+/// The folders under `config_dir` that putting `items` there makes, as they
+/// aren't there yet, the outermost first.
+fn missing_folders(items: &[PathBuf], config_dir: &Path) -> Vec<PathBuf> {
+    let mut folders: Vec<PathBuf> = Vec::new();
+    for item in items {
+        let mut ancestors: Vec<PathBuf> = item
+            .ancestors()
+            .skip(1)
+            .filter(|ancestor| !ancestor.as_os_str().is_empty())
+            .map(|ancestor| config_dir.join(ancestor))
+            .take_while(|folder| !occupied(folder))
+            .collect();
+        ancestors.reverse();
+        for folder in ancestors {
+            if !folders.contains(&folder) {
+                folders.push(folder);
+            }
+        }
+    }
+    folders.sort_by_key(|folder| folder.components().count());
+    folders
+}
+
 /// Take back `steps`, the last first: move what was moved into `config_dir`
-/// back with `rename`, restore what was archived, and set what was copied
-/// aside into `backup`. Returns what couldn't be taken back.
+/// back with `rename`, restore what was archived, set what was copied aside
+/// into `backup`, and remove the folders made for them once empty. Returns
+/// what couldn't be taken back, naming what stays where.
 fn unwind(
     steps: Vec<Step>,
     config_dir: &Path,
@@ -582,24 +690,58 @@ fn unwind(
 ) -> Vec<String> {
     let mut failures = Vec::new();
     for step in steps.into_iter().rev() {
-        let undone = match step {
-            Step::Moved { from, items } => {
-                move_all(&items, config_dir, &from, rename).map_err(|failed| failed.error)
+        match step {
+            Step::MadeFolders { folders } => {
+                // Only an empty folder is removed: one still holding what
+                // couldn't be put back stays, and that is named already.
+                for folder in folders.iter().rev() {
+                    let _ = fs::remove_dir(folder);
+                }
             }
-            Step::Copied { item } => move_all(
-                std::slice::from_ref(&item),
-                config_dir,
-                backup,
-                &mut |from, to| fs::rename(from, to),
-            )
-            .map_err(|failed| failed.error),
-            Step::Archived { from, session_id } => restore_bundle(&from, &session_id),
-        };
-        if let Err(error) = undone {
-            failures.push(error.message());
+            Step::Moved { from, items } => {
+                for item in items.iter().rev() {
+                    if let Err(failed) =
+                        move_all(std::slice::from_ref(item), config_dir, &from, rename)
+                    {
+                        failures.push(stays(item, &failed.error, config_dir));
+                    }
+                }
+            }
+            Step::Copied { item } => {
+                let set_aside = move_all(
+                    std::slice::from_ref(&item),
+                    config_dir,
+                    backup,
+                    &mut |from, to| fs::rename(from, to),
+                );
+                if let Err(failed) = set_aside {
+                    failures.push(stays(&item, &failed.error, config_dir));
+                }
+            }
+            Step::Archived { from, session_id } => {
+                if let Err(error) = restore_bundle(&from, &session_id) {
+                    failures.push(format!(
+                        "{} stays archived in {} ({})",
+                        session_id,
+                        from.display(),
+                        error.message()
+                    ));
+                }
+            }
         }
     }
     failures
+}
+
+/// What is said of `item` that `error` kept from being taken back out of
+/// `config_dir`.
+fn stays(item: &Path, error: &AppError, config_dir: &Path) -> String {
+    format!(
+        "{} couldn't be put back ({}), so it stays in {}",
+        item.display(),
+        error.message(),
+        config_dir.display()
+    )
 }
 
 /// Move `from` to `to`, which must be free: a file with [`move_new`], which
@@ -908,13 +1050,116 @@ mod tests {
                 assert!(!default.config_dir.join(&path).exists());
             }
         }
-        let mut archived: Vec<String> = archived_bundles(&default.config_dir)
+        let mut archived: Vec<(String, Option<String>)> = archived_bundles(&default.config_dir)
             .into_iter()
-            .map(|bundle| bundle.session_id)
+            .map(|bundle| (bundle.session_id, bundle.title))
             .collect();
         archived.sort();
-        assert_eq!(archived, ["before", "now"]);
+        assert_eq!(
+            archived,
+            [
+                (
+                    "before".to_string(),
+                    Some("Fix the login bug (earlier part)".to_string())
+                ),
+                ("now".to_string(), Some("Fix the login bug".to_string())),
+            ]
+        );
         assert_eq!(claude_sessions(&personal, &homes, "").repair_count, 0);
+    }
+
+    #[test]
+    fn a_session_that_cant_all_be_put_back_says_what_stays_in_the_profile() {
+        let root = tempdir().unwrap();
+        let (default, personal, homes) = orphaned(root.path());
+        let checked = check(&personal, &homes, "").unwrap();
+        let into_profile = personal.config_dir.clone();
+
+        // The shown transcript won't move, and then the earlier one won't go
+        // back.
+        let report = apply_with(
+            checked.target,
+            AT.parse().unwrap(),
+            &mut |from, to| {
+                let back = from.starts_with(&into_profile) && from.ends_with("before.jsonl");
+                if from.ends_with("now.jsonl") || back {
+                    return Err(io::ErrorKind::PermissionDenied.into());
+                }
+                move_exclusive(from, to)
+            },
+            &mut || Ok(String::new()),
+        )
+        .unwrap();
+
+        assert_eq!(report.repaired, 0);
+        let reason = &report.skipped[0].reason;
+        assert!(
+            reason.contains("projects/-work-app/before.jsonl"),
+            "{reason}"
+        );
+        assert!(
+            reason.contains(&personal.config_dir.display().to_string()),
+            "{reason}"
+        );
+        assert!(personal.config_dir.join(transcript_path("before")).exists());
+        assert!(default
+            .config_dir
+            .join("file-history/before/abc@v1")
+            .exists());
+        assert!(default.config_dir.join(transcript_path("now")).exists());
+    }
+
+    #[test]
+    fn processes_are_only_listed_for_a_session_a_process_registered() {
+        let root = tempdir().unwrap();
+        let (default, personal, homes) = orphaned(root.path());
+        transcript(&default, "other");
+        record(&personal, "r2", json!({ "cliSessionId": "other" }));
+        let checked = check(&personal, &homes, "").unwrap();
+        write(
+            &default.config_dir.join("sessions/4100.json"),
+            &json!({ "pid": 4100, "sessionId": "other", "entrypoint": "cli" }).to_string(),
+        );
+        let mut listed = 0;
+
+        let report = apply_with(
+            checked.target,
+            AT.parse().unwrap(),
+            &mut move_exclusive,
+            &mut || {
+                listed += 1;
+                Ok(String::new())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(report.repaired, 2);
+        assert_eq!(listed, 1);
+    }
+
+    #[test]
+    fn a_session_another_profiles_desktop_app_has_open_is_skipped() {
+        let root = tempdir().unwrap();
+        let (default, personal, homes) = orphaned(root.path());
+        write(
+            &default.config_dir.join("sessions/4200.json"),
+            &json!({ "pid": 4200, "sessionId": "now", "entrypoint": "claude-desktop" }).to_string(),
+        );
+        let running =
+            "  4200 /Users/me/Library/Application Support/Claude/claude-code/2.1.9/claude\n";
+        let before = tree(root.path());
+
+        let report = repair(&personal, &homes, running);
+
+        assert_eq!(report.repaired, 0);
+        assert_eq!(
+            report.skipped,
+            [SkippedSession {
+                id: "now".to_string(),
+                reason: "Claude (Default) has it open".to_string(),
+            }]
+        );
+        assert_eq!(tree(root.path()), before);
     }
 
     #[test]
@@ -1211,6 +1456,8 @@ mod tests {
     fn a_session_moves_whole_or_stays_where_it_was() {
         let root = tempdir().unwrap();
         let (default, personal, homes) = orphaned(root.path());
+        // The profile has a file history folder already, empty.
+        fs::create_dir_all(personal.config_dir.join("file-history")).unwrap();
         let checked = check(&personal, &homes, "").unwrap();
         let before = tree(root.path());
 
@@ -1239,6 +1486,9 @@ mod tests {
         assert_eq!(tree(root.path()), before);
         assert!(default.config_dir.join(transcript_path("before")).exists());
         assert_eq!(claude_sessions(&personal, &homes, "").repair_count, 1);
+        assert!(!personal.config_dir.join("projects").exists());
+        assert!(!personal.config_dir.join("file-history/before").exists());
+        assert!(personal.config_dir.join("file-history").is_dir());
     }
 
     #[test]
@@ -1309,7 +1559,7 @@ mod tests {
         let context = Context {
             home: &personal,
             homes: &only_personal,
-            live: &HashMap::new(),
+            live: &[],
             listers: &HashMap::new(),
         };
 

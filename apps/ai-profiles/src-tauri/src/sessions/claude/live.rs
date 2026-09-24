@@ -27,20 +27,26 @@ struct RegistryEntry {
     entrypoint: Option<String>,
 }
 
-/// The sessions open in `config_dir`, by session id, given the output of
-/// `ps -ax -o pid=,command=`.
-///
-/// A running `claude` keeps an entry in `<config>/sessions/<pid>.json`, and an
-/// entry whose pid is no longer running is left behind by one that crashed, so
-/// only entries whose pid `ps_output` lists count. Files that aren't a readable
-/// entry are skipped. A session open in a terminal and the desktop app at once
-/// is held by the terminal, the holder that only the user can close.
-pub fn live_sessions(config_dir: &Path, ps_output: &str) -> HashMap<String, LiveHolder> {
-    let running = running_pids(ps_output);
+/// A session a `claude` process registered as open, running or not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Registration {
+    /// The process that registered it.
+    pub pid: i32,
+    /// The session it has open.
+    pub session_id: String,
+    /// What has it open, by how the process was started.
+    pub holder: LiveHolder,
+}
+
+/// The sessions registered as open in `config_dir`: its
+/// `<config>/sessions/<pid>.json` entries, including those a process that
+/// crashed left behind. Files that aren't a readable entry are skipped. Only
+/// files are read, so this is cheap enough to do before every write.
+pub fn registrations(config_dir: &Path) -> Vec<Registration> {
     let Ok(files) = fs::read_dir(config_dir.join("sessions")) else {
-        return HashMap::new();
+        return Vec::new();
     };
-    let mut live = HashMap::new();
+    let mut registrations = Vec::new();
     for file in files.flatten() {
         let path = file.path();
         if path.extension().is_none_or(|extension| extension != "json") {
@@ -52,15 +58,37 @@ pub fn live_sessions(config_dir: &Path, ps_output: &str) -> HashMap<String, Live
         else {
             continue;
         };
-        if !running.contains(&entry.pid) {
-            continue;
-        }
         let holder = if entry.entrypoint.as_deref() == Some("claude-desktop") {
             LiveHolder::Desktop
         } else {
             LiveHolder::Terminal
         };
-        let held = live.entry(entry.session_id).or_insert(holder);
+        registrations.push(Registration {
+            pid: entry.pid,
+            session_id: entry.session_id,
+            holder,
+        });
+    }
+    registrations
+}
+
+/// The sessions open in `config_dir`, by session id, given the output of
+/// `ps -ax -o pid=,command=`.
+///
+/// A running `claude` keeps an entry in `<config>/sessions/<pid>.json` (see
+/// [`registrations`]), and an entry whose pid is no longer running is left
+/// behind by one that crashed, so only entries whose pid `ps_output` lists
+/// count. A session open in a terminal and the desktop app at once is held by
+/// the terminal, the holder that only the user can close.
+pub fn live_sessions(config_dir: &Path, ps_output: &str) -> HashMap<String, LiveHolder> {
+    let running = running_pids(ps_output);
+    let mut live = HashMap::new();
+    for registration in registrations(config_dir) {
+        if !running.contains(&registration.pid) {
+            continue;
+        }
+        let holder = registration.holder;
+        let held = live.entry(registration.session_id).or_insert(holder);
         if holder == LiveHolder::Terminal {
             *held = holder;
         }
