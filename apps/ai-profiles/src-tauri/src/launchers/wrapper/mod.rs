@@ -249,6 +249,22 @@ fn handoff_recorded(info: &Dictionary) -> bool {
     })
 }
 
+/// Pure: whether `info` records the config-home env var the shim sets before
+/// starting the vendor binary. Without it the app reads the stock config home
+/// rather than the profile's.
+pub(crate) fn config_env_recorded(info: &Dictionary) -> bool {
+    [
+        profile_shim::CONFIG_ENV_NAME_KEY,
+        profile_shim::CONFIG_ENV_VALUE_KEY,
+    ]
+    .iter()
+    .all(|key| {
+        info.get(key)
+            .and_then(Value::as_string)
+            .is_some_and(|value| !value.is_empty())
+    })
+}
+
 /// Whether the wrapper at `wrapper` can hand a launch back: it records all
 /// three parameters and the binary they name is still there.
 ///
@@ -280,10 +296,11 @@ fn built_by_version(wrapper: &Path) -> Option<String> {
 ///
 /// A vendor whose version cannot be read leaves an existing wrapper `Current`,
 /// because there is nothing to compare it with and a rebuild would fail anyway.
-/// The other two checks have no such excuse: a wrapper that cannot ask for a
-/// rebuild, or that an older ai-profiles built, is stale whatever the vendor
-/// says — the contents are this app's to keep up to date, and no later launch
-/// would put either right on its own.
+/// The other checks have no such excuse: a wrapper that cannot ask for a
+/// rebuild, that an older ai-profiles built, or that leaves its app on the
+/// stock config home is stale whatever the vendor says — the contents are this
+/// app's to keep up to date, and no later launch would put any of them right on
+/// its own.
 pub fn state(vendor_bundle: Option<&Path>, wrapper: &Path, built_by: &str) -> WrapperState {
     if !wrapper.exists() {
         return WrapperState::Missing;
@@ -292,7 +309,8 @@ pub fn state(vendor_bundle: Option<&Path>, wrapper: &Path, built_by: &str) -> Wr
         .and_then(bundle_version)
         .is_some_and(|current| version_drifted(&current, built_from_version(wrapper).as_deref()));
     let ours = built_by_version(wrapper).as_deref() == Some(built_by);
-    if drifted || !ours || !handoff_ready(wrapper) {
+    let config_env = read_info_plist(wrapper).is_ok_and(|info| config_env_recorded(&info));
+    if drifted || !ours || !handoff_ready(wrapper) || !config_env {
         WrapperState::Stale
     } else {
         WrapperState::Current
@@ -977,6 +995,8 @@ mod tests {
             (profile_shim::VENDOR_BUNDLE_KEY, "/Applications/Vendor.app"),
             (profile_shim::HOST_BINARY_KEY, host),
             (info_plist::BUILT_BY_KEY, BUILT_BY),
+            (profile_shim::CONFIG_ENV_NAME_KEY, "CLAUDE_CONFIG_DIR"),
+            (profile_shim::CONFIG_ENV_VALUE_KEY, "/data/cli-config"),
         ]
     }
 
@@ -1101,6 +1121,33 @@ mod tests {
         );
         assert_eq!(state(Some(&vendor), &wrapper, "1.4.0"), WrapperState::Stale);
         assert_eq!(state(None, &wrapper, "1.4.0"), WrapperState::Stale);
+    }
+
+    #[test]
+    fn a_wrapper_that_leaves_its_app_on_the_stock_config_home_is_stale() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = write_host_binary(dir.path());
+        let vendor = bundle_with_info(dir.path(), "Vendor.app", &[("CFBundleVersion", "2.0")]);
+
+        // Built by this very version, but before it set the config home: the
+        // app still reads the stock one.
+        for dropped in [
+            profile_shim::CONFIG_ENV_NAME_KEY,
+            profile_shim::CONFIG_ENV_VALUE_KEY,
+        ] {
+            let mut entries = vec![(info_plist::VENDOR_VERSION_KEY, "2.0")];
+            entries.extend(
+                handoff_entries(&host)
+                    .into_iter()
+                    .filter(|(key, _)| *key != dropped),
+            );
+            let partial = bundle_with_info(dir.path(), &format!("No{dropped}.app"), &entries);
+            assert_eq!(
+                state(Some(&vendor), &partial, BUILT_BY),
+                WrapperState::Stale,
+                "{dropped}"
+            );
+        }
     }
 
     /// Opt-in: builds wrappers from whichever vendor apps are installed, into a

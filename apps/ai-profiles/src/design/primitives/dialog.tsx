@@ -126,7 +126,7 @@ export function Dialog({
           )}
           <div className="flex-1 overflow-y-auto px-6 pt-5 pb-6">{children}</div>
           {foot ? (
-            <footer className="flex items-center justify-end gap-2 border-t border-border-soft bg-[linear-gradient(180deg,transparent,rgba(0,0,0,0.015))] px-6 py-3.5 dark:bg-[linear-gradient(180deg,transparent,rgba(255,255,255,0.02))]">
+            <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-border-soft bg-[linear-gradient(180deg,transparent,rgba(0,0,0,0.015))] px-6 py-3.5 dark:bg-[linear-gradient(180deg,transparent,rgba(255,255,255,0.02))]">
               {foot}
             </footer>
           ) : null}

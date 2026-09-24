@@ -1,11 +1,13 @@
 import { PaneLayout } from '@/components/pane-layout'
 import { Skeleton } from '@/design'
+import { SessionsPanelSkeleton } from '@/features/sessions/components/sessions-panel-skeleton'
 
 /**
  * Cold-load placeholder for the profile detail pane. It mirrors the pane's
  * real chrome rather than approximating it: the same `PaneLayout`, the same
- * header rule, and both inset panels drawn with their own borders and
- * paddings. Only the content inside them is a placeholder, so
+ * header rule, both inset panels drawn with their own borders and
+ * paddings, and the sessions panel's placeholder as the aside — so at a
+ * two-column width the skeleton is already two columns. Only the content inside them is a placeholder, so
  * resolving the profile swaps text in place instead of moving the panels.
  *
  * Only the very first app boot reaches this. Once a profile is selected the
@@ -15,6 +17,7 @@ import { Skeleton } from '@/design'
 export function ProfileDetailSkeleton() {
   return (
     <PaneLayout
+      aside={<SessionsPanelSkeleton />}
       header={
         <div className="flex items-center gap-3.5 border-b border-border-soft pb-5">
           <Skeleton className="h-11 w-11 rounded-xl" />
@@ -46,7 +49,7 @@ export function ProfileDetailSkeleton() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-[10px] border border-border bg-white/50 dark:bg-white/[0.035]">
+      <div className="mb-3.5 overflow-hidden rounded-[10px] pane-wide:mb-6 border border-border bg-white/50 dark:bg-white/[0.035]">
         {[0, 1].map((surface) => (
           <div
             key={surface}

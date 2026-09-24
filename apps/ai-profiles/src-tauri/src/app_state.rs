@@ -45,6 +45,11 @@ pub struct AppState {
     /// entry shows its stock label.
     #[serde(default)]
     pub default_profile_names: BTreeMap<AppKind, String>,
+    /// The sessions the user said not now to repairing, by profile id: the
+    /// ones that needed repair when they dismissed the offer. The offer
+    /// stays away until a session not among them needs repair.
+    #[serde(default)]
+    pub dismissed_repair_sessions: BTreeMap<String, Vec<String>>,
 }
 
 /// Renames one app's stock-install entry. An empty (or all-whitespace) name
@@ -57,6 +62,15 @@ pub struct DefaultProfileName {
 }
 
 const DEFAULT_PROFILE_NAME_MAX_CHARS: usize = 64;
+
+/// Sets the sessions a profile's repair offer was dismissed for. An empty
+/// list forgets the dismissal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DismissedRepair {
+    pub profile_id: String,
+    pub session_ids: Vec<String>,
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,6 +97,8 @@ pub struct AppStatePatch {
     pub dock_icon_acknowledged_at: Option<String>,
     #[serde(default)]
     pub default_profile_name: Option<DefaultProfileName>,
+    #[serde(default)]
+    pub dismissed_repair: Option<DismissedRepair>,
 }
 
 pub fn load() -> AppResult<AppState> {
@@ -143,8 +159,29 @@ pub fn apply(patch: AppStatePatch) -> AppResult<AppState> {
                 .insert(rename.app, name.to_string());
         }
     }
+    if let Some(dismissed) = patch.dismissed_repair {
+        if dismissed.session_ids.is_empty() {
+            state
+                .dismissed_repair_sessions
+                .remove(&dismissed.profile_id);
+        } else {
+            state
+                .dismissed_repair_sessions
+                .insert(dismissed.profile_id, dismissed.session_ids);
+        }
+    }
     save(&state)?;
     Ok(state)
+}
+
+/// Drop what the state keeps about profile `id`, which is gone. Writes
+/// nothing when it keeps nothing.
+pub fn forget_profile(id: &str) -> AppResult<()> {
+    let mut state = load()?;
+    if state.dismissed_repair_sessions.remove(id).is_none() {
+        return Ok(());
+    }
+    save(&state)
 }
 
 fn validate_default_profile_name(name: &str) -> AppResult<()> {
@@ -233,6 +270,7 @@ mod tests {
             selected_entry_id: None,
             dock_icon_acknowledged_at: Some("2026-05-21T09:30:00Z".into()),
             default_profile_names: BTreeMap::from([(AppKind::Claude, "Personal".into())]),
+            dismissed_repair_sessions: BTreeMap::from([("p1".into(), vec!["s1".into()])]),
         };
         save(&state).unwrap();
         let loaded = load().unwrap();
@@ -252,6 +290,7 @@ mod tests {
             selected_entry_id: None,
             dock_icon_acknowledged_at: Some("acknowledged".into()),
             default_profile_names: BTreeMap::new(),
+            dismissed_repair_sessions: BTreeMap::new(),
         })
         .unwrap();
 
@@ -281,6 +320,7 @@ mod tests {
             selected_entry_id: None,
             dock_icon_acknowledged_at: None,
             default_profile_names: BTreeMap::new(),
+            dismissed_repair_sessions: BTreeMap::new(),
         })
         .unwrap();
 
@@ -343,6 +383,7 @@ mod tests {
             selected_entry_id: Some("profile-xyz".into()),
             dock_icon_acknowledged_at: None,
             default_profile_names: BTreeMap::new(),
+            dismissed_repair_sessions: BTreeMap::new(),
         })
         .unwrap();
         let after = apply(AppStatePatch {
@@ -450,6 +491,46 @@ mod tests {
         assert!(rename_default(AppKind::Claude, "Work\nrm -rf ~").is_err());
         assert!(rename_default(AppKind::Claude, &"x".repeat(65)).is_err());
         assert!(load().unwrap().default_profile_names.is_empty());
+        purge();
+    }
+
+    fn dismiss(profile_id: &str, session_ids: &[&str]) -> AppResult<AppState> {
+        apply(AppStatePatch {
+            dismissed_repair: Some(DismissedRepair {
+                profile_id: profile_id.into(),
+                session_ids: session_ids.iter().map(|id| (*id).to_string()).collect(),
+            }),
+            ..AppStatePatch::default()
+        })
+    }
+
+    #[test]
+    fn a_dismissed_repair_is_kept_per_profile_and_forgotten_when_emptied() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        dismiss("p1", &["a", "b"]).unwrap();
+        dismiss("p2", &["c"]).unwrap();
+        assert_eq!(
+            load().unwrap().dismissed_repair_sessions.get("p1"),
+            Some(&vec!["a".to_string(), "b".to_string()])
+        );
+
+        let after = dismiss("p1", &[]).unwrap();
+        assert!(!after.dismissed_repair_sessions.contains_key("p1"));
+        assert!(after.dismissed_repair_sessions.contains_key("p2"));
+        purge();
+    }
+
+    #[test]
+    fn forgetting_a_profile_drops_its_dismissed_repair() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        dismiss("p1", &["a"]).unwrap();
+        dismiss("p2", &["c"]).unwrap();
+        forget_profile("p1").unwrap();
+        let state = load().unwrap();
+        assert!(!state.dismissed_repair_sessions.contains_key("p1"));
+        assert!(state.dismissed_repair_sessions.contains_key("p2"));
         purge();
     }
 

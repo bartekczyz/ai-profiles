@@ -135,7 +135,7 @@ describe('CreateProfileDialog', () => {
   })
 
   it('shows a toast (not an inline message) when the backend rejects, and keeps the dialog open', async () => {
-    const onCreate = vi.fn().mockRejectedValue({ kind: 'Validation', message: 'validation error: slug already exists' })
+    const onCreate = vi.fn().mockRejectedValue({ kind: 'Validation', message: 'slug already exists' })
     const onClose = vi.fn()
     render(
       <ToastProvider>

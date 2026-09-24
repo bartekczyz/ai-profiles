@@ -4,6 +4,7 @@ import type { GuiLaunch } from './use-gui-launch'
 import { Suspense, useState } from 'react'
 
 import { PaneLayout } from '@/components/pane-layout'
+import { SessionsPanel } from '@/features/sessions/components/sessions-panel'
 import { appSpecs } from '@/lib/app-registry'
 import { useAppState } from '@/lib/app-state/use-app-state'
 import { copyToClipboard, openDefaultGui, profilePaths } from '@/lib/commands'
@@ -49,6 +50,7 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
   const launch = useGuiLaunch()
   return (
     <PaneLayout
+      aside={<SessionsPanel key={entry.id} profileId={entry.id} app={entry.app} />}
       header={
         <ProfileDetailHeader
           name={entry.customName ?? displayName}
@@ -74,7 +76,9 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
     >
       <ProfileDetailUsageCard app={entry.app} profileId={entry.id} cliEnabled={entry.surfaces.cli} />
 
-      <div className="mb-6">
+      {/* Stacked, the sessions card follows 14px below, as the cards above
+          space themselves; beside it, this ends the column. */}
+      <div className="mb-3.5 pane-wide:mb-6">
         <Suspense key={entry.id} fallback={<DefaultSurfaces entry={entry} launch={launch} onError={setActionError} />}>
           <ResolvedDefaultSurfaces entry={entry} launch={launch} onError={setActionError} />
         </Suspense>
