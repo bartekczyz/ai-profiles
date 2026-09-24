@@ -940,3 +940,20 @@ fn a_missing_cli_explains_itself_and_a_failed_start_says_why() {
         "Codex: codex app-server exited before answering"
     );
 }
+
+#[tokio::test]
+async fn a_destination_answer_with_an_unreadable_path_cant_say_whether_it_took_it() {
+    let setup = Setup::new();
+    let mut to = setup.destination(|_, _| Ok(json!({ "thread": { "id": ID, "path": 7 } })));
+
+    let taken = taken(
+        &mut to,
+        &CodexRpcError::Rpc("busy".to_string()),
+        never_restarted,
+        &setup.personal,
+        ID,
+    )
+    .await;
+
+    assert_eq!(taken, None);
+}

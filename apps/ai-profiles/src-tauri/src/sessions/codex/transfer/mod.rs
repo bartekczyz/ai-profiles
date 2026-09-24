@@ -430,7 +430,7 @@ where
 
 /// Whether `read`, the destination's answer to reading thread `session_id`,
 /// says `destination` has it among its sessions: `None` when it doesn't
-/// say.
+/// say, as when its path couldn't be read.
 fn taken_by(
     read: Result<Thread, CodexRpcError>,
     destination: &Home,

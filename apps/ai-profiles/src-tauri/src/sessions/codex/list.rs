@@ -109,6 +109,25 @@ impl Thread {
             archived: false,
         })
     }
+
+    /// [`Thread::read`], for a thread about to be written to: a `status` or
+    /// `path` that is there but can't be read fails it rather than reading
+    /// as none, since a thread taken for idle, or for having no file, could
+    /// let a write through under one that is live.
+    pub(super) fn read_exactly(value: &Value) -> Result<Self, String> {
+        let present = |key: &str| value.get(key).filter(|field| !field.is_null());
+        if let Some(status) = present("status") {
+            if ThreadStatus::read(status).is_none() {
+                return Err(format!("unreadable thread status {status}"));
+            }
+        }
+        if let Some(path) = present("path") {
+            if !path.is_string() {
+                return Err(format!("unreadable thread path {path}"));
+            }
+        }
+        Self::read(value).ok_or_else(|| format!("no thread id in {value}"))
+    }
 }
 
 /// A time in seconds since the epoch: a number, or text holding one or an

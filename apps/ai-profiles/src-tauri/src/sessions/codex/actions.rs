@@ -183,7 +183,9 @@ pub(super) async fn apply_with(
 }
 
 /// Thread `id`, via a fresh `thread/read` — never a listing taken earlier,
-/// since a live terminal may have changed it since.
+/// since a live terminal may have changed it since — read exactly: what
+/// comes back decides whether a write is safe, so a status or path that
+/// can't be read fails it.
 pub(super) async fn read_thread(
     transport: &mut impl CodexTransport,
     id: &str,
@@ -194,10 +196,10 @@ pub(super) async fn read_thread(
             json!({ "threadId": id, "includeTurns": false }),
         )
         .await?;
-    response
+    let thread = response
         .get("thread")
-        .and_then(Thread::read)
-        .ok_or_else(|| CodexRpcError::Unexpected(format!("no thread in {response}")))
+        .ok_or_else(|| CodexRpcError::Unexpected(format!("no thread in {response}")))?;
+    Thread::read_exactly(thread).map_err(CodexRpcError::Unexpected)
 }
 
 /// The error a failed `thread/read` for `session_id` of `home` becomes.
@@ -693,6 +695,41 @@ mod tests {
             matches!(&applied, Err(AppError::Validation(message)) if message == CODEX_HAS_IT_OPEN)
         );
         assert_eq!(transport.calls.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn nothing_is_written_when_the_threads_status_or_path_cant_be_read() {
+        let root = tempdir().unwrap();
+        let home = home(root.path(), false);
+        let target = Target {
+            id: "t".to_string(),
+        };
+        let unreadable = [
+            json!({ "id": "t", "status": { "kind": "active" } }),
+            json!({ "id": "t", "status": 3 }),
+            json!({ "id": "t", "status": { "type": "idle" }, "path": ["sessions"] }),
+        ];
+
+        for thread in unreadable {
+            let mut transport = ScriptedServer::new(move |method, _| match method {
+                "thread/read" => Ok(json!({ "thread": thread.clone() })),
+                other => panic!("unexpected call: {other}"),
+            });
+
+            let checked = check_with(&mut transport, &home, "t", SessionAction::Archive, "").await;
+            let applied =
+                apply_with(&mut transport, &home, &target, SessionAction::Archive, "").await;
+
+            assert!(
+                matches!(&checked, Err(AppError::Validation(message)) if message.starts_with("Codex: unexpected answer")),
+                "{checked:?}"
+            );
+            assert!(
+                matches!(&applied, Err(AppError::Validation(message)) if message.starts_with("Codex: unexpected answer")),
+                "{applied:?}"
+            );
+            assert_eq!(transport.calls.len(), 2);
+        }
     }
 
     #[tokio::test]
