@@ -73,8 +73,10 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
 
       {/* Only the two row descriptions wait on per-profile data, so the
           fallback is the same panel with its description slots empty: the
-          controls stay live and nothing moves when the paths land. */}
-      <div className="mb-6">
+          controls stay live and nothing moves when the paths land. Stacked,
+          the sessions card follows 14px below, as the cards above space
+          themselves; beside it, this ends the column. */}
+      <div className="mb-3.5 pane-wide:mb-6">
         <Suspense
           key={profile.id}
           fallback={

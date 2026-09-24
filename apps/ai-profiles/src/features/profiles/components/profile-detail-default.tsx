@@ -76,7 +76,9 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
     >
       <ProfileDetailUsageCard app={entry.app} profileId={entry.id} cliEnabled={entry.surfaces.cli} />
 
-      <div className="mb-6">
+      {/* Stacked, the sessions card follows 14px below, as the cards above
+          space themselves; beside it, this ends the column. */}
+      <div className="mb-3.5 pane-wide:mb-6">
         <Suspense key={entry.id} fallback={<DefaultSurfaces entry={entry} launch={launch} onError={setActionError} />}>
           <ResolvedDefaultSurfaces entry={entry} launch={launch} onError={setActionError} />
         </Suspense>

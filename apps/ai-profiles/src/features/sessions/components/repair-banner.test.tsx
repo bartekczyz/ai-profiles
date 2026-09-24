@@ -80,7 +80,7 @@ describe('RepairBanner', () => {
     mockCheck({})
     mockRepair({ repaired: 2, skipped: [{ id: 's3', reason: 'Close it in the terminal first' }] })
     const { user, client } = renderBanner(3)
-    expect(screen.getByText(/3 sessions need repair/)).toBeInTheDocument()
+    expect(screen.getByText(/3 sessions need fixing/)).toBeInTheDocument()
     const invalidate = vi.spyOn(client, 'invalidateQueries')
     const dialog = await openDialog(user)
     expect(dialog).toHaveTextContent('Personal')

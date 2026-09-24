@@ -11,6 +11,7 @@ import { appSpecs } from '@/lib/app-registry'
 
 import { useSessions } from '../api/use-sessions'
 import { describeFailure } from '../lib/describe-failure'
+import { sessionCount } from '../lib/session-count'
 import { countByTab, filterSessions, hasBothKinds, sortSessions } from '../lib/session-filters'
 import { ConfirmSessionActionDialog } from './confirm-session-action-dialog'
 import { MoveSessionDialog } from './move-session-dialog'
@@ -18,7 +19,7 @@ import { RefreshFailedNote } from './refresh-failed-note'
 import { RepairBanner } from './repair-banner'
 import { SessionsControls } from './sessions-controls'
 import { SessionsList } from './sessions-list'
-import { sessionsPanelClasses } from './sessions-panel-skeleton'
+import { sessionsHeaderClasses, sessionsPanelClasses } from './sessions-panel-skeleton'
 
 type Props = {
   /**
@@ -71,23 +72,54 @@ type TabLabelProps = {
   count?: number
 }
 
+type ListFooterProps = {
+  /**
+   * How many rows show.
+   */
+  shown: number
+  /**
+   * How many sessions the open tab holds before search and kind narrow it.
+   */
+  total: number
+  /**
+   * The last-used order.
+   */
+  direction: SortDirection
+}
+
 /**
  * A tab's body: a column that can shrink, so only its rows scroll.
  */
 const tabContentClasses = 'flex min-h-0 flex-col'
 
 /**
- * An Active or Archived tab: compact, muted until selected.
+ * The Active / Archived tabs: a small segmented control in the card's
+ * eyebrow row.
  */
-const tabTriggerClasses = 'flex-none px-0.5 pb-1 text-[13px] tracking-[-0.005em] text-muted data-active:text-ink'
+const tabListClasses = 'h-auto gap-[2px] rounded-[7px] border border-border bg-cream-2 p-[2px]'
+
+/**
+ * An Active or Archived tab: a mono segment, raised while selected.
+ */
+const tabTriggerClasses =
+  'h-[18px] flex-none rounded-[5px] px-[7px] font-mono text-[10.5px] text-muted hover:text-ink data-active:bg-cream data-active:text-ink data-active:shadow-[0_1px_2px_rgba(0,0,0,0.08),inset_0_0_0_1px_var(--color-border)] dark:data-active:border-transparent dark:data-active:bg-cream'
+
+/**
+ * What the footer says for each order.
+ */
+const directionLabels: Record<SortDirection, string> = {
+  desc: 'newest first',
+  asc: 'oldest first',
+}
 
 /**
  * The sessions a profile owns, beside (or, in a narrow pane, below) its
- * details.
+ * details, in a card that speaks the Usage card's language.
  *
- * Active and Archived tabs head the panel; under them, one row of controls —
- * search, the Desktop/CLI filter and the last-used sort — applies to whichever
- * tab is open. The panel fills the height the pane gives it — the column
+ * A SESSIONS eyebrow heads the card with the Active and Archived tabs across
+ * from it; under them, one toolbar — search, the Desktop/CLI filter and the
+ * last-used sort — applies to whichever tab is open, and a footer says how
+ * many rows show and in what order. The panel fills the height the pane gives it — the column
  * beside the details, or the room under them — and only the rows scroll.
  *
  * An active session's row offers Move, a menu of the app's other profiles
@@ -138,14 +170,17 @@ export function SessionsPanel({ profileId, app }: Props) {
       className={sessionsPanelClasses}
       onValueChange={(value) => setTab(value === 'archived' ? 'archived' : 'active')}
     >
-      <TabsList variant="line" aria-label="Sessions" className="gap-4 p-0">
-        <TabsTrigger value="active" className={tabTriggerClasses}>
-          <TabLabel label="Active" count={listed === undefined ? undefined : counts.active} />
-        </TabsTrigger>
-        <TabsTrigger value="archived" className={tabTriggerClasses}>
-          <TabLabel label="Archived" count={listed === undefined ? undefined : counts.archived} />
-        </TabsTrigger>
-      </TabsList>
+      <header className={sessionsHeaderClasses}>
+        <h2 className="font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong">Sessions</h2>
+        <TabsList aria-label="Sessions" className={tabListClasses}>
+          <TabsTrigger value="active" className={tabTriggerClasses}>
+            <TabLabel label="Active" count={listed === undefined ? undefined : counts.active} />
+          </TabsTrigger>
+          <TabsTrigger value="archived" className={tabTriggerClasses}>
+            <TabLabel label="Archived" count={listed === undefined ? undefined : counts.archived} />
+          </TabsTrigger>
+        </TabsList>
+      </header>
       <SessionsControls
         kindFilterShown={kindFilterShown}
         query={query}
@@ -185,6 +220,9 @@ export function SessionsPanel({ profileId, app }: Props) {
           onMove={(session, destination) => setPendingMove({ session, destination })}
         />
       </TabsContent>
+      {listed === undefined || inTab.length === 0 ? null : (
+        <ListFooter shown={visible.length} total={inTab.length} direction={direction} />
+      )}
       {pendingAction === null ? null : (
         <ConfirmSessionActionDialog
           profileId={profileId}
@@ -212,9 +250,20 @@ function TabLabel({ label, count }: TabLabelProps) {
   return (
     <>
       {label}
-      {count === undefined ? null : (
-        <span className="font-mono text-[11px] font-normal text-muted-strong tabular-nums">{count}</span>
-      )}
+      {count === undefined ? null : <span className="text-muted-strong tabular-nums">{count}</span>}
     </>
+  )
+}
+
+/**
+ * The card's last line: how many rows show — of how many, while search or
+ * kind narrows them — and in what order.
+ */
+function ListFooter({ shown, total, direction }: ListFooterProps) {
+  return (
+    <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-border-soft px-[13px] py-1.5 font-mono text-mono text-muted-strong">
+      <span>{shown === total ? sessionCount(total) : `${shown} of ${sessionCount(total)}`}</span>
+      <span>last used · {directionLabels[direction]}</span>
+    </footer>
   )
 }

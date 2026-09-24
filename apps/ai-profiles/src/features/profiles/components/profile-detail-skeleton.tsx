@@ -49,7 +49,7 @@ export function ProfileDetailSkeleton() {
         </div>
       </div>
 
-      <div className="mb-6 overflow-hidden rounded-[10px] border border-border bg-white/50 dark:bg-white/[0.035]">
+      <div className="mb-3.5 overflow-hidden rounded-[10px] pane-wide:mb-6 border border-border bg-white/50 dark:bg-white/[0.035]">
         {[0, 1].map((surface) => (
           <div
             key={surface}

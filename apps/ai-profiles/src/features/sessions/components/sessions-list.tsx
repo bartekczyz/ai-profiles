@@ -231,15 +231,15 @@ function sessionRowActions({ session, app, moveTargets, onAction, onMove }: RowA
 }
 
 /**
- * A failed listing: the reason, inline, with a Retry.
+ * A failed listing: the reason, inline, with a Retry, where the rows would be.
  */
 function ListError({ retrying, message, onRetry }: ListErrorProps) {
   return (
     <div
       role="alert"
-      className="flex items-center justify-between gap-3 rounded-[10px] border border-border-soft px-[13px] py-[9px]"
+      className="flex flex-1 items-start justify-between gap-3 border-t border-border-soft px-[13px] py-[9px]"
     >
-      <p className="min-w-0 text-[12px] text-red">{message}</p>
+      <p className="min-w-0 py-1.5 text-[12px] text-red">{message}</p>
       <button type="button" disabled={retrying} className={quietButtonClasses} onClick={onRetry}>
         Retry
       </button>
@@ -252,8 +252,10 @@ function ListError({ retrying, message, onRetry }: ListErrorProps) {
  */
 function Notice({ children }: NoticeProps) {
   return (
-    <div className="flex flex-col items-center rounded-[10px] border border-dashed border-border px-[13px] py-6 text-center">
-      {children}
+    <div className="flex-1 border-t border-border-soft p-3">
+      <div className="flex flex-col items-center rounded-[10px] border border-dashed border-border px-[13px] py-6 text-center">
+        {children}
+      </div>
     </div>
   )
 }

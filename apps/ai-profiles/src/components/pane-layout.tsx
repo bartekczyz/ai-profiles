@@ -43,7 +43,7 @@ type Props = {
  * height left under it, so it can scroll inside itself as it does when wide;
  * it keeps a floor of its own, though, and once the pane is too short for
  * that, the whole column scrolls instead. Wide, the body turns into two
- * columns under a header widened to span both: the body column scrolls on
+ * equal columns under a header widened to span both: the body column scrolls on
  * its own, reserving its scrollbar gutter as the single column does, and the
  * aside gets the full height to lay out as it likes. The aside is rendered
  * once either way and only CSS moves it, so its state (a half-typed search,
@@ -54,7 +54,7 @@ export function PaneLayout({ header, children, aside, className }: Props) {
   return (
     <main className={cn('flex flex-1 flex-col overflow-hidden', hasAside && 'pane-container', className)}>
       <div className="shrink-0 overflow-hidden px-10 pt-10 [scrollbar-gutter:stable]">
-        <div className={cn('mx-auto w-full max-w-[640px]', hasAside && 'pane-wide:max-w-[1120px]')}>{header}</div>
+        <div className={cn('mx-auto w-full max-w-[640px]', hasAside && 'pane-wide:max-w-[1294px]')}>{header}</div>
       </div>
       <div
         className={cn(
@@ -63,7 +63,7 @@ export function PaneLayout({ header, children, aside, className }: Props) {
         )}
       >
         {hasAside ? (
-          <div className="mx-auto flex min-h-0 w-full max-w-[640px] flex-1 flex-col pane-wide:grid pane-wide:max-w-[1120px] pane-wide:grid-cols-[minmax(0,640px)_minmax(0,1fr)] pane-wide:grid-rows-[minmax(0,1fr)] pane-wide:gap-8">
+          <div className="mx-auto flex min-h-0 w-full max-w-[640px] flex-1 flex-col pane-wide:grid pane-wide:max-w-[1294px] pane-wide:grid-cols-2 pane-wide:grid-rows-[minmax(0,1fr)] pane-wide:gap-3.5">
             <div className="shrink-0 pane-wide:min-h-0 pane-wide:overflow-y-auto pane-wide:[scrollbar-gutter:stable]">
               {children}
             </div>

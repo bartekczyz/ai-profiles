@@ -146,9 +146,9 @@ describe('SessionsPanel', () => {
       repairCount: 1,
     })
     const { user } = await renderPanel()
-    expect(screen.getByText(/1 session needs repair/)).toBeInTheDocument()
+    expect(screen.getByText(/1 session needs fixing/)).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: /Archived/ }))
-    expect(screen.queryByText(/needs repair/)).toBeNull()
+    expect(screen.queryByText(/needs fixing/)).toBeNull()
   })
 
   it('shows no repair offer when no session needs it', async () => {

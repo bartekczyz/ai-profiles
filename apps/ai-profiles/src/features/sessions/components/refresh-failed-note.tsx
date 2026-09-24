@@ -16,7 +16,10 @@ type Props = {
  */
 export function RefreshFailedNote({ retrying, onRetry }: Props) {
   return (
-    <p role="status" className="flex flex-wrap items-baseline gap-x-1.5 px-[3px] text-[11.5px] text-muted-strong">
+    <p
+      role="status"
+      className="flex shrink-0 flex-wrap items-baseline gap-x-1.5 px-[13px] pb-2 text-[11.5px] text-muted-strong"
+    >
       Couldn’t refresh — showing the last list.
       <button
         type="button"

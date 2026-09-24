@@ -5,14 +5,18 @@
 
 /*
  * The right pane as a size container, and the width from which a pane with
- * an aside lays out as two columns: the default window less the sidebar.
- * Everything that changes at that width styles itself with `pane-wide:`, so
- * the container and its breakpoint are named here only.
+ * an aside lays out as two columns: the first width at which both columns get
+ * the single column's full 640px — 640 + 14 gap + 640, the pane's 2 × 40
+ * padding, and a classic scrollbar's 15px gutter (a 1589px window, beside the
+ * 200px sidebar). Narrower, the aside is better off stacked under the body at
+ * full width than squeezed beside it. Everything that changes at that width
+ * styles itself with `pane-wide:`, so the container and its breakpoint are
+ * named here only.
  */
 @utility pane-container {
   container: pane / inline-size;
 }
-@custom-variant pane-wide (@container pane (min-width: 1072px));
+@custom-variant pane-wide (@container pane (min-width: 1389px));
 
 html,
 body,
