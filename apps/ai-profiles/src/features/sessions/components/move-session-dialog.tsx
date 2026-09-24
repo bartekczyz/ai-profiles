@@ -1,4 +1,4 @@
-import type { MovePlan, Session } from '@/lib/types'
+import type { AppToQuit, MovePlan, Session } from '@/lib/types'
 
 import { useState } from 'react'
 
@@ -112,8 +112,7 @@ export function MoveSessionDialog({ profileId, session, destination, onClose }: 
   const plan = planQuery.data
   const appsToQuit = plan?.appsToQuit ?? []
   const blocker = plan === undefined || plan.blockers.length === 0 ? null : plan.blockers.join('. ')
-  const primaryLabel =
-    appsToQuit.length === 0 ? 'Move' : `Quit ${appsToQuit.map((app) => app.label).join(' and ')} and move`
+  const primaryLabel = moveLabel(appsToQuit)
   const canConfirm =
     plan !== undefined && blocker === null && (!plan.destinationNewer || replaceNewer) && !move.isPending
   const failure = move.error ?? (planQuery.isError ? planQuery.error : null)
@@ -167,6 +166,22 @@ export function MoveSessionDialog({ profileId, session, destination, onClose }: 
       />
     </Dialog>
   )
+}
+
+/**
+ * The confirm button's label. Two apps to quit read as "both": their labels
+ * together overflow the footer, and the plan body already names them.
+ */
+function moveLabel(appsToQuit: ReadonlyArray<AppToQuit>) {
+  if (appsToQuit.length === 0) {
+    return 'Move'
+  }
+
+  if (appsToQuit.length === 1) {
+    return `Quit ${appsToQuit[0].label} and move`
+  }
+
+  return 'Quit both and move'
 }
 
 /**

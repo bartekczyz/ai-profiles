@@ -88,7 +88,14 @@ describe('MoveSessionDialog', () => {
     expect(moveSession).toHaveBeenCalledWith('work', 's1', 'personal', false, false)
   })
 
-  it('names the desktop apps in the way on the button and quits them', async () => {
+  it('names the one desktop app in the way on the button and quits it', async () => {
+    mockPlan({ appsToQuit: [{ homeId: 'work', label: 'Claude (Work)' }] })
+    const { user } = await renderDialog()
+    await user.click(await screen.findByRole('button', { name: /Quit Claude \(Work\) and move/ }))
+    expect(moveSession).toHaveBeenCalledWith('work', 's1', 'personal', false, true)
+  })
+
+  it('quits both desktop apps in the way', async () => {
     mockPlan({
       appsToQuit: [
         { homeId: 'work', label: 'Claude (Work)' },
@@ -96,7 +103,7 @@ describe('MoveSessionDialog', () => {
       ],
     })
     const { user } = await renderDialog()
-    await user.click(await screen.findByRole('button', { name: /Quit Claude \(Work\) and Claude \(Personal\)/ }))
+    await user.click(await screen.findByRole('button', { name: /Quit both and move/ }))
     expect(moveSession).toHaveBeenCalledWith('work', 's1', 'personal', false, true)
   })
 
