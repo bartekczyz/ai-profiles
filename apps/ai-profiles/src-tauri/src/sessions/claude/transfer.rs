@@ -229,7 +229,9 @@ pub fn plan(
             blockers.push(reason);
         }
     }
-    let items = session_items(&owned, homes, destination)?;
+    let (desktop, record) = desktop_step(&owned, destination, displayed.as_ref(), cwd.as_deref());
+    let carried = carried_transcripts(&owned, desktop);
+    let items = session_items(&carried, homes, destination)?;
     let destination_newer = items.iter().any(|item| {
         item.action == ItemAction::Replace
             && item.used_at.is_some_and(|used_at| {
@@ -237,8 +239,7 @@ pub fn plan(
                     .is_some_and(|there| there.last_used_at > used_at)
             })
     });
-    let memory = memory_merges(&owned.claimed_transcripts, homes);
-    let (desktop, record) = desktop_step(&owned, destination, displayed.as_ref(), cwd.as_deref());
+    let memory = memory_merges(carried.iter().copied(), homes);
     let writes_destination = record.is_some()
         || items.iter().any(|item| item.action != ItemAction::Same)
         || memory
@@ -384,24 +385,41 @@ fn write_record(destination: &Home, write: RecordWrite, backup: &Path) -> AppRes
     write_destination_record(&write.account_dir, &record).map(drop)
 }
 
-/// The files and folders `owned` is made of, each from the config dir of the
-/// home holding it, with what the move does with each at `destination`:
-/// every claimed transcript's bundle and the plan files it wrote, sorted, then
-/// its transcripts, the one shown last.
-fn session_items(owned: &Owned, homes: &[Home], destination: &Home) -> AppResult<Vec<Item>> {
-    let displayed = owned
-        .transcript
-        .as_ref()
-        .map(|held| held.summary.session_id.as_str());
-    let mut held: Vec<&HeldTranscript> = owned
-        .claimed_transcripts
-        .iter()
-        .filter(|held| Some(held.summary.session_id.as_str()) != displayed)
-        .collect();
-    held.extend(owned.transcript.as_ref());
+/// The transcripts a move of `owned` carries, the one shown last. All it
+/// claims go when the destination's desktop app lists the session, by the
+/// record the move writes or one it has. Else only the shown one goes: the
+/// earlier ones are sessions it already contains, and without a record
+/// claiming them each would list there as a session of its own. They stay at
+/// the source, claimed by its archived record, so Restore brings back the
+/// whole session.
+fn carried_transcripts(owned: &Owned, desktop: DesktopAction) -> Vec<&HeldTranscript> {
+    let displayed = owned.transcript.as_ref();
+    let mut carried: Vec<&HeldTranscript> = Vec::new();
+    if matches!(desktop, DesktopAction::Add | DesktopAction::AlreadyListed) {
+        let shown = displayed.map(|held| held.summary.session_id.as_str());
+        carried.extend(
+            owned
+                .claimed_transcripts
+                .iter()
+                .filter(|held| Some(held.summary.session_id.as_str()) != shown),
+        );
+    }
+    carried.extend(displayed);
+    carried
+}
+
+/// The files and folders the `carried` transcripts are made of, each from
+/// the config dir of the home holding it, with what the move does with each
+/// at `destination`: every transcript's bundle and the plan files it wrote,
+/// sorted, then the transcripts themselves, in the order given.
+fn session_items(
+    carried: &[&HeldTranscript],
+    homes: &[Home],
+    destination: &Home,
+) -> AppResult<Vec<Item>> {
     let mut others: Vec<(PathBuf, PathBuf)> = Vec::new();
     let mut transcripts: Vec<(PathBuf, PathBuf, DateTime<Utc>)> = Vec::new();
-    for each in held {
+    for each in carried {
         let Some(holder) = homes.iter().find(|home| home.id == each.home_id) else {
             continue;
         };
@@ -966,6 +984,7 @@ mod tests {
         let default = home(root.path(), "Default");
         let work = home(root.path(), "Work");
         let personal = home(root.path(), "Personal");
+        sign_in(&personal, PERSONAL_ACCOUNT, PERSONAL_ORG);
         transcript(&work, "s", "2026-09-02T10:00:00Z", "/work/app");
         transcript(&default, "earlier", "2026-09-01T10:00:00Z", "/work/app");
         record(
@@ -1255,6 +1274,66 @@ mod tests {
         assert_eq!(listed(&work, &homes, "s"), Some(None));
         assert_eq!(listed(&personal, &homes, "s"), None);
         assert_eq!(archived_bundles(&personal.config_dir).len(), 1);
+    }
+
+    /// The ids of the sessions `home`, one of `homes`, lists.
+    fn listed_ids(home: &Home, homes: &[Home]) -> Vec<String> {
+        owned_by(&home.id, &home_scans(homes))
+            .into_iter()
+            .map(|owned| owned.session_id)
+            .collect()
+    }
+
+    #[test]
+    fn where_no_desktop_record_is_written_only_the_shown_transcript_moves() {
+        let root = tempdir().unwrap();
+        let work = home(root.path(), "Work");
+        let personal = home(root.path(), "Personal");
+        let side = home(root.path(), "Side");
+        fs::remove_dir(&side.gui_data_dir).unwrap();
+        sign_in(&work, WORK_ACCOUNT, WORK_ORG);
+        transcript(&work, "s", "2026-09-02T10:00:00Z", "/work/app");
+        transcript(&work, "earlier", "2026-09-01T10:00:00Z", "/work/app");
+        let mut fields = desktop_fields();
+        fields["priorCliSessionIds"] = json!(["earlier"]);
+        let source_record = record(&work, "r1", fields);
+        let homes = [work.clone(), personal.clone(), side.clone()];
+
+        let to_side = plan(&work, &side, &homes, "s", "").unwrap().plan;
+        let prepared = plan(&work, &personal, &homes, "s", "").unwrap();
+
+        assert_eq!(to_side.desktop, DesktopAction::NoDesktop);
+        assert_eq!(prepared.plan.desktop, DesktopAction::SignInNeeded);
+        let only_shown = [
+            ("file-history/s", ItemAction::Copy),
+            ("projects/-work-app/s", ItemAction::Copy),
+            ("projects/-work-app/s.jsonl", ItemAction::Copy),
+        ];
+        assert_eq!(planned(&to_side), only_shown);
+        assert_eq!(planned(&prepared.plan), only_shown);
+
+        execute(prepared, "2026-09-23T08:15:00Z".parse().unwrap()).unwrap();
+
+        assert_eq!(listed_ids(&personal, &homes), ["s"]);
+        assert!(!personal
+            .config_dir
+            .join("projects/-work-app/earlier.jsonl")
+            .exists());
+        assert_eq!(read_value(&source_record)["isArchived"], json!(true));
+
+        restore(&work, &homes);
+
+        let restored = owned_by(&work.id, &home_scans(&homes))
+            .into_iter()
+            .find(|owned| owned.session_id == "s")
+            .unwrap();
+        let lineage: Vec<(&str, &str)> = restored
+            .claimed_transcripts
+            .iter()
+            .map(|held| (held.summary.session_id.as_str(), held.home_id.as_str()))
+            .collect();
+        assert_eq!(lineage, [("s", "work"), ("earlier", "work")]);
+        assert!(restored.record.is_some_and(|record| !record.archived));
     }
 
     #[test]
