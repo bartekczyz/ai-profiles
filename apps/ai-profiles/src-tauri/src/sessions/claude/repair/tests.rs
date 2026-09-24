@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io;
 use std::time::{Duration, SystemTime};
@@ -585,7 +586,7 @@ fn an_archived_record_in_another_profile_doesnt_keep_a_session_from_repair() {
 }
 
 #[test]
-fn a_copy_an_archived_record_claims_as_its_own_stays_in_its_profile() {
+fn a_copy_an_archived_record_claims_as_its_own_stays_in_its_profile_and_needs_no_repair() {
     let root = tempdir().unwrap();
     let personal = home(root.path(), "Personal");
     let work = home(root.path(), "Work");
@@ -599,16 +600,11 @@ fn a_copy_an_archived_record_claims_as_its_own_stays_in_its_profile() {
     let homes = vec![personal.clone(), work.clone()];
     let at_personal = tree(&personal.config_dir);
 
+    assert_eq!(claude_sessions(&work, &homes, "").repair_count, 0);
+
     let report = repair(&work, &homes, "");
 
-    assert_eq!(report.repaired, 0);
-    assert_eq!(
-        report.skipped,
-        [SkippedSession {
-            id: "s".to_string(),
-            reason: "Claude (Personal) lists it too".to_string(),
-        }]
-    );
+    assert_eq!(report, RepairReport::default());
     assert_eq!(tree(&personal.config_dir), at_personal);
     assert!(!work.config_dir.join(transcript_path("s")).exists());
 }
@@ -874,6 +870,7 @@ fn a_transcript_whose_home_is_unknown_is_a_reason_to_skip() {
         homes: &only_personal,
         live: &[],
         listers: &HashMap::new(),
+        kept: &HashSet::new(),
     };
 
     let repaired = session_repair(&context, &owned);
@@ -881,6 +878,36 @@ fn a_transcript_whose_home_is_unknown_is_a_reason_to_skip() {
     assert_eq!(
         repaired.map(|repair| repair.session_id),
         Err("Its transcript \"before\" is in a profile that's gone".to_string())
+    );
+}
+
+#[test]
+fn a_copy_another_profile_keeps_archived_is_said_to_be_kept_so() {
+    let root = tempdir().unwrap();
+    let (default, personal, mut homes) = orphaned(root.path());
+    let work = home(root.path(), "Work");
+    homes.push(work);
+    let scans = home_scans(&homes);
+    let owned = owned_by(&personal.id, &scans)
+        .into_iter()
+        .find(|owned| owned.session_id == "now")
+        .unwrap();
+    let copy = ("now".to_string(), default.id.clone());
+    let listers = HashMap::from([(copy.clone(), vec!["Work".to_string()])]);
+    let kept = HashSet::from([("now".to_string(), "Work".to_string())]);
+    let context = Context {
+        home: &personal,
+        homes: &homes,
+        live: &[],
+        listers: &listers,
+        kept: &kept,
+    };
+
+    let repaired = session_repair(&context, &owned);
+
+    assert_eq!(
+        repaired.map(|repair| repair.session_id),
+        Err("Claude (Work) keeps it archived".to_string())
     );
 }
 

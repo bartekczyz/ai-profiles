@@ -154,6 +154,50 @@ pub(super) fn claimed_copy<'a>(claimant: &str, id: &str, copies: &Copies<'a>) ->
     claimed_held(claimant, id, copies).map(|(_, home_id)| home_id)
 }
 
+/// The copies of transcripts a home keeps archived, by the transcript's id
+/// and the home's: copies in a home's own config dir that only its archived
+/// records claim as their own. Restore there brings them back, so a repair
+/// elsewhere never takes them.
+pub(crate) fn kept_archived(scans: &[HomeScan]) -> HashSet<(String, String)> {
+    let copies = copies(scans);
+    let mut archived = HashSet::new();
+    let mut active = HashSet::new();
+    for scan in scans {
+        for record in &scan.records {
+            for id in claimed_ids(record) {
+                if claimed_copy(&scan.home_id, id, &copies) != Some(scan.home_id.as_str()) {
+                    continue;
+                }
+                let key = (id.to_string(), scan.home_id.clone());
+                if record.archived {
+                    archived.insert(key);
+                } else {
+                    active.insert(key);
+                }
+            }
+        }
+    }
+    archived.retain(|key| !active.contains(key));
+    archived
+}
+
+/// Whether `owned`, a session of home `home_id`, needs repair: it is active,
+/// a transcript it claims sits in another home's config dir, and none of
+/// those is a copy that home keeps archived (see [`kept_archived`], `kept`),
+/// which a repair leaves where it is.
+pub(crate) fn needs_repair(owned: &Owned, home_id: &str, kept: &HashSet<(String, String)>) -> bool {
+    let archived = owned.record.as_ref().is_some_and(|record| record.archived);
+    let mut orphans = owned
+        .claimed_transcripts
+        .iter()
+        .filter(|held| held.home_id != home_id)
+        .peekable();
+    if archived || orphans.peek().is_none() {
+        return false;
+    }
+    orphans.all(|held| !kept.contains(&(held.summary.session_id.clone(), held.home_id.clone())))
+}
+
 /// The ids of the transcripts `record` claims: its current one, then its
 /// earlier ones.
 pub(super) fn claimed_ids(record: &DesktopRecord) -> impl Iterator<Item = &str> {

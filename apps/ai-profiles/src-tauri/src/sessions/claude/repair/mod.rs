@@ -10,7 +10,7 @@
 //! relative to it, bringing the project's memory and the plans the
 //! transcripts wrote along. The desktop records are left as they are.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -19,7 +19,8 @@ use super::archive_store::{is_session_dir_name, occupied, ArchivedBundle};
 use super::copy::{compare, ItemAction};
 use super::live::{live_sessions, LiveHolder};
 use super::ownership::{
-    claimed_copy, claimed_ids, copies, owned_by, HeldTranscript, HomeScan, Owned,
+    claimed_copy, claimed_ids, copies, kept_archived, needs_repair, owned_by, HeldTranscript,
+    HomeScan, Owned,
 };
 use super::transcript::bundle_paths;
 use super::transfer::{memory_merges, relative_to, MemoryMerge, PLANS_DIR};
@@ -135,21 +136,18 @@ pub fn check(home: &Home, homes: &[Home], ps_output: &str) -> AppResult<Checked<
     let scans = home_scans(homes);
     let live = live_by_home(homes, ps_output);
     let listers = listers(&scans);
+    let kept = kept_archived(&scans);
     let context = Context {
         home,
         homes,
         live: &live,
         listers: &listers,
+        kept: &kept,
     };
     let mut sessions = Vec::new();
     let mut skipped = Vec::new();
     for owned in owned_by(&home.id, &scans) {
-        let archived = owned.record.as_ref().is_some_and(|record| record.archived);
-        let orphaned = owned
-            .claimed_transcripts
-            .iter()
-            .any(|held| held.home_id != home.id);
-        if archived || !orphaned {
+        if !needs_repair(&owned, &home.id, &kept) {
             continue;
         }
         match session_repair(&context, &owned) {
@@ -184,9 +182,12 @@ struct Context<'a> {
     homes: &'a [Home],
     /// The sessions open in each home's config dir, by transcript id.
     live: &'a [(&'a Home, HashMap<String, LiveHolder>)],
-    /// The homes whose active desktop records claim each copy of a
-    /// transcript, by its id and the home holding the copy.
+    /// The homes whose desktop records claim each copy of a transcript, by
+    /// its id and the home holding the copy (see [`listers`]).
     listers: &'a HashMap<(String, String), Vec<String>>,
+    /// The copies of transcripts homes keep archived, by the transcript's id
+    /// and the home's (see [`kept_archived`]).
+    kept: &'a HashSet<(String, String)>,
 }
 
 /// The ids of the homes whose desktop records claim each copy of a
@@ -297,6 +298,10 @@ fn session_repair(context: &Context, owned: &Owned) -> Result<SessionRepair, Str
                 .iter()
                 .find(|each| each.id == *other)
                 .map_or_else(|| other.clone(), desktop_label);
+            let key = (held.summary.session_id.clone(), other.clone());
+            if context.kept.contains(&key) {
+                return Err(format!("{label} keeps it archived"));
+            }
             return Err(format!("{label} lists it too"));
         }
     }

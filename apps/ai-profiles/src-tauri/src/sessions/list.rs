@@ -12,7 +12,7 @@ use super::claude::archive_store::{archived_bundles, ArchivedBundle};
 use super::claude::desktop::read_records;
 use super::claude::live::{live_sessions, LiveHolder};
 use super::claude::markup::strip_markup;
-use super::claude::ownership::{owned_by, HomeScan, Owned};
+use super::claude::ownership::{kept_archived, needs_repair, owned_by, HomeScan, Owned};
 use super::claude::transcript::{scan_projects, TranscriptSummary};
 use super::codex;
 use super::home::homes_of;
@@ -85,7 +85,8 @@ pub struct Session {
     pub state: SessionState,
     /// The session is active and one of its transcripts sits in another
     /// home's config dir, where the desktop app of an older version of
-    /// ai-profiles left it. An archived session is left as it is.
+    /// ai-profiles left it. An archived session is left as it is, as is one
+    /// whose transcript there another home keeps archived.
     pub needs_repair: bool,
     /// Why the session can't be moved to another profile, if it can't.
     pub unmovable_reason: Option<String>,
@@ -128,9 +129,10 @@ pub async fn list_sessions(home: Home) -> AppResult<SessionList> {
 pub(super) fn claude_sessions(home: &Home, homes: &[Home], ps_output: &str) -> SessionList {
     let scans = home_scans(homes);
     let live = live_anywhere(homes, ps_output);
+    let kept = kept_archived(&scans);
     let mut sessions: Vec<Session> = owned_by(&home.id, &scans)
         .into_iter()
-        .map(|owned| owned_session(home, owned, &live))
+        .map(|owned| owned_session(home, owned, &live, &kept))
         .collect();
     let listed: HashSet<String> = sessions.iter().map(|session| session.id.clone()).collect();
     let bundles = archived_bundles(&home.config_dir)
@@ -188,13 +190,20 @@ pub(super) fn transcript_title(transcript: &TranscriptSummary) -> Option<String>
         .or_else(|| transcript.first_prompt.as_deref().and_then(strip_markup))
 }
 
-/// The row of a session `home` owns, given the sessions open anywhere.
-fn owned_session(home: &Home, owned: Owned, live: &HashMap<String, LiveHolder>) -> Session {
+/// The row of a session `home` owns, given the sessions open anywhere and
+/// the copies of transcripts homes keep archived, `kept`.
+fn owned_session(
+    home: &Home,
+    owned: Owned,
+    live: &HashMap<String, LiveHolder>,
+    kept: &HashSet<(String, String)>,
+) -> Session {
+    let needs_repair = needs_repair(&owned, &home.id, kept);
     let Owned {
         session_id,
         transcript,
         record,
-        claimed_transcripts,
+        ..
     } = owned;
     let transcript = transcript.as_ref().map(|held| &held.summary);
     let record = record.as_ref();
@@ -240,10 +249,7 @@ fn owned_session(home: &Home, owned: Owned, live: &HashMap<String, LiveHolder>) 
         last_used_at,
         archived,
         state,
-        needs_repair: !archived
-            && claimed_transcripts
-                .iter()
-                .any(|held| held.home_id != home.id),
+        needs_repair,
         unmovable_reason,
     }
 }
@@ -666,7 +672,7 @@ mod tests {
             claimed_transcripts: Vec::new(),
         };
 
-        let session = owned_session(&personal, owned, &HashMap::new());
+        let session = owned_session(&personal, owned, &HashMap::new(), &HashSet::new());
 
         assert_eq!(session.last_used_at, utc("2026-08-01T10:00:00Z"));
     }
