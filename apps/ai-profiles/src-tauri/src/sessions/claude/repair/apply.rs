@@ -191,6 +191,8 @@ fn repair_session(
             &merge.from,
             &config_dir.join(&merge.relative),
             &backup.join(&merge.relative),
+            // What merging adds stays, so it isn't logged to take back.
+            &mut Vec::new(),
         )?);
     }
     let mut steps = Vec::new();

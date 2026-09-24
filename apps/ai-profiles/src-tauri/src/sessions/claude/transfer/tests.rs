@@ -806,11 +806,12 @@ fn outside_archive(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     files
 }
 
-#[test]
-fn a_move_that_fails_at_the_last_step_is_taken_back_at_the_destination() {
-    let root = tempdir().unwrap();
-    let work = home(root.path(), "Work");
-    let personal = home(root.path(), "Personal");
+/// Work's desktop session `s`, which Work can't archive, so a move of it to
+/// Personal fails at its last step, once everything is written at Personal:
+/// files, a replaced file, project memory, a replaced record and its index.
+fn failing_last(root: &Path) -> (Home, Home, [Home; 2]) {
+    let work = home(root, "Work");
+    let personal = home(root, "Personal");
     sign_in(&personal, PERSONAL_ACCOUNT, PERSONAL_ORG);
     transcript(&work, "s", "2026-09-01T10:00:00Z", "/work/app");
     record(&work, "r1", desktop_fields());
@@ -820,6 +821,16 @@ fn a_move_that_fails_at_the_last_step_is_taken_back_at_the_destination() {
         "not json",
     );
     write(&personal.config_dir.join("file-history/s/abc@v1"), "other");
+    let memory = "projects/-work-app/memory";
+    write(
+        &work.config_dir.join(memory).join("MEMORY.md"),
+        "- [Style](style.md) — tabs\n",
+    );
+    write(&work.config_dir.join(memory).join("style.md"), "Tabs");
+    write(
+        &personal.config_dir.join(memory).join("MEMORY.md"),
+        "# Memory\n",
+    );
     let there = records_dir(&personal, PERSONAL_ACCOUNT, PERSONAL_ORG);
     write(
         &there.join("local_r1.json"),
@@ -830,6 +841,43 @@ fn a_move_that_fails_at_the_last_step_is_taken_back_at_the_destination() {
         &json!({ "v": 1, "archived": ["local_r1"] }).to_string(),
     );
     let homes = [work.clone(), personal.clone()];
+    (work, personal, homes)
+}
+
+/// Where the moves of session `s` in these tests keep what they set aside.
+fn backup_of(home: &Home) -> PathBuf {
+    home.config_dir
+        .join("ai-profiles-archive/.replaced/s/2026-09-23T08-15-00.000Z")
+}
+
+#[test]
+fn a_move_that_cant_be_taken_back_says_what_stays_where() {
+    let root = tempdir().unwrap();
+    let (work, personal, homes) = failing_last(root.path());
+    // Nothing can be set aside, as a file sits where its folder goes.
+    write(&backup_of(&personal).join("undone"), "");
+
+    let moved = move_session(&work, &personal, &homes, "s");
+
+    let message = moved.unwrap_err().message();
+    assert!(
+        message.contains("Taking the move back failed too"),
+        "{message}"
+    );
+    for stays in [
+        "projects/-work-app/s.jsonl couldn't be set aside",
+        "projects/-work-app/memory/style.md couldn't be set aside",
+        "local_r1.json couldn't be set aside",
+    ] {
+        assert!(message.contains(stays), "{stays} in {message}");
+    }
+    assert!(!message.contains("The move was taken back"), "{message}");
+}
+
+#[test]
+fn a_move_that_fails_at_the_last_step_is_taken_back_at_the_destination() {
+    let root = tempdir().unwrap();
+    let (work, personal, homes) = failing_last(root.path());
     let (at_work, at_personal) = (
         tree(&work.config_dir),
         outside_archive(&personal.config_dir),

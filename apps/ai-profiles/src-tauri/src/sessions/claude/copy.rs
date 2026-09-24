@@ -108,16 +108,17 @@ fn move_new_with(
 }
 
 /// Replace the file at `relative` under `destination` with `contents`, moving
-/// the one there to `relative` under `backup` first.
+/// the one there to `relative` under `backup` first. Returns whether one was
+/// there.
 pub fn write_replacing(
     contents: &str,
     destination: &Path,
     relative: &Path,
     backup: &Path,
-) -> AppResult<()> {
+) -> AppResult<bool> {
     let target = destination.join(relative);
     let temp = stage(&target, |temp| fs::write(temp, contents))?;
-    finish(&temp, destination, relative, backup).map(drop)
+    finish(&temp, destination, relative, backup)
 }
 
 /// Build what goes to `target` with `build`, under a temporary name beside

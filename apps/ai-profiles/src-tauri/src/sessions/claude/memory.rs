@@ -17,12 +17,29 @@ use crate::error::AppResult;
 /// The index of a memory folder.
 const INDEX: &str = "MEMORY.md";
 
+/// A file a memory merge put in the destination folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryWrite {
+    /// Its name in the folder.
+    pub name: String,
+    /// It replaced a file there, which is in the backup folder now, under the
+    /// same name.
+    pub replaced: bool,
+}
+
 /// Merge the memory folder `from` into `to`: files `to` lacks are copied
 /// and their `MEMORY.md` index lines appended to its index (the whole index
 /// is copied when `to` has none); files that differ on both sides stay as
 /// `to` has them. An index that is rewritten is backed up to `backup` first.
-/// Returns the names of the files that differ, the conflicts.
-pub fn merge_memory(from: &Path, to: &Path, backup: &Path) -> AppResult<Vec<String>> {
+/// Each file put in `to` is logged in `written` as soon as it is there, so a
+/// merge that fails part way says what it did. Returns the names of the files
+/// that differ, the conflicts.
+pub fn merge_memory(
+    from: &Path,
+    to: &Path,
+    backup: &Path,
+    written: &mut Vec<MemoryWrite>,
+) -> AppResult<Vec<String>> {
     let Ok(entries) = fs::read_dir(from) else {
         return Ok(Vec::new());
     };
@@ -38,7 +55,11 @@ pub fn merge_memory(from: &Path, to: &Path, backup: &Path) -> AppResult<Vec<Stri
     for name in names {
         let (theirs, ours) = (from.join(&name), to.join(&name));
         if !occupied(&ours) {
-            place(&theirs, to, Path::new(&name), backup)?;
+            let replaced = place(&theirs, to, Path::new(&name), backup)?;
+            written.push(MemoryWrite {
+                name: name.clone(),
+                replaced,
+            });
             copied.insert(name);
         } else if !same_bytes(&theirs, &ours)? {
             // Memories are small and often written apart with the same
@@ -46,7 +67,7 @@ pub fn merge_memory(from: &Path, to: &Path, backup: &Path) -> AppResult<Vec<Stri
             conflicts.push(name);
         }
     }
-    merge_index(from, to, backup, &copied)?;
+    merge_index(from, to, backup, &copied, written)?;
     Ok(conflicts)
 }
 
@@ -68,13 +89,25 @@ pub fn merge_copies(from: &Path, to: &Path) -> Vec<String> {
 }
 
 /// Bring `from`'s index into `to`: whole when `to` has none, else only the
-/// lines linking to the files just `copied` that `to`'s index lacks.
-fn merge_index(from: &Path, to: &Path, backup: &Path, copied: &HashSet<String>) -> AppResult<()> {
+/// lines linking to the files just `copied` that `to`'s index lacks. Logs the
+/// index in `written` if it is written.
+fn merge_index(
+    from: &Path,
+    to: &Path,
+    backup: &Path,
+    copied: &HashSet<String>,
+    written: &mut Vec<MemoryWrite>,
+) -> AppResult<()> {
     let Ok(theirs) = fs::read_to_string(from.join(INDEX)) else {
         return Ok(());
     };
     let Ok(ours) = fs::read_to_string(to.join(INDEX)) else {
-        return place(&from.join(INDEX), to, Path::new(INDEX), backup).map(drop);
+        let replaced = place(&from.join(INDEX), to, Path::new(INDEX), backup)?;
+        written.push(MemoryWrite {
+            name: INDEX.to_string(),
+            replaced,
+        });
+        return Ok(());
     };
     let have: HashSet<&str> = ours.lines().map(str::trim_end).collect();
     let added: Vec<&str> = theirs
@@ -94,7 +127,12 @@ fn merge_index(from: &Path, to: &Path, backup: &Path, copied: &HashSet<String>) 
         merged.push_str(line);
         merged.push('\n');
     }
-    write_replacing(&merged, to, Path::new(INDEX), backup)
+    let replaced = write_replacing(&merged, to, Path::new(INDEX), backup)?;
+    written.push(MemoryWrite {
+        name: INDEX.to_string(),
+        replaced,
+    });
+    Ok(())
 }
 
 /// The file an index line links to: `file.md` of `- [Title](file.md) — hook`.
@@ -143,9 +181,23 @@ mod tests {
         write(&to.join("stack.md"), "Rust");
         write(&to.join("deploy.md"), "Netlify");
 
-        let conflicts = merge_memory(&from, &to, &backup).unwrap();
+        let mut written = Vec::new();
+        let conflicts = merge_memory(&from, &to, &backup, &mut written).unwrap();
 
         assert_eq!(conflicts, ["deploy.md"]);
+        assert_eq!(
+            written,
+            [
+                MemoryWrite {
+                    name: "style.md".to_string(),
+                    replaced: false,
+                },
+                MemoryWrite {
+                    name: "MEMORY.md".to_string(),
+                    replaced: true,
+                },
+            ]
+        );
         assert_eq!(read(&to.join("style.md")), "Use tabs");
         assert_eq!(read(&to.join("deploy.md")), "Netlify");
         assert_eq!(
@@ -167,7 +219,7 @@ mod tests {
         write(&from.join("MEMORY.md"), "- [Style](style.md) — tabs\n");
         write(&from.join("style.md"), "Use tabs");
 
-        let conflicts = merge_memory(&from, &to, &backup).unwrap();
+        let conflicts = merge_memory(&from, &to, &backup, &mut Vec::new()).unwrap();
 
         assert_eq!(conflicts, Vec::<String>::new());
         assert_eq!(read(&to.join("MEMORY.md")), "- [Style](style.md) — tabs\n");
@@ -186,8 +238,8 @@ mod tests {
         write(&to.join("MEMORY.md"), "- [Stack](stack.md) — rust");
         write(&to.join("stack.md"), "Rust");
 
-        merge_memory(&from, &to, &backup).unwrap();
-        merge_memory(&root.path().join("nowhere"), &to, &backup).unwrap();
+        merge_memory(&from, &to, &backup, &mut Vec::new()).unwrap();
+        merge_memory(&root.path().join("nowhere"), &to, &backup, &mut Vec::new()).unwrap();
 
         assert_eq!(read(&to.join("MEMORY.md")), "- [Stack](stack.md) — rust");
         assert!(!backup.exists());
