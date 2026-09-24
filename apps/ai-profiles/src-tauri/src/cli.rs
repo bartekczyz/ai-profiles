@@ -52,7 +52,7 @@ pub fn invocation(args: &[String]) -> Invocation<'_> {
 /// assessed before. The caller is a detached process nobody is waiting on, so
 /// that is fine here.
 pub fn open_profile(id: &str) -> Result<(), String> {
-    let all = profiles::load().map_err(|err| err.to_string())?;
+    let all = profiles::load().map_err(|err| err.message())?;
     let profile = all
         .iter()
         .find(|candidate| candidate.id == id)
@@ -62,7 +62,7 @@ pub fn open_profile(id: &str) -> Result<(), String> {
     }
 
     let bypass = launch::open_profile(profile, env!("CARGO_PKG_VERSION"), launch::focus_pid)
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| err.message())?;
     // Not a failure: the profile is open, just not through its wrapper. Worth
     // saying, because this is the only trace such a launch leaves anywhere.
     if let Some(bypass) = bypass {

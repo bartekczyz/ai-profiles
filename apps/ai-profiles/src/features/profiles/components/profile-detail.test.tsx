@@ -7,18 +7,36 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ToastProvider } from '@/design'
-import { copyToClipboard, openInFinder, openProfileInApp, profilePaths, touchProfileLastUsed } from '@/lib/commands'
+import {
+  copyToClipboard,
+  openInFinder,
+  openProfileInApp,
+  profileAccount,
+  profilePaths,
+  touchProfileLastUsed,
+} from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import { DeleteProfileDialog } from './delete-profile-dialog'
 import { ProfileDetail } from './profile-detail'
 
+// The sessions panel lists the profiles a session can move to, which these
+// tests don't set up.
+vi.mock('@/features/profiles/api/use-sidebar-entries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/profiles/api/use-sidebar-entries')>()),
+  useSidebarEntries: vi.fn(() => []),
+}))
+
 vi.mock('@/lib/commands', async () => {
   const actual = await vi.importActual<typeof import('@/lib/commands')>('@/lib/commands')
   return {
     ...actual,
+    listSessions: vi.fn(async () => ({ sessions: [], repairCount: 0 })),
     profilePaths: vi.fn(),
+    // Unanswered unless a test answers it: the account line isn't what most
+    // tests here are about, and its answer re-renders the pane mid-click.
+    profileAccount: vi.fn(() => new Promise(() => {})),
     openInFinder: vi.fn(async () => {}),
     openProfileInApp: vi.fn(async () => {}),
     copyToClipboard: vi.fn(async () => {}),
@@ -458,5 +476,31 @@ describe('ProfileDetail — profile explainer', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull()
     })
+  })
+})
+
+describe('ProfileDetail — account', () => {
+  it('names the account the profile is signed in under', async () => {
+    vi.mocked(profileAccount).mockResolvedValue({
+      status: 'signedIn',
+      account: { email: 'ada@example.com', name: 'Ada', organization: 'Ada Ltd', plan: 'Max' },
+    })
+    renderDetail()
+    const line = await screen.findByText('ada@example.com · Max')
+    expect(line).toHaveAttribute('title', 'Ada · ada@example.com · Ada Ltd · Max')
+    expect(profileAccount).toHaveBeenCalledWith('p1')
+  })
+
+  it('says so when the profile has not been signed in', async () => {
+    vi.mocked(profileAccount).mockResolvedValue({ status: 'signedOut' })
+    renderDetail()
+    expect(await screen.findByText('Not signed in')).toBeInTheDocument()
+  })
+
+  it("says nothing of a sign-in its desktop app has but can't name", async () => {
+    vi.mocked(profileAccount).mockResolvedValue({ status: 'unknown' })
+    renderDetail()
+    await waitFor(() => expect(profileAccount).toHaveBeenCalledWith('p1'))
+    expect(screen.queryByText('Not signed in')).toBeNull()
   })
 })

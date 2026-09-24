@@ -1,6 +1,6 @@
 # ai-profiles
 
-> Run multiple Claude and ChatGPT accounts on one Mac — the desktop app and the CLI, side by side. Free and open-source.
+> Run multiple Claude and ChatGPT accounts on one Mac — the desktop app and the CLI, side by side — and move coding sessions between them. Free and open-source.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="apps/landing/public/screenshot-dark.png">
@@ -76,6 +76,25 @@ Each profile's detail page shows that profile's current quota utilization alongs
 **Claude profiles** show three meters: the rolling 5-hour window, the 7-day window, and the 7-day Sonnet sub-window. Under the hood the card calls Anthropic's `/api/oauth/usage` endpoint using the profile's own OAuth token, read from the macOS Keychain entry Claude Code created when you signed in. The quota endpoint and the Keychain naming convention are undocumented Anthropic internals — if either changes, the meters may show `—` until we ship a patch.
 
 **Codex profiles** show two meters: the 5-hour window and the weekly window. The card drives `codex app-server` over its JSON-RPC protocol (`account/rateLimits/read`) — no separate auth is needed because the app-server reads from the profile's own `CODEX_HOME/auth.json` directly.
+
+### Sessions
+
+Each profile's detail page lists its local coding sessions: Claude Code for Claude profiles (the CLI and the Claude desktop app's Code tab), Codex for ChatGPT profiles (the CLI, IDE, and the ChatGPT desktop app). claude.ai and ChatGPT chats live on the server, so they don't appear here.
+
+**Move a session to another account.** Move a session to another profile of the same app and carry on there with its full history. Claude sessions move between Claude profiles, Codex sessions between ChatGPT profiles; you can't move a session from Claude to Codex or back. Moves work with your default install (`~/.claude` / `~/.codex`) too.
+
+- **Claude:** the transcript, its file history, and new project memory files are copied to the destination. If you're signed in to the destination's desktop app, the session shows up there too; otherwise only the CLI half moves.
+- **Codex:** the rollout is copied to the destination's `CODEX_HOME` and registered through `codex app-server`.
+
+Nothing is ever deleted. A move copies the session, then archives it at the source, so **Restore** undoes it. A file the move would overwrite is backed up first, and if the destination holds a newer copy you have to opt in to replacing it.
+
+**Archive and restore.** The panel has **Active** and **Archived** tabs. Archiving a desktop session uses the desktop app's own archive flag, so sessions you archived inside Claude show up here too. Archiving a CLI-only Claude session moves it into `<config>/ai-profiles-archive/`, which also keeps it clear of Claude Code's 30-day cleanup. Codex sessions use Codex's own archive.
+
+Search by title, folder, or last prompt, filter Desktop vs CLI, and sort by last used.
+
+A session still open in a terminal can't be moved or archived; close it first. If the desktop app has it open, the confirm dialog offers to quit that profile's instance (and only that one) before it goes ahead.
+
+**Repair.** Claude desktop sessions created before ai-profiles pointed the desktop app at its profile's config dir have their transcripts in `~/.claude`. They list under the profile that owns them, and a banner offers to move them into place.
 
 ## Onboarding
 

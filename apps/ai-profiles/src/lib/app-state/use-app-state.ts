@@ -37,6 +37,7 @@ export function useAppState(): UseAppStateResult {
           selectedEntryId: patch.clearSelectedEntryId ? null : (patch.selectedEntryId ?? previous.selectedEntryId),
           dockIconAcknowledgedAt: patch.dockIconAcknowledgedAt ?? previous.dockIconAcknowledgedAt,
           defaultProfileNames: withDefaultProfileName(previous.defaultProfileNames, patch.defaultProfileName),
+          dismissedRepairSessions: withDismissedRepair(previous.dismissedRepairSessions, patch.dismissedRepair),
         }
         queryClient.setQueryData(queryKeys.appState, optimistic)
       }
@@ -79,6 +80,25 @@ function withDefaultProfileName(
     delete next[rename.app]
   } else {
     next[rename.app] = name
+  }
+  return next
+}
+
+/**
+ * Mirrors the Rust side: an empty list forgets the profile's dismissal.
+ */
+function withDismissedRepair(
+  dismissed: AppState['dismissedRepairSessions'] | undefined,
+  patch: AppStatePatch['dismissedRepair'],
+): AppState['dismissedRepairSessions'] {
+  const next = { ...(dismissed ?? {}) }
+  if (patch === undefined) {
+    return next
+  }
+  if (patch.sessionIds.length === 0) {
+    delete next[patch.profileId]
+  } else {
+    next[patch.profileId] = patch.sessionIds
   }
   return next
 }

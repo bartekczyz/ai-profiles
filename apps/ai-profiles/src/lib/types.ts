@@ -41,7 +41,7 @@ export type DefaultEntry = {
 export type SidebarEntry = { kind: 'managed'; profile: Profile } | { kind: 'default'; entry: DefaultEntry }
 
 export type AppError = {
-  kind: 'Io' | 'Json' | 'Validation' | 'NotFound'
+  kind: 'Io' | 'Json' | 'Validation' | 'NotFound' | 'NotInstalled'
   message: string
 }
 
@@ -154,6 +154,12 @@ export type AppState = {
   dockIconAcknowledgedAt: string | null
   /** Names the user gave the stock-install entries. Absent key → stock label. */
   defaultProfileNames: Partial<Record<AppId, string>>
+  /**
+   * The sessions the user said not now to repairing, by profile id: the ones
+   * that needed repair when the offer was dismissed. It stays away until a
+   * session not among them needs repair.
+   */
+  dismissedRepairSessions: Record<string, Array<string>>
 }
 
 export type AppStatePatch = {
@@ -173,6 +179,11 @@ export type AppStatePatch = {
    * Renames one app's stock-install entry. An empty name restores the stock label.
    */
   defaultProfileName?: { app: AppId; name: string }
+  /**
+   * Sets the sessions a profile's repair offer was dismissed for. An empty
+   * list forgets the dismissal.
+   */
+  dismissedRepair?: { profileId: string; sessionIds: Array<string> }
 }
 
 /**
@@ -261,4 +272,252 @@ export type ProfileUsage = {
   quota: QuotaUsage | null
   quotaError: QuotaError | null
   fetchedAt: string
+}
+
+/** The account a profile is signed in under, from what its CLI keeps on disk. */
+export type ProfileAccount = {
+  email: string | null
+  /** The person's name, as the app recorded it. */
+  name: string | null
+  organization: string | null
+  /** The subscription, e.g. "Max" or "Pro". */
+  plan: string | null
+}
+
+/**
+ * Whether a profile is signed in, and as whom. `unknown` is signed in, or may
+ * be, as an account nothing on disk names: a Claude desktop app signed in as
+ * someone its `.claude.json` doesn't mention.
+ */
+export type AccountStatus =
+  | { status: 'signedIn'; account: ProfileAccount }
+  | { status: 'signedOut' }
+  | { status: 'unknown' }
+
+/**
+ * Where a session was started: the desktop app (Claude's Code tab, Codex
+ * desktop) or the CLI (including IDE extensions).
+ */
+export type SessionKind = 'desktop' | 'cli'
+
+/**
+ * What a session's files are doing right now. `transcriptMissing` is a
+ * desktop record whose transcript was cleaned up.
+ */
+export type SessionState = 'idle' | 'openInTerminal' | 'openInDesktop' | 'transcriptMissing'
+
+/**
+ * One coding session a profile owns, as its row shows it: a Claude Code
+ * session (CLI or the desktop app's Code tab) or a Codex thread.
+ */
+export type Session = {
+  /**
+   * Claude: the id of the transcript shown, which for a desktop session is its
+   * record's `cliSessionId`, else the last used of its `priorCliSessionIds`. A
+   * desktop session whose transcripts are all gone keeps its `cliSessionId`,
+   * else its record's `local_<uuid>`. Codex: the thread id.
+   */
+  id: string
+  /**
+   * Where the session was started.
+   */
+  kind: SessionKind
+  /**
+   * The desktop title, else the `/rename` name, else the generated title,
+   * else the first prompt. Null when none of those says anything.
+   */
+  title: string | null
+  /**
+   * The folder the session works in.
+   */
+  cwd: string | null
+  /**
+   * The last thing typed into the session.
+   */
+  lastPrompt: string | null
+  /**
+   * When the session was last used, ISO 8601.
+   */
+  lastUsedAt: string
+  /**
+   * The session is archived.
+   */
+  archived: boolean
+  /**
+   * What the session's files are doing right now.
+   */
+  state: SessionState
+  /**
+   * One of the session's transcripts sits in another profile's config dir and
+   * should be moved into this one's.
+   */
+  needsRepair: boolean
+  /**
+   * Why the session can't be moved to another profile, if it can't.
+   */
+  unmovableReason: string | null
+}
+
+/**
+ * What listing a profile's sessions returns: every session it owns, and how
+ * many of them need repair.
+ */
+export type SessionList = {
+  /**
+   * Active and archived, most recently used first.
+   */
+  sessions: Array<Session>
+  /**
+   * How many of the sessions need repair.
+   */
+  repairCount: number
+}
+
+/**
+ * What can be done to a session: put it in the Archived tab, or bring it back.
+ */
+export type SessionAction = 'archive' | 'restore'
+
+/**
+ * A desktop app instance that has to quit before a session action can run.
+ */
+export type AppToQuit = {
+  /**
+   * The profile (or `default:<app>`) whose instance it is.
+   */
+  homeId: string
+  /**
+   * How the instance is named: `Claude (Work)`.
+   */
+  label: string
+}
+
+/**
+ * What stands between a session and an action.
+ */
+export type ActionCheck = {
+  /**
+   * Why the action can't run, when only the user can change that.
+   */
+  blocker: string | null
+  /**
+   * The desktop app that has to quit first, when it holds files the action
+   * writes and is running.
+   */
+  appToQuit: AppToQuit | null
+}
+
+/**
+ * What a move does with one of the session's files or folders at the
+ * destination: copies it there, leaves the same one there alone, or backs up
+ * a different one there and replaces it.
+ */
+export type ItemAction = 'copy' | 'same' | 'replace'
+
+/**
+ * What a move does about the destination's desktop app: lists the session
+ * there, finds it listed already, can't as the app isn't signed in, or can't
+ * as the destination has no desktop app.
+ */
+export type DesktopAction = 'add' | 'alreadyListed' | 'signInNeeded' | 'noDesktop'
+
+/**
+ * One file or folder a move copies.
+ */
+export type PlannedItem = {
+  /**
+   * Where it goes, relative to the destination's config dir.
+   */
+  path: string
+  /**
+   * What the move does with it.
+   */
+  action: ItemAction
+}
+
+/**
+ * What moving a session to another profile would do.
+ */
+export type MovePlan = {
+  /**
+   * One line saying what moves where: `Moves 3 files from Work to Personal,
+   * and 2 memory files`.
+   */
+  summary: string
+  /**
+   * The files and folders the move copies, then the project memory files it
+   * copies, then the transcripts.
+   */
+  items: Array<PlannedItem>
+  /**
+   * The destination has a copy that was used more recently, which the move
+   * only replaces when the user agrees.
+   */
+  destinationNewer: boolean
+  /**
+   * What the move does about the destination's desktop app.
+   */
+  desktop: DesktopAction
+  /**
+   * Why the move can't be done, when only the user can change that.
+   */
+  blockers: Array<string>
+  /**
+   * The desktop apps that have to quit first, at the source, the destination
+   * or both.
+   */
+  appsToQuit: Array<AppToQuit>
+  /**
+   * Things worth knowing that don't stop the move.
+   */
+  notes: Array<string>
+}
+
+/**
+ * What a move did that the user should hear about.
+ */
+export type MoveReport = {
+  /**
+   * The memory files both profiles have, differently; the destination's were
+   * kept.
+   */
+  memoryConflicts: Array<string>
+}
+
+/**
+ * A session a repair left as it was, and why.
+ */
+export type SkippedSession = {
+  /**
+   * The session's id.
+   */
+  id: string
+  /**
+   * Why it was left as it was.
+   */
+  reason: string
+}
+
+/**
+ * What repairing a profile's sessions did.
+ */
+export type RepairReport = {
+  /**
+   * How many sessions were repaired.
+   */
+  repaired: number
+  /**
+   * The sessions that needed repair but were left as they were.
+   */
+  skipped: Array<SkippedSession>
+  /**
+   * The memory files both folders have, differently; the profile's own were
+   * kept.
+   */
+  memoryConflicts: Array<string>
+  /**
+   * What the repair did that it didn't mean to, such as a copy it left
+   * behind, for the user to tidy.
+   */
+  warnings: Array<string>
 }

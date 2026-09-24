@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { extractErrorMessage } from './extract-error-message'
+import { extractErrorKind, extractErrorMessage } from './extract-error-message'
 
 describe('extractErrorMessage', () => {
   it('returns the message of a real Error', () => {
@@ -24,5 +24,18 @@ describe('extractErrorMessage', () => {
 
   it('respects a custom fallback', () => {
     expect(extractErrorMessage({}, 'Could not save profile.')).toBe('Could not save profile.')
+  })
+})
+
+describe('extractErrorKind', () => {
+  it('reads the .kind field on AppError objects from Rust', () => {
+    expect(extractErrorKind({ kind: 'NotInstalled', message: 'Install the Codex CLI' })).toBe('NotInstalled')
+  })
+
+  it('is null for anything without a kind', () => {
+    expect(extractErrorKind(new Error('boom'))).toBeNull()
+    expect(extractErrorKind('plain string')).toBeNull()
+    expect(extractErrorKind({ kind: 7 })).toBeNull()
+    expect(extractErrorKind(undefined)).toBeNull()
   })
 })
