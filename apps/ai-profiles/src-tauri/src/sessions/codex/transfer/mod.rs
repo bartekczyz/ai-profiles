@@ -279,7 +279,7 @@ where
         .request("thread/unarchive", json!({ "threadId": session_id }))
         .await
     {
-        let taken = taken(&mut to, &error, restart, &destination, &session_id).await;
+        let taken = taken(to, &error, restart, &destination, &session_id).await;
         if taken != Some(true) {
             let (source, destination) = (source.clone(), destination.clone());
             let refusal = blocking(move || {
@@ -401,9 +401,10 @@ fn confine(path: &Path, source: &Home, session_id: &str) -> AppResult<()> {
 ///
 /// It is asked through `to`, unless the unarchive that failed with `failed`
 /// found `to` closed or too slow to answer, or asking it again does: then
-/// through an app-server `restart` starts afresh.
+/// `to` is stopped, and the question goes to an app-server `restart` starts
+/// afresh.
 async fn taken<T, R, RF>(
-    to: &mut impl CodexTransport,
+    mut to: impl CodexTransport,
     failed: &CodexRpcError,
     restart: R,
     destination: &Home,
@@ -415,32 +416,33 @@ where
     T: CodexTransport,
 {
     if !connection_lost(failed) {
-        match read_thread(to, session_id).await {
+        match read_thread(&mut to, session_id).await {
             Err(error) if connection_lost(&error) => {}
-            read => return taken_by(read, destination, session_id),
+            read => return taken_by(read, destination, session_id).await,
         }
     }
+    drop(to);
     let mut fresh = restart(destination.clone()).await.ok()?;
-    taken_by(
-        read_thread(&mut fresh, session_id).await,
-        destination,
-        session_id,
-    )
+    let read = read_thread(&mut fresh, session_id).await;
+    taken_by(read, destination, session_id).await
 }
 
 /// Whether `read`, the destination's answer to reading thread `session_id`,
 /// says `destination` has it among its sessions: `None` when it doesn't
-/// say, as when its path couldn't be read.
-fn taken_by(
+/// say, as when its path couldn't be read. Where its file is is looked at on
+/// a blocking thread.
+async fn taken_by(
     read: Result<Thread, CodexRpcError>,
     destination: &Home,
     session_id: &str,
 ) -> Option<bool> {
     match read {
-        Ok(thread) => Some(!is_archived(
-            &destination.config_dir,
-            thread.path.as_deref(),
-        )),
+        Ok(thread) => {
+            let (config_dir, path) = (destination.config_dir.clone(), thread.path);
+            blocking(move || Ok(!is_archived(&config_dir, path.as_deref())))
+                .await
+                .ok()
+        }
         Err(error) => match resolve_error(&error, session_id, destination) {
             AppError::NotFound(_) => Some(false),
             _ => None,

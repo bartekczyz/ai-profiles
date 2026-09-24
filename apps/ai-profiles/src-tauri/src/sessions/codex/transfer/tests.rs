@@ -49,6 +49,33 @@ where
     }
 }
 
+/// A stand-in app-server that logs, in the log both sides write to, when it
+/// is let go, answering through `inner`.
+struct Stopped<T> {
+    /// Answers the calls.
+    inner: T,
+    /// The side it stands in for.
+    side: &'static str,
+    /// The log both sides write to.
+    log: Log,
+}
+
+impl<T> Drop for Stopped<T> {
+    fn drop(&mut self) {
+        self.log
+            .lock()
+            .unwrap()
+            .push(format!("{} stopped", self.side));
+    }
+}
+
+#[async_trait]
+impl<T: CodexTransport> CodexTransport for Stopped<T> {
+    async fn request(&mut self, method: &str, params: Value) -> Result<Value, CodexRpcError> {
+        self.inner.request(method, params).await
+    }
+}
+
 /// Two Codex homes, `Work` and `Personal`, with `Work` holding thread
 /// [`ID`]'s rollout, dated [`WRITTEN`].
 struct Setup {
@@ -718,6 +745,11 @@ async fn move_through_lost_unarchive(
         assert_eq!(home.id, "personal");
         async move { Ok(fresh) }
     };
+    let to = Stopped {
+        inner: to,
+        side: "destination",
+        log: setup.log.clone(),
+    };
     let prepared = plan_with(
         setup.idle_source(),
         to,
@@ -752,6 +784,7 @@ async fn an_unarchive_that_timed_out_after_the_destination_took_it_still_finishe
             "source thread/read",
             "destination thread/read",
             "destination thread/unarchive",
+            "destination stopped",
             "fresh destination thread/read",
             "source thread/read",
             "source thread/archive",
@@ -763,10 +796,18 @@ async fn an_unarchive_that_timed_out_after_the_destination_took_it_still_finishe
 #[tokio::test]
 async fn a_destination_whose_app_server_exited_is_asked_again_on_a_fresh_one() {
     let (moved, calls, set_aside) =
-        move_through_lost_unarchive(CodexRpcError::Closed, || Err(CodexRpcError::Closed)).await;
+        move_through_lost_unarchive(CodexRpcError::Closed, || panic!("asked the stale server"))
+            .await;
 
     moved.unwrap();
-    assert!(calls.contains(&"fresh destination thread/read".to_string()));
+    assert_eq!(
+        calls[2..5],
+        [
+            "destination thread/unarchive",
+            "destination stopped",
+            "fresh destination thread/read",
+        ]
+    );
     assert_eq!(calls.last().unwrap(), "source thread/archive");
     assert!(!set_aside);
 }
@@ -781,10 +822,11 @@ async fn a_destination_that_fails_after_an_unrelated_error_is_asked_again_on_a_f
 
     moved.unwrap();
     assert_eq!(
-        calls[2..5],
+        calls[2..6],
         [
             "destination thread/unarchive",
             "destination thread/read",
+            "destination stopped",
             "fresh destination thread/read",
         ]
     );
@@ -944,10 +986,10 @@ fn a_missing_cli_explains_itself_and_a_failed_start_says_why() {
 #[tokio::test]
 async fn a_destination_answer_with_an_unreadable_path_cant_say_whether_it_took_it() {
     let setup = Setup::new();
-    let mut to = setup.destination(|_, _| Ok(json!({ "thread": { "id": ID, "path": 7 } })));
+    let to = setup.destination(|_, _| Ok(json!({ "thread": { "id": ID, "path": 7 } })));
 
     let taken = taken(
-        &mut to,
+        to,
         &CodexRpcError::Rpc("busy".to_string()),
         never_restarted,
         &setup.personal,
