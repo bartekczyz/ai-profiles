@@ -43,6 +43,10 @@ pub struct Home {
     pub gui_data_dir: PathBuf,
     /// The stock install rather than a managed profile.
     pub stock: bool,
+    /// Whether the home's desktop app reads its sessions from `config_dir`.
+    /// False for a profile whose launcher was built before launchers set the
+    /// config home: its desktop app still reads the stock one.
+    pub desktop_reads_config_dir: bool,
 }
 
 /// `value` unless it is blank. The apps write empty strings for fields they

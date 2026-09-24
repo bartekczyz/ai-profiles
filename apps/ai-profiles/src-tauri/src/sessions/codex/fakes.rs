@@ -20,6 +20,7 @@ pub fn home(root: &Path, stock: bool) -> Home {
         config_dir: root.join("cli-config"),
         gui_data_dir: root.join("gui-data"),
         stock,
+        desktop_reads_config_dir: true,
     }
 }
 

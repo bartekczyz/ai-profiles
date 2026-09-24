@@ -205,7 +205,7 @@ fn owned_session(
     live: &HashMap<String, LiveHolder>,
     kept: &HashSet<(String, String)>,
 ) -> Session {
-    let needs_repair = needs_repair(&owned, &home.id, kept);
+    let needs_repair = needs_repair(&owned, home, kept);
     let Owned {
         session_id,
         transcript,

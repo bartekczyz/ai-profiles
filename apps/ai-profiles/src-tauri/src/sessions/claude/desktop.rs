@@ -782,6 +782,7 @@ mod tests {
             config_dir: root.path().join("cli-config"),
             gui_data_dir: root.path().join("gui-data"),
             stock: false,
+            desktop_reads_config_dir: true,
         };
         write_config(&home.gui_data_dir, ACCOUNT);
         org_dir(&home.gui_data_dir, ACCOUNT, ORG);
@@ -804,6 +805,7 @@ mod tests {
             config_dir: root.path().join("cli-config"),
             gui_data_dir: root.path().join("gui-data"),
             stock,
+            desktop_reads_config_dir: true,
         };
 
         assert_eq!(

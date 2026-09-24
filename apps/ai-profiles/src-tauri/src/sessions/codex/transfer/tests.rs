@@ -197,6 +197,7 @@ fn codex_home(root: &Path, name: &str) -> Home {
         config_dir: root.join(name).join("cli-config"),
         gui_data_dir: root.join(name).join("gui-data"),
         stock: false,
+        desktop_reads_config_dir: true,
     }
 }
 

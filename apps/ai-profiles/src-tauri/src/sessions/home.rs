@@ -6,6 +6,8 @@ use super::Home;
 use crate::app_kind::{default_id, AppKind};
 use crate::app_state;
 use crate::error::{AppError, AppResult};
+use crate::launchers::gui::exports_config_home;
+use crate::paths::gui_launcher_path;
 use crate::profiles::{self, Profile};
 
 /// What the stock install is called until the user names it.
@@ -53,12 +55,17 @@ fn stock_home(kind: AppKind) -> AppResult<Home> {
         config_dir: PathBuf::from(paths.cli_config_dir),
         gui_data_dir: PathBuf::from(paths.gui_data_dir),
         stock: true,
+        desktop_reads_config_dir: true,
     })
 }
 
-/// The home of a managed `profile`.
+/// The home of a managed `profile`. Its desktop app reads its config dir
+/// unless the launcher it is opened with doesn't set it; one built later, when
+/// there is none, will.
 fn managed_home(profile: &Profile) -> AppResult<Home> {
     let paths = profiles::paths(&profile.id)?;
+    let spec = profile.app.spec();
+    let launcher = gui_launcher_path(&profile.name, spec);
     Ok(Home {
         id: profile.id.clone(),
         app: profile.app,
@@ -66,6 +73,8 @@ fn managed_home(profile: &Profile) -> AppResult<Home> {
         config_dir: PathBuf::from(paths.cli_config_dir),
         gui_data_dir: PathBuf::from(paths.gui_data_dir),
         stock: false,
+        desktop_reads_config_dir: !launcher.exists()
+            || exports_config_home(&launcher, spec.cli_config_env),
     })
 }
 

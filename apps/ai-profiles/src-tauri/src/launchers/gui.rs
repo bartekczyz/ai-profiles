@@ -98,9 +98,19 @@ pub fn outdated(profile: &Profile, bundle: &Path, version: &str) -> bool {
     built_by != Some(version) || !exports(bundle, &info, profile.app.spec().cli_config_env)
 }
 
-/// Whether the launcher at `bundle`, of Info.plist `info`, sets `env`, its
-/// app's config-home env var, for the app it opens. A script launcher exports
-/// it in its script, a wrapper records it for its shim.
+/// Whether the launcher at `bundle` sets `env`, its app's config-home env var,
+/// for the app it opens. One that doesn't leaves the app reading the stock
+/// config home rather than the profile's. False when its Info.plist can't be
+/// read.
+pub fn exports_config_home(bundle: &Path, env: &str) -> bool {
+    ::plist::Value::from_file(bundle.join("Contents/Info.plist"))
+        .ok()
+        .and_then(::plist::Value::into_dictionary)
+        .is_some_and(|info| exports(bundle, &info, env))
+}
+
+/// [`exports_config_home`], given the launcher's Info.plist, `info`. A script
+/// launcher exports it in its script, a wrapper records it for its shim.
 fn exports(bundle: &Path, info: &::plist::Dictionary, env: &str) -> bool {
     let text = |key: &str| info.get(key).and_then(::plist::Value::as_string);
     if text("CFBundleExecutable") == Some("launcher") {
@@ -535,6 +545,7 @@ mod tests {
             outdated(&profile, &script, "1.3.0"),
             "script without the export"
         );
+        assert!(!exports_config_home(&script, "CLAUDE_CONFIG_DIR"));
 
         let wrapped = Profile {
             distinct_dock_icon: true,
@@ -553,6 +564,40 @@ mod tests {
             outdated(&wrapped, &wrapper, "1.3.0"),
             "wrapper without the env"
         );
+        assert!(!exports_config_home(&wrapper, "CLAUDE_CONFIG_DIR"));
+    }
+
+    #[test]
+    fn a_launcher_that_exports_the_config_home_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = fixture();
+        let ours = plist::bundle_identifier(&profile);
+        let script = launcher_bundle(
+            dir.path(),
+            "Script.app",
+            &[
+                ("CFBundleIdentifier", &ours),
+                ("CFBundleExecutable", "launcher"),
+            ],
+        );
+        with_launcher_script(&script, &profile);
+        assert!(exports_config_home(&script, "CLAUDE_CONFIG_DIR"));
+        assert!(
+            !exports_config_home(&script, "CODEX_HOME"),
+            "another app's env"
+        );
+
+        let wrapper = launcher_bundle(
+            dir.path(),
+            "Wrapper.app",
+            &[
+                ("CFBundleIdentifier", &ours),
+                ("CFBundleExecutable", "Claude"),
+                WRAPPER_CONFIG_ENV[0],
+                WRAPPER_CONFIG_ENV[1],
+            ],
+        );
+        assert!(exports_config_home(&wrapper, "CLAUDE_CONFIG_DIR"));
     }
 
     #[test]

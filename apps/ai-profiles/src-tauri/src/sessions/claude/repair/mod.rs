@@ -149,7 +149,7 @@ pub fn check(home: &Home, homes: &[Home], ps_output: &str) -> AppResult<Checked<
     let mut sessions = Vec::new();
     let mut skipped = Vec::new();
     for owned in owned_by(&home.id, &scans) {
-        if !needs_repair(&owned, &home.id, &kept) {
+        if !needs_repair(&owned, home, &kept) {
             continue;
         }
         match session_repair(&context, &owned) {

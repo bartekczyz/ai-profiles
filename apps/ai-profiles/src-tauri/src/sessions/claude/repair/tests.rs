@@ -732,6 +732,30 @@ fn two_sessions_that_continued_the_same_transcript_are_both_repaired() {
 }
 
 #[test]
+fn a_profile_whose_desktop_app_still_reads_the_stock_config_home_needs_no_repair() {
+    let root = tempdir().unwrap();
+    let (default, personal, _) = orphaned(root.path());
+    // Its launcher was built before launchers set the config home, so its
+    // desktop app finds these transcripts where they are.
+    let personal = Home {
+        desktop_reads_config_dir: false,
+        ..personal
+    };
+    let homes = vec![default.clone(), personal.clone()];
+
+    let listed = claude_sessions(&personal, &homes, "");
+    let checked = check(&personal, &homes, "").unwrap();
+
+    assert_eq!(listed.repair_count, 0);
+    assert!(listed.sessions.iter().all(|session| !session.needs_repair));
+    assert_eq!(checked.target.sessions.len(), 0);
+    assert_eq!(checked.check.app_to_quit, None);
+    for session in ["before", "now"] {
+        assert!(default.config_dir.join(transcript_path(session)).exists());
+    }
+}
+
+#[test]
 fn an_archived_session_is_neither_counted_nor_repaired() {
     let root = tempdir().unwrap();
     let (default, personal, homes) = orphaned(root.path());

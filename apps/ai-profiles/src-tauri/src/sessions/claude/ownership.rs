@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::desktop::DesktopRecord;
 use super::transcript::TranscriptSummary;
+use crate::sessions::Home;
 
 /// What one home of the app holds, read from disk.
 #[derive(Debug, Clone)]
@@ -181,18 +182,20 @@ pub(crate) fn kept_archived(scans: &[HomeScan]) -> HashSet<(String, String)> {
     archived
 }
 
-/// Whether `owned`, a session of home `home_id`, needs repair: it is active,
-/// a transcript it claims sits in another home's config dir, and none of
-/// those is a copy that home keeps archived (see [`kept_archived`], `kept`),
-/// which a repair leaves where it is.
-pub(crate) fn needs_repair(owned: &Owned, home_id: &str, kept: &HashSet<(String, String)>) -> bool {
+/// Whether `owned`, a session of `home`, needs repair: `home`'s desktop app
+/// reads its own config dir, the session is active, a transcript it claims
+/// sits in another home's config dir, and none of those is a copy that home
+/// keeps archived (see [`kept_archived`], `kept`), which a repair leaves where
+/// it is. A desktop app still reading the stock config dir finds its
+/// transcripts there, so moving them would lose them.
+pub(crate) fn needs_repair(owned: &Owned, home: &Home, kept: &HashSet<(String, String)>) -> bool {
     let archived = owned.record.as_ref().is_some_and(|record| record.archived);
     let mut orphans = owned
         .claimed_transcripts
         .iter()
-        .filter(|held| held.home_id != home_id)
+        .filter(|held| held.home_id != home.id)
         .peekable();
-    if archived || orphans.peek().is_none() {
+    if !home.desktop_reads_config_dir || archived || orphans.peek().is_none() {
         return false;
     }
     orphans.all(|held| !kept.contains(&(held.summary.session_id.clone(), held.home_id.clone())))

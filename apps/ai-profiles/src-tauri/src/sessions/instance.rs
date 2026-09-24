@@ -131,6 +131,7 @@ mod tests {
             config_dir: PathBuf::from("/Users/me/.codex"),
             gui_data_dir: PathBuf::from(gui_data_dir),
             stock,
+            desktop_reads_config_dir: true,
         }
     }
 
