@@ -53,15 +53,14 @@ const kindLabels: Record<SessionKind, string> = {
  * its actions trailing. A session whose transcript is gone is dimmed — there
  * is little left of it but the desktop record.
  *
- * The row is named by its title, so a list of rows reads as a list of
- * sessions.
+ * The row carries no label of its own: its content names it, so a screen
+ * reader announces the kind, state and folder along with the title.
  */
 export function SessionRow({ session, actions = [] }: Props) {
   const title = session.title ?? untitledSessionLabel
   const lastUsed = formatSessionLastUsed(session.lastUsedAt)
   return (
     <li
-      aria-label={title}
       className={cn(
         'flex min-h-[46px] items-center gap-3 border-t border-border-soft px-[13px] py-[9px] first:border-t-0',
         session.state === 'transcriptMissing' && 'opacity-60',

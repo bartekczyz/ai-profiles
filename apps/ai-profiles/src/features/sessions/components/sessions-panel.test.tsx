@@ -75,13 +75,17 @@ function mockSessions(sessions: Array<Session>) {
 }
 
 /**
- * The titles of the listed rows, top to bottom.
+ * The listed rows, top to bottom.
  */
-function rowTitles(): Array<string> {
-  const list = screen.getByRole('list', { name: 'Sessions' })
-  return within(list)
-    .getAllByRole('listitem')
-    .map((row) => row.getAttribute('aria-label') ?? '')
+function rows(): Array<HTMLElement> {
+  return within(screen.getByRole('list', { name: 'Sessions' })).getAllByRole('listitem')
+}
+
+/**
+ * Asserts the list shows one row per title, in this order.
+ */
+function expectRows(titles: Array<string>) {
+  expect(rows().map((item) => item.textContent)).toEqual(titles.map((title) => expect.stringContaining(title)))
 }
 
 /**
@@ -125,10 +129,14 @@ beforeEach(() => {
 })
 
 /**
- * The row of the session titled `title`.
+ * The row that shows `title`.
  */
 function row(title: string): HTMLElement {
-  return within(screen.getByRole('list', { name: 'Sessions' })).getByRole('listitem', { name: title })
+  const match = rows().find((item) => within(item).queryByText(title) !== null)
+  if (match === undefined) {
+    throw new Error(`No row shows ${title}`)
+  }
+  return match
 }
 
 describe('SessionsPanel', () => {
@@ -153,43 +161,43 @@ describe('SessionsPanel', () => {
     mockSessions(mixed)
     await renderPanel()
     expect(listSessions).toHaveBeenCalledWith('p1')
-    expect(rowTitles()).toEqual(['Refactor the parser', 'Plan the launch', 'Fix the build'])
+    expectRows(['Refactor the parser', 'Plan the launch', 'Fix the build'])
   })
 
   it('narrows the rows as the search is typed', async () => {
     mockSessions(mixed)
     const { user } = await renderPanel()
     await user.type(screen.getByRole('searchbox'), 'parser')
-    expect(rowTitles()).toEqual(['Refactor the parser'])
+    expectRows(['Refactor the parser'])
   })
 
   it('shows archived sessions on the Archived tab', async () => {
     mockSessions(mixed)
     const { user } = await renderPanel()
     await user.click(screen.getByRole('tab', { name: /Archived/ }))
-    expect(rowTitles()).toEqual(['Old parser work'])
+    expectRows(['Old parser work'])
   })
 
   it('offers the kind filter only when the tab mixes both kinds', async () => {
     mockSessions(mixed)
     const { user } = await renderPanel()
     await user.click(screen.getByRole('radio', { name: 'Desktop' }))
-    expect(rowTitles()).toEqual(['Plan the launch'])
+    expectRows(['Plan the launch'])
 
     // The Archived tab holds only CLI sessions: the filter goes away, and the
     // Desktop choice made on the other tab no longer hides anything.
     await user.click(screen.getByRole('tab', { name: /Archived/ }))
     expect(screen.queryByRole('radiogroup')).toBeNull()
-    expect(rowTitles()).toEqual(['Old parser work'])
+    expectRows(['Old parser work'])
   })
 
   it('reverses the order when the sort is toggled', async () => {
     mockSessions(mixed)
     const { user } = await renderPanel()
     await user.click(screen.getByRole('button', { name: /Last used/ }))
-    expect(rowTitles()).toEqual(['Fix the build', 'Plan the launch', 'Refactor the parser'])
+    expectRows(['Fix the build', 'Plan the launch', 'Refactor the parser'])
     await user.click(screen.getByRole('button', { name: /Last used/ }))
-    expect(rowTitles()).toEqual(['Refactor the parser', 'Plan the launch', 'Fix the build'])
+    expectRows(['Refactor the parser', 'Plan the launch', 'Fix the build'])
   })
 
   it('keeps the search across tabs and clears it from the no-match state', async () => {
@@ -201,13 +209,13 @@ describe('SessionsPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Clear search' }))
     expect(screen.getByRole('searchbox')).toHaveValue('')
-    expect(rowTitles()).toEqual(['Old parser work'])
+    expectRows(['Old parser work'])
   })
 
   it('names an untitled session by its fallback', async () => {
     mockSessions([makeSession({ id: 'x', title: null, cwd: '/Users/ada/Developer/app' })])
     await renderPanel()
-    expect(rowTitles()).toEqual(['Untitled session'])
+    expectRows(['Untitled session'])
   })
 
   it('retries a failed listing once, then shows the error inline and refetches on Retry', async () => {
