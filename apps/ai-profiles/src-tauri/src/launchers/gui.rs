@@ -64,11 +64,16 @@ pub fn generate(profile: &Profile, version: &str) -> AppResult<PathBuf> {
 }
 
 /// Whether the launcher at `bundle` needs building again for ai-profiles
-/// `version`: another version of this app built it, or it is not the shape the
-/// profile asks for. A script launcher records the version that built it as its
-/// `CFBundleVersion`, a wrapper under its own key (its `CFBundleVersion` is the
-/// vendor's). A missing bundle, or one that is not ours, is left alone: there is
-/// nothing of ours there to bring up to date.
+/// `version`: another version of this app built it, it is not the shape the
+/// profile asks for, or it leaves its app on the stock config home. A script
+/// launcher records the version that built it as its `CFBundleVersion`, a
+/// wrapper under its own key (its `CFBundleVersion` is the vendor's). A missing
+/// bundle, or one that is not ours, is left alone: there is nothing of ours
+/// there to bring up to date.
+///
+/// The config home is checked on its own because launchers built before they
+/// set it can carry the version string of a build that does, as a development
+/// build does until release-please bumps it.
 pub fn outdated(profile: &Profile, bundle: &Path, version: &str) -> bool {
     if !bundle.exists() || !is_ours(bundle) {
         return false;
@@ -90,7 +95,19 @@ pub fn outdated(profile: &Profile, bundle: &Path, version: &str) -> bool {
     } else {
         text(wrapper::BUILT_BY_KEY)
     };
-    built_by != Some(version)
+    built_by != Some(version) || !exports(bundle, &info, profile.app.spec().cli_config_env)
+}
+
+/// Whether the launcher at `bundle`, of Info.plist `info`, sets `env`, its
+/// app's config-home env var, for the app it opens. A script launcher exports
+/// it in its script, a wrapper records it for its shim.
+fn exports(bundle: &Path, info: &::plist::Dictionary, env: &str) -> bool {
+    let text = |key: &str| info.get(key).and_then(::plist::Value::as_string);
+    if text("CFBundleExecutable") == Some("launcher") {
+        return fs::read_to_string(bundle.join("Contents/MacOS/launcher"))
+            .is_ok_and(|script| script.contains(&format!("export {env}=")));
+    }
+    wrapper::config_env_recorded(info) && text(profile_shim::CONFIG_ENV_NAME_KEY) == Some(env)
 }
 
 /// Build again, once, every desktop launcher another ai-profiles version built.
@@ -427,6 +444,22 @@ mod tests {
         bundle
     }
 
+    /// Give the launcher-shaped `bundle` the script a launcher of `profile`
+    /// runs, which exports its config home.
+    fn with_launcher_script(bundle: &Path, profile: &Profile) {
+        let macos = bundle.join("Contents/MacOS");
+        fs::create_dir_all(&macos).unwrap();
+        let body =
+            script::launcher_script(&profile.id, profile.app.spec(), "/Applications/Claude.app");
+        fs::write(macos.join("launcher"), body).unwrap();
+    }
+
+    /// The `Info.plist` entries of a wrapper that exports its config home.
+    const WRAPPER_CONFIG_ENV: [(&str, &str); 2] = [
+        (profile_shim::CONFIG_ENV_NAME_KEY, "CLAUDE_CONFIG_DIR"),
+        (profile_shim::CONFIG_ENV_VALUE_KEY, "/data/cli-config"),
+    ];
+
     #[test]
     fn a_launcher_another_version_built_is_outdated() {
         let dir = tempfile::tempdir().unwrap();
@@ -441,6 +474,7 @@ mod tests {
                 ("CFBundleVersion", "1.3.0"),
             ],
         );
+        with_launcher_script(&script, &profile);
         assert!(!outdated(&profile, &script, "1.3.0"));
         assert!(outdated(&profile, &script, "1.4.0"));
 
@@ -457,6 +491,8 @@ mod tests {
                 // The vendor's version: not what decides it.
                 ("CFBundleVersion", "2.2553.13"),
                 (wrapper::BUILT_BY_KEY, "1.3.0"),
+                WRAPPER_CONFIG_ENV[0],
+                WRAPPER_CONFIG_ENV[1],
             ],
         );
         assert!(!outdated(&wrapped, &wrapper, "1.3.0"));
@@ -472,6 +508,50 @@ mod tests {
         assert!(
             outdated(&wrapped, &unrecorded, "1.3.0"),
             "built before it was recorded"
+        );
+    }
+
+    #[test]
+    fn a_launcher_that_leaves_its_app_on_the_stock_config_home_is_outdated() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = fixture();
+        let ours = plist::bundle_identifier(&profile);
+        let script = launcher_bundle(
+            dir.path(),
+            "Script.app",
+            &[
+                ("CFBundleIdentifier", &ours),
+                ("CFBundleExecutable", "launcher"),
+                ("CFBundleVersion", "1.3.0"),
+            ],
+        );
+        fs::create_dir_all(script.join("Contents/MacOS")).unwrap();
+        fs::write(
+            script.join("Contents/MacOS/launcher"),
+            "#!/bin/bash\nexec open -n -a \"/Applications/Claude.app\" --args --user-data-dir=\"$DATA_DIR\"\n",
+        )
+        .unwrap();
+        assert!(
+            outdated(&profile, &script, "1.3.0"),
+            "script without the export"
+        );
+
+        let wrapped = Profile {
+            distinct_dock_icon: true,
+            ..fixture()
+        };
+        let wrapper = launcher_bundle(
+            dir.path(),
+            "Wrapper.app",
+            &[
+                ("CFBundleIdentifier", &ours),
+                ("CFBundleExecutable", "Claude"),
+                (wrapper::BUILT_BY_KEY, "1.3.0"),
+            ],
+        );
+        assert!(
+            outdated(&wrapped, &wrapper, "1.3.0"),
+            "wrapper without the env"
         );
     }
 
