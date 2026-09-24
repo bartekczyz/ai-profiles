@@ -87,9 +87,8 @@ const tabTriggerClasses = 'flex-none px-0.5 pb-1 text-[13px] tracking-[-0.005em]
  *
  * Active and Archived tabs head the panel; under them, one row of controls —
  * search, the Desktop/CLI filter and the last-used sort — applies to whichever
- * tab is open. In the two-column layout the panel fills the column's height
- * and only the rows scroll; stacked, it grows with its rows and the pane
- * scrolls as a whole.
+ * tab is open. The panel fills the height the pane gives it — the column
+ * beside the details, or the room under them — and only the rows scroll.
  *
  * An active session's row offers Move, a menu of the app's other profiles
  * (Default included); picking one asks to confirm the move. While some

@@ -39,11 +39,13 @@ type Props = {
  * same gutter as the 40px above.
  *
  * With an `aside`, the pane becomes the size container `pane-wide:` queries
- * (see `index.css`). Narrower, the aside simply follows the body and the
- * whole column scrolls as before. Wide, the body turns into two columns under
- * a header widened to span both: the body column scrolls on its own,
- * reserving its scrollbar gutter as the single column does, and the aside
- * gets the full height to lay out as it likes. The aside is rendered
+ * (see `index.css`). Narrower, the aside follows the body and takes the
+ * height left under it, so it can scroll inside itself as it does when wide;
+ * it keeps a floor of its own, though, and once the pane is too short for
+ * that, the whole column scrolls instead. Wide, the body turns into two
+ * columns under a header widened to span both: the body column scrolls on
+ * its own, reserving its scrollbar gutter as the single column does, and the
+ * aside gets the full height to lay out as it likes. The aside is rendered
  * once either way and only CSS moves it, so its state (a half-typed search,
  * say) survives a resize across the breakpoint.
  */
@@ -57,15 +59,15 @@ export function PaneLayout({ header, children, aside, className }: Props) {
       <div
         className={cn(
           'flex-1 overflow-y-auto px-10 pt-5 pb-4 [scrollbar-gutter:stable]',
-          hasAside && 'min-h-0 pane-wide:overflow-hidden',
+          hasAside && 'flex min-h-0 flex-col pane-wide:overflow-hidden',
         )}
       >
         {hasAside ? (
-          <div className="mx-auto w-full max-w-[640px] pane-wide:grid pane-wide:h-full pane-wide:max-w-[1120px] pane-wide:grid-cols-[minmax(0,640px)_minmax(0,1fr)] pane-wide:grid-rows-[minmax(0,1fr)] pane-wide:gap-8">
-            <div className="pane-wide:min-h-0 pane-wide:overflow-y-auto pane-wide:[scrollbar-gutter:stable]">
+          <div className="mx-auto flex min-h-0 w-full max-w-[640px] flex-1 flex-col pane-wide:grid pane-wide:max-w-[1120px] pane-wide:grid-cols-[minmax(0,640px)_minmax(0,1fr)] pane-wide:grid-rows-[minmax(0,1fr)] pane-wide:gap-8">
+            <div className="shrink-0 pane-wide:min-h-0 pane-wide:overflow-y-auto pane-wide:[scrollbar-gutter:stable]">
               {children}
             </div>
-            <div className="pane-wide:flex pane-wide:min-h-0 pane-wide:flex-col">{aside}</div>
+            <div className="flex min-h-80 flex-1 flex-col pane-wide:min-h-0">{aside}</div>
           </div>
         ) : (
           <div className="mx-auto w-full max-w-[640px]">{children}</div>

@@ -2,15 +2,14 @@ import { Skeleton } from '@/design'
 
 /**
  * The panel's outer box, shared by the panel and its skeleton so both sit in
- * the pane the same way: a flex column that, in the two-column layout, fills
- * the sessions column's height.
+ * the pane the same way: a flex column that fills the height the pane gives
+ * it, beside the details or under them.
  */
-export const sessionsPanelClasses = '@container/sessions mb-6 flex flex-col gap-2.5 pane-wide:min-h-0 pane-wide:flex-1'
+export const sessionsPanelClasses = '@container/sessions mb-6 flex min-h-0 flex-1 flex-col gap-2.5'
 
 /**
- * The same inset grouped panel as the surfaces block. It scrolls on its own
- * once a height is imposed from outside (the two-column layout), and simply
- * grows to fit its rows when stacked.
+ * The same inset grouped panel as the surfaces block. It takes the panel's
+ * height left under the tabs and controls, and its rows scroll inside it.
  *
  * It positions its rows' absolute bits (a held-back action's screen-reader
  * text), so they scroll and clip with the rows. Otherwise they'd resolve
