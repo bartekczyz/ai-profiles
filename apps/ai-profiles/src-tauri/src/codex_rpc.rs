@@ -78,8 +78,8 @@ impl CodexRpc {
     }
 
     /// Start app-server on `codex_home` and introduce ai-profiles to it
-    /// without waiting for its answer, which the first request's then comes
-    /// after: that saves a round trip, and leaves it to that request to say
+    /// without waiting for the server to answer. The first request is sent
+    /// straight after, which saves a round trip, and its answer alone says
     /// whether the server works. See [`CodexRpc::introduce`].
     pub async fn launch(codex_home: &Path) -> Result<Self, CodexRpcError> {
         Self::introduce(server_command(codex_home)?, REQUEST_TIMEOUT).await
