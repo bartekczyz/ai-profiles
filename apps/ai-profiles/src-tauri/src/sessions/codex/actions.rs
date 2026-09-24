@@ -20,7 +20,6 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use serde::Deserialize;
 use serde_json::json;
 
 use super::list::{lock_path, started_in_desktop, Thread};
@@ -43,13 +42,6 @@ const NOT_ARCHIVED: &str = "It isn't archived";
 pub struct Target {
     /// The thread's id.
     pub id: String,
-}
-
-/// The `thread` field of a `thread/read` response.
-#[derive(Deserialize)]
-struct ThreadReadResult {
-    /// The thread read.
-    thread: Thread,
 }
 
 /// What stands between Codex session `session_id` of `home` and `action`.
@@ -192,9 +184,10 @@ pub(super) async fn read_thread(
             json!({ "threadId": id, "includeTurns": false }),
         )
         .await?;
-    let result: ThreadReadResult = serde_json::from_value(response)
-        .map_err(|error| CodexRpcError::Unexpected(error.to_string()))?;
-    Ok(result.thread)
+    response
+        .get("thread")
+        .and_then(Thread::read)
+        .ok_or_else(|| CodexRpcError::Unexpected(format!("no thread in {response}")))
 }
 
 /// The error a failed `thread/read` for `session_id` of `home` becomes.

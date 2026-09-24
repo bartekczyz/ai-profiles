@@ -3,6 +3,7 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fs::{self, File};
+use std::future::Future;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex, PoisonError};
@@ -31,6 +32,14 @@ const PAGE_SIZE: usize = 100;
 /// ones each.
 const MAX_THREADS: usize = 2000;
 
+/// How many `thread/list` pages are read at most, of the active and of the
+/// archived threads each.
+const MAX_PAGES: usize = MAX_THREADS / PAGE_SIZE + 2;
+
+/// How long listing a home's threads may take, all pages of both the active
+/// and the archived ones.
+const LISTING_TIMEOUT: Duration = Duration::from_secs(20);
+
 /// The `originator` of a rollout the desktop app started.
 pub(super) const DESKTOP_ORIGINATOR: &str = "Codex Desktop";
 
@@ -44,9 +53,8 @@ const FRESH_LOCK: Duration = Duration::from_secs(10 * 60);
 /// the thread, so the answer never changes for a path.
 static DESKTOP_ROLLOUTS: LazyLock<Mutex<HashMap<PathBuf, bool>>> = LazyLock::new(Mutex::default);
 
-/// The fields of a `thread/list` thread read here.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// The fields of a `thread/list` or `thread/read` thread read here.
+#[derive(Debug)]
 pub(super) struct Thread {
     /// The thread id.
     id: String,
@@ -57,10 +65,8 @@ pub(super) struct Thread {
     /// The folder the thread works in.
     cwd: Option<String>,
     /// When the thread was last updated, in seconds since the epoch.
-    #[serde(default)]
     updated_at: i64,
     /// The thread is never written to disk.
-    #[serde(default)]
     ephemeral: bool,
     /// The thread that spawned this one, which makes it a subagent.
     parent_thread_id: Option<String>,
@@ -72,16 +78,71 @@ pub(super) struct Thread {
     /// tell those apart.
     pub(super) status: Option<ThreadStatus>,
     /// The thread was listed as archived.
-    #[serde(skip)]
     archived: bool,
 }
 
+impl Thread {
+    /// The thread `value` describes, read field by field: a field that is
+    /// missing or of a type it can't be read as is left empty, so one field
+    /// app-server changes doesn't lose the thread. `None` without an id.
+    ///
+    /// Its update time falls back to its recency, then its creation time.
+    pub(super) fn read(value: &Value) -> Option<Self> {
+        let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_string);
+        let seconds = |key: &str| value.get(key).and_then(timestamp);
+        Some(Thread {
+            id: text("id")?,
+            name: text("name"),
+            preview: text("preview"),
+            cwd: text("cwd"),
+            updated_at: seconds("updatedAt")
+                .or_else(|| seconds("recencyAt"))
+                .or_else(|| seconds("createdAt"))
+                .unwrap_or_default(),
+            ephemeral: value
+                .get("ephemeral")
+                .and_then(Value::as_bool)
+                .unwrap_or_default(),
+            parent_thread_id: text("parentThreadId"),
+            path: text("path").map(PathBuf::from),
+            status: value.get("status").and_then(ThreadStatus::read),
+            archived: false,
+        })
+    }
+}
+
+/// A time in seconds since the epoch: a number, or text holding one or an
+/// RFC 3339 date.
+fn timestamp(value: &Value) -> Option<i64> {
+    if value.is_number() {
+        return value
+            .as_i64()
+            .or_else(|| value.as_f64().map(|seconds| seconds as i64));
+    }
+    let text = value.as_str()?.trim();
+    text.parse().ok().or_else(|| {
+        DateTime::parse_from_rfc3339(text)
+            .ok()
+            .map(|date| date.timestamp())
+    })
+}
+
 /// A thread's `status`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub(super) struct ThreadStatus {
     /// `notLoaded`, `idle`, `systemError` or `active`.
-    #[serde(rename = "type")]
     pub(super) kind: String,
+}
+
+impl ThreadStatus {
+    /// The status `value` describes: an object whose `type` names it, or
+    /// just its name.
+    fn read(value: &Value) -> Option<Self> {
+        let kind = value.get("type").unwrap_or(value).as_str()?;
+        Some(ThreadStatus {
+            kind: kind.to_string(),
+        })
+    }
 }
 
 /// One page of `thread/list` results.
@@ -112,43 +173,61 @@ struct RolloutMetaPayload {
 
 /// The sessions `home` holds, active and archived, most recently used first.
 pub async fn list(home: &Home) -> AppResult<Vec<Session>> {
-    let mut rpc = CodexRpc::start(&home.config_dir)
-        .await
-        .map_err(|error| listing_error(&error))?;
-    list_with(&mut rpc, home).await
+    // Without a process list nothing shows as open in the desktop app, which
+    // is only wrong until the next listing.
+    let processes = || process_list().unwrap_or_default();
+    list_with(
+        CodexRpc::start(&home.config_dir),
+        home,
+        LISTING_TIMEOUT,
+        processes,
+    )
+    .await
 }
 
-/// The sessions `home` holds, most recently used first, read through
-/// `transport`.
-async fn list_with(transport: &mut impl CodexTransport, home: &Home) -> AppResult<Vec<Session>> {
-    let mut threads = Vec::new();
-    for archived in [false, true] {
-        let listed = list_threads(transport, archived)
-            .await
-            .map_err(|error| listing_error(&error))?;
-        threads.extend(listed);
-    }
+/// The sessions `home` holds, most recently used first, read through the
+/// transport `start` gives within `timeout`, with `processes` giving the
+/// output of `ps -ax -o pid=,command=`.
+async fn list_with<T: CodexTransport>(
+    start: impl Future<Output = Result<T, CodexRpcError>>,
+    home: &Home,
+    timeout: Duration,
+    processes: impl FnOnce() -> String + Send + 'static,
+) -> AppResult<Vec<Session>> {
+    // The transport is dropped, stopping app-server, as soon as the threads
+    // are listed: working out the rows needs no more of it.
+    let listing = async {
+        let mut transport = start.await?;
+        let mut threads = list_threads(&mut transport, false).await?;
+        threads.extend(list_threads(&mut transport, true).await?);
+        Ok(threads)
+    };
+    let threads = tokio::time::timeout(timeout, listing)
+        .await
+        .map_err(|_| listing_failed("codex app-server took too long to list them"))?
+        .map_err(|error| listing_error(&error))?;
     let home = home.clone();
     tokio::task::spawn_blocking(move || {
-        // Without a process list nothing shows as open in the desktop app,
-        // which is only wrong until the next listing.
-        let ps_output = process_list().unwrap_or_default();
+        forget_gone_rollouts();
+        let ps_output = processes();
         let mut sessions = to_sessions(&home, threads, &ps_output, SystemTime::now());
         sessions.sort_by_key(|session| Reverse(session.last_used_at));
         sessions
     })
     .await
-    .map_err(|error| AppError::Io(std::io::Error::other(error)))
+    .map_err(listing_failed)
 }
 
 /// The top-level threads listed as `archived` (or not), most recently updated
-/// first, page by page up to [`MAX_THREADS`].
+/// first, page by page up to [`MAX_THREADS`], or [`MAX_PAGES`] pages, as
+/// pages of threads that aren't listed hold none that count.
 async fn list_threads(
     transport: &mut impl CodexTransport,
     archived: bool,
 ) -> Result<Vec<Thread>, CodexRpcError> {
     let mut threads = Vec::new();
     let mut cursor: Option<String> = None;
+    let mut pages = 0;
     loop {
         let params = json!({
             "archived": archived,
@@ -166,12 +245,13 @@ async fn list_threads(
         let listed = page
             .data
             .into_iter()
-            .filter_map(|thread| serde_json::from_value::<Thread>(thread).ok())
+            .filter_map(|thread| Thread::read(&thread))
             .filter(|thread| !thread.ephemeral && thread.parent_thread_id.is_none())
             .map(|thread| Thread { archived, ..thread });
         threads.extend(listed);
         cursor = page.next_cursor;
-        if cursor.is_none() || threads.len() >= MAX_THREADS {
+        pages += 1;
+        if cursor.is_none() || threads.len() >= MAX_THREADS || pages >= MAX_PAGES {
             break;
         }
     }
@@ -253,6 +333,15 @@ pub(super) fn started_in_desktop(path: &Path) -> bool {
     desktop
 }
 
+/// Forget whether rollouts that are gone were started by the desktop app, so
+/// the cache holds only files that are still there.
+fn forget_gone_rollouts() {
+    DESKTOP_ROLLOUTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .retain(|path, _| path.exists());
+}
+
 /// The `originator` on the first line of the rollout at `path`.
 fn originator(path: &Path) -> Option<String> {
     let file = File::open(path).ok()?;
@@ -290,13 +379,20 @@ fn listing_error(error: &CodexRpcError) -> AppError {
         CodexRpcError::NotInstalled => AppError::NotInstalled(
             "Install the Codex CLI to see this profile's sessions".to_string(),
         ),
-        _ => AppError::Validation(format!("Couldn't read Codex sessions: {error}")),
+        _ => listing_failed(error),
     }
+}
+
+/// The error a listing that failed for `reason` shows as.
+fn listing_failed(reason: impl std::fmt::Display) -> AppError {
+    AppError::Validation(format!("Couldn't read Codex sessions: {reason}"))
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
@@ -367,7 +463,7 @@ mod tests {
             .into_iter()
             .map(|thread| Thread {
                 archived,
-                ..serde_json::from_value(thread).unwrap()
+                ..Thread::read(&thread).unwrap()
             })
             .collect()
     }
@@ -448,6 +544,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_thread_is_read_field_by_field_keeping_what_parses() {
+        let odd = json!({
+            "id": "odd",
+            "name": 7,
+            "preview": "Hi",
+            "cwd": "/work/app",
+            "updatedAt": "last tuesday",
+            "recencyAt": 1789000000,
+            "ephemeral": "no",
+            "status": "active",
+        });
+        let textual = json!({ "id": "textual", "updatedAt": "1789000001" });
+        let mut server = FakeServer::new(
+            vec![json!({ "data": [odd, textual, { "name": "no id" }], "nextCursor": null })],
+            vec![],
+        );
+
+        let threads = list_threads(&mut server, false).await.unwrap();
+
+        let read: Vec<Value> = threads
+            .iter()
+            .map(|thread| {
+                json!({
+                    "id": thread.id,
+                    "name": thread.name,
+                    "cwd": thread.cwd,
+                    "updatedAt": thread.updated_at,
+                    "status": thread.status.as_ref().map(|status| &status.kind),
+                })
+            })
+            .collect();
+        assert_eq!(
+            read,
+            [
+                json!({ "id": "odd", "name": null, "cwd": "/work/app", "updatedAt": 1789000000, "status": "active" }),
+                json!({ "id": "textual", "name": null, "cwd": null, "updatedAt": 1789000001, "status": null }),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_thread_without_an_update_time_goes_by_its_recency_then_its_creation() {
+        let mut server = FakeServer::new(
+            vec![json!({ "data": [
+                { "id": "recent", "recencyAt": 1789000002, "createdAt": 1789000000 },
+                { "id": "created", "createdAt": 1789000003 },
+                { "id": "undated" },
+            ], "nextCursor": null })],
+            vec![],
+        );
+
+        let threads = list_threads(&mut server, false).await.unwrap();
+
+        let dated: Vec<(&str, i64)> = threads
+            .iter()
+            .map(|thread| (thread.id.as_str(), thread.updated_at))
+            .collect();
+        assert_eq!(
+            dated,
+            [
+                ("recent", 1789000002),
+                ("created", 1789000003),
+                ("undated", 0)
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn a_page_that_isnt_one_fails_the_listing() {
         let mut server = FakeServer::new(vec![json!("nope")], vec![]);
 
@@ -461,20 +625,161 @@ mod tests {
         let root = tempdir().unwrap();
         let mut shelved = thread("shelved");
         shelved["updatedAt"] = json!(1789500000);
-        let mut server = FakeServer::new(
+        let server = FakeServer::new(
             vec![json!({ "data": [thread("live")], "nextCursor": null })],
             vec![json!({ "data": [shelved], "nextCursor": null })],
         );
 
-        let sessions = list_with(&mut server, &home(root.path(), false))
-            .await
-            .unwrap();
+        let sessions = list_with(
+            async { Ok(server) },
+            &home(root.path(), false),
+            LISTING_TIMEOUT,
+            String::new,
+        )
+        .await
+        .unwrap();
 
         let listed: Vec<(&str, bool)> = sessions
             .iter()
             .map(|session| (session.id.as_str(), session.archived))
             .collect();
         assert_eq!(listed, [("shelved", true), ("live", false)]);
+    }
+
+    /// A transport that says when it is dropped, answering through `inner`.
+    struct Watched<T> {
+        /// Answers the calls.
+        inner: T,
+        /// Set once this is dropped.
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl<T> Drop for Watched<T> {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[async_trait]
+    impl<T: CodexTransport> CodexTransport for Watched<T> {
+        async fn request(&mut self, method: &str, params: Value) -> Result<Value, CodexRpcError> {
+            self.inner.request(method, params).await
+        }
+    }
+
+    /// A transport that never answers.
+    struct Hanging;
+
+    #[async_trait]
+    impl CodexTransport for Hanging {
+        async fn request(&mut self, _: &str, _: Value) -> Result<Value, CodexRpcError> {
+            std::future::pending().await
+        }
+    }
+
+    #[tokio::test]
+    async fn the_app_server_is_let_go_before_the_rows_are_worked_out() {
+        let root = tempdir().unwrap();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let server = Watched {
+            inner: FakeServer::new(
+                vec![json!({ "data": [thread("live")], "nextCursor": null })],
+                vec![],
+            ),
+            dropped: dropped.clone(),
+        };
+        let seen = Arc::new(AtomicBool::new(false));
+        let seen_by_processes = seen.clone();
+        let processes = move || {
+            seen_by_processes.store(dropped.load(Ordering::SeqCst), Ordering::SeqCst);
+            String::new()
+        };
+
+        list_with(
+            async { Ok(server) },
+            &home(root.path(), false),
+            LISTING_TIMEOUT,
+            processes,
+        )
+        .await
+        .unwrap();
+
+        assert!(seen.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn a_listing_that_takes_too_long_fails_with_a_clear_error() {
+        let root = tempdir().unwrap();
+
+        let listed = list_with(
+            async { Ok(Hanging) },
+            &home(root.path(), false),
+            Duration::from_millis(20),
+            String::new,
+        )
+        .await;
+
+        assert!(matches!(
+            listed,
+            Err(AppError::Validation(message))
+                if message == "Couldn't read Codex sessions: codex app-server took too long to list them"
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_listing_whose_pages_keep_coming_empty_of_threads_stops() {
+        let subagents = json!({
+            "data": [{ "id": "sub", "parentThreadId": "parent", "updatedAt": 1 }],
+            "nextCursor": "more",
+        });
+        let mut server = FakeServer::new(vec![subagents; 30], vec![]);
+
+        let threads = list_threads(&mut server, false).await.unwrap();
+
+        assert!(threads.is_empty());
+        assert_eq!(server.requests.len(), MAX_THREADS / PAGE_SIZE + 2);
+    }
+
+    #[tokio::test]
+    async fn a_failure_working_out_the_rows_reads_as_a_listing_failure() {
+        let root = tempdir().unwrap();
+        let server = FakeServer::new(vec![], vec![]);
+
+        let listed = list_with(
+            async { Ok(server) },
+            &home(root.path(), false),
+            LISTING_TIMEOUT,
+            || panic!("no process list"),
+        )
+        .await;
+
+        assert!(matches!(
+            listed,
+            Err(AppError::Validation(message)) if message.starts_with("Couldn't read Codex sessions: ")
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_listing_forgets_rollouts_that_are_gone() {
+        let root = tempdir().unwrap();
+        let gone = write_rollout(root.path(), "gone", DESKTOP_ORIGINATOR);
+        let kept = write_rollout(root.path(), "kept", DESKTOP_ORIGINATOR);
+        assert!(started_in_desktop(&gone));
+        assert!(started_in_desktop(&kept));
+        fs::remove_file(&gone).unwrap();
+
+        list_with(
+            async { Ok(FakeServer::new(vec![], vec![])) },
+            &home(root.path(), false),
+            LISTING_TIMEOUT,
+            String::new,
+        )
+        .await
+        .unwrap();
+
+        let cache = DESKTOP_ROLLOUTS.lock().unwrap();
+        assert!(!cache.contains_key(&gone));
+        assert!(cache.contains_key(&kept));
     }
 
     #[test]
