@@ -9,11 +9,11 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use super::claude::archive_store::{archived_bundles, ArchivedBundle};
-use super::claude::desktop::read_records;
+use super::claude::desktop::{self, read_records};
 use super::claude::live::{live_sessions, LiveHolder};
 use super::claude::markup::strip_markup;
 use super::claude::ownership::{kept_archived, needs_repair, owned_by, HomeScan, Owned};
-use super::claude::transcript::{scan_projects, TranscriptSummary};
+use super::claude::transcript::{self, scan_projects, TranscriptSummary};
 use super::codex;
 use super::home::homes_of;
 use super::Home;
@@ -151,8 +151,11 @@ pub(super) fn claude_sessions(home: &Home, homes: &[Home], ps_output: &str) -> S
     }
 }
 
-/// What each of `homes` holds: its transcripts and desktop records.
+/// What each of `homes` holds: its transcripts and desktop records. What was
+/// cached of files that are gone since is forgotten first.
 pub(super) fn home_scans(homes: &[Home]) -> Vec<HomeScan> {
+    transcript::forget_gone();
+    desktop::forget_gone();
     homes
         .iter()
         .map(|each| HomeScan {

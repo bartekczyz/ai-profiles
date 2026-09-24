@@ -10,8 +10,10 @@
 //! transcript that grew since is read on from where reading stopped, and only
 //! lines that can hold a field read here are decoded at all.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{self, File};
+use std::hash::Hasher;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -86,6 +88,12 @@ struct CachedRead {
     modified: SystemTime,
     /// How far it was read: the end of its last whole line.
     offset: u64,
+    /// Where that last whole line starts.
+    last_line_start: u64,
+    /// A hash of the file's start and of its last whole line, as read: a file
+    /// that no longer has them was rewritten, not appended to. `None` when
+    /// they couldn't be read.
+    fingerprint: Option<u64>,
     /// What its whole lines up to `offset` say.
     scan: Scan,
     /// Its summary, `None` for a transcript of subagent records only.
@@ -261,18 +269,27 @@ fn cached_summary(path: &Path) -> Option<TranscriptSummary> {
             return cached.summary.clone();
         }
     }
-    let (start, mut scan) = match cached {
-        Some(cached) if grew(&mut file, &cached, inode, len) => (cached.offset, cached.scan),
-        _ => (0, Scan::default()),
+    let (start, mut last_line_start, mut scan) = match cached {
+        Some(cached) if grew(&mut file, &cached, inode, len) => {
+            (cached.offset, cached.last_line_start, cached.scan)
+        }
+        _ => (0, 0, Scan::default()),
     };
     file.seek(SeekFrom::Start(start)).ok()?;
-    let (read, tail) = read_lines(BufReader::new(file), &mut scan);
+    let mut reader = BufReader::new(file);
+    let (read, last_line_len, tail) = read_lines(&mut reader, &mut scan);
+    let offset = start + read;
+    if last_line_len > 0 {
+        last_line_start = offset - last_line_len;
+    }
     let summary = finish(&scan, tail.as_deref(), path, modified);
     let read = CachedRead {
         inode,
         len,
         modified,
-        offset: start + read,
+        offset,
+        last_line_start,
+        fingerprint: fingerprint(reader.get_mut(), offset, last_line_start),
         scan,
         summary: summary.clone(),
     };
@@ -281,8 +298,10 @@ fn cached_summary(path: &Path) -> Option<TranscriptSummary> {
 }
 
 /// Whether `file`, read before as `cached` and now of `inode` and `len`, only
-/// grew since: it is the same file, no shorter, and still ends a line where
-/// reading stopped. Claude Code only ever appends to a transcript.
+/// grew since: it is the same file, no shorter, and still has the start and
+/// the last whole line it had where reading stopped (see [`fingerprint`]).
+/// Claude Code only ever appends to a transcript; a rewrite that keeps both
+/// goes unseen until the file is replaced or cut shorter.
 fn grew(file: &mut File, cached: &CachedRead, inode: u64, len: u64) -> bool {
     if cached.inode != inode || len < cached.len {
         return false;
@@ -290,26 +309,43 @@ fn grew(file: &mut File, cached: &CachedRead, inode: u64, len: u64) -> bool {
     if cached.offset == 0 {
         return true;
     }
-    let mut last = [0_u8; 1];
-    file.seek(SeekFrom::Start(cached.offset - 1)).is_ok()
-        && file.read_exact(&mut last).is_ok()
-        && last[0] == b'\n'
+    cached.fingerprint.is_some()
+        && fingerprint(file, cached.offset, cached.last_line_start) == cached.fingerprint
+}
+
+/// How much of the start of a transcript [`fingerprint`] hashes.
+const FINGERPRINT_HEAD: u64 = 4096;
+
+/// A hash of `file`'s first [`FINGERPRINT_HEAD`] bytes before `offset`, and
+/// of its line from `last_line_start` to `offset`. `None` when they can't be
+/// read.
+fn fingerprint(file: &mut File, offset: u64, last_line_start: u64) -> Option<u64> {
+    let mut hasher = DefaultHasher::new();
+    for (from, to) in [(0, offset.min(FINGERPRINT_HEAD)), (last_line_start, offset)] {
+        let mut bytes = vec![0_u8; usize::try_from(to.checked_sub(from)?).ok()?];
+        file.seek(SeekFrom::Start(from)).ok()?;
+        file.read_exact(&mut bytes).ok()?;
+        hasher.write(&bytes);
+    }
+    Some(hasher.finish())
 }
 
 /// Read the lines `reader` holds into `scan`, up to the end of its last whole
-/// line. Returns how many bytes those are, with the line after them that has
-/// no end yet, which Claude Code may still be writing. Reading stops early,
-/// as at the end, when the file can't be read on.
-fn read_lines(mut reader: impl BufRead, scan: &mut Scan) -> (u64, Option<Vec<u8>>) {
-    let mut read = 0;
+/// line. Returns how many bytes those are and how long the last of them is,
+/// with the line after them that has no end yet, which Claude Code may still
+/// be writing. Reading stops early, as at the end, when the file can't be
+/// read on.
+fn read_lines(mut reader: impl BufRead, scan: &mut Scan) -> (u64, u64, Option<Vec<u8>>) {
+    let (mut read, mut last_line_len) = (0, 0);
     let mut line = Vec::new();
     loop {
         line.clear();
         match reader.read_until(b'\n', &mut line) {
-            Ok(0) | Err(_) => return (read, None),
-            Ok(_) if line.last() != Some(&b'\n') => return (read, Some(line)),
+            Ok(0) | Err(_) => return (read, last_line_len, None),
+            Ok(_) if line.last() != Some(&b'\n') => return (read, last_line_len, Some(line)),
             Ok(count) => {
                 read += count as u64;
+                last_line_len = count as u64;
                 scan.read(&line);
             }
         }
@@ -451,6 +487,23 @@ fn with_title_file(mut summary: TranscriptSummary) -> TranscriptSummary {
     summary
 }
 
+/// Forget what was read of transcripts that are gone, as those of a profile
+/// that was removed: a scan only forgets those gone from its own config dir.
+pub fn forget_gone() {
+    let paths: Vec<PathBuf> = lock_cache().keys().cloned().collect();
+    let gone: Vec<PathBuf> = paths.into_iter().filter(|path| !path.exists()).collect();
+    let mut cache = lock_cache();
+    for path in gone {
+        cache.remove(&path);
+    }
+}
+
+/// Whether what was read of the file at `path` is cached.
+#[cfg(test)]
+fn is_cached(path: &Path) -> bool {
+    lock_cache().contains_key(path)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::{self, File};
@@ -471,7 +524,7 @@ mod tests {
         let file = File::open(path).ok()?;
         let modified = file.metadata().ok()?.modified().ok()?;
         let mut scan = Scan::default();
-        let (_, tail) = read_lines(BufReader::new(file), &mut scan);
+        let (_, _, tail) = read_lines(BufReader::new(file), &mut scan);
         finish(&scan, tail.as_deref(), path, modified).map(with_title_file)
     }
 
@@ -763,7 +816,7 @@ mod tests {
     }
 
     #[test]
-    fn a_transcript_that_grew_is_read_on_from_where_it_was_read_to() {
+    fn a_transcript_rewritten_in_place_is_read_whole_again() {
         let root = tempdir().unwrap();
         let path = transcript_path(root.path(), SESSION);
         write_lines(
@@ -778,7 +831,41 @@ mod tests {
             Some("Aaaa")
         );
 
-        // Claude Code only ever appends, so what was read isn't read again.
+        // Rewritten, not appended to: the same file, and no shorter.
+        let text = fs::read_to_string(&path).unwrap().replace("Aaaa", "Bbbb");
+        let tail = json!({ "type": "last-prompt", "lastPrompt": "Hi", "sessionId": SESSION });
+        fs::write(&path, format!("{text}{tail}\n")).unwrap();
+
+        let rewritten = scan_projects(root.path());
+
+        assert_eq!(rewritten[0].ai_title.as_deref(), Some("Bbbb"));
+        assert_eq!(rewritten[0].last_prompt.as_deref(), Some("Hi"));
+    }
+
+    #[test]
+    fn a_transcript_that_grew_is_read_on_from_where_it_was_read_to() {
+        let root = tempdir().unwrap();
+        let path = transcript_path(root.path(), SESSION);
+        let padding: Vec<Value> = (0..40)
+            .map(|index| {
+                user(
+                    "2026-09-01T10:00:00Z",
+                    "/work",
+                    json!(format!("{index:0>200}")),
+                )
+            })
+            .collect();
+        let mut lines = padding.clone();
+        lines.push(json!({ "type": "ai-title", "aiTitle": "Aaaa", "sessionId": SESSION }));
+        lines.extend(padding);
+        write_lines(&path, &lines);
+        assert_eq!(
+            scan_projects(root.path())[0].ai_title.as_deref(),
+            Some("Aaaa")
+        );
+
+        // Claude Code only ever appends, so a line read already, past the
+        // start of the file and before its last line, isn't read again.
         let text = fs::read_to_string(&path).unwrap().replace("Aaaa", "Bbbb");
         let tail = json!({ "type": "last-prompt", "lastPrompt": "Hi", "sessionId": SESSION });
         fs::write(&path, format!("{text}{tail}\n")).unwrap();
@@ -787,6 +874,88 @@ mod tests {
 
         assert_eq!(grown[0].ai_title.as_deref(), Some("Aaaa"));
         assert_eq!(grown[0].last_prompt.as_deref(), Some("Hi"));
+    }
+
+    #[test]
+    fn a_transcript_replaced_by_another_file_is_read_whole_again() {
+        let root = tempdir().unwrap();
+        let path = transcript_path(root.path(), SESSION);
+        let title =
+            |title: &str| json!({ "type": "ai-title", "aiTitle": title, "sessionId": SESSION });
+        write_lines(
+            &path,
+            &[
+                user("2026-09-01T10:00:00Z", "/work", json!("Hi")),
+                title("Aaaa"),
+            ],
+        );
+        assert_eq!(
+            scan_projects(root.path())[0].ai_title.as_deref(),
+            Some("Aaaa")
+        );
+        let other = path.with_extension("new");
+        write_lines(
+            &other,
+            &[
+                user("2026-09-01T10:00:00Z", "/work", json!("Hi")),
+                title("Bbbb"),
+                title("Cccc"),
+            ],
+        );
+
+        fs::rename(&other, &path).unwrap();
+
+        assert_eq!(
+            scan_projects(root.path())[0].ai_title.as_deref(),
+            Some("Cccc")
+        );
+    }
+
+    #[test]
+    fn a_transcript_cut_shorter_is_read_whole_again() {
+        let root = tempdir().unwrap();
+        let path = transcript_path(root.path(), SESSION);
+        let title =
+            |title: &str| json!({ "type": "ai-title", "aiTitle": title, "sessionId": SESSION });
+        write_lines(
+            &path,
+            &[
+                user("2026-09-01T10:00:00Z", "/work", json!("Hi")),
+                title("Aaaa"),
+                title("Bbbb"),
+            ],
+        );
+        assert_eq!(
+            scan_projects(root.path())[0].ai_title.as_deref(),
+            Some("Bbbb")
+        );
+
+        write_lines(
+            &path,
+            &[
+                user("2026-09-01T10:00:00Z", "/work", json!("Hi")),
+                title("Cc"),
+            ],
+        );
+
+        assert_eq!(
+            scan_projects(root.path())[0].ai_title.as_deref(),
+            Some("Cc")
+        );
+    }
+
+    #[test]
+    fn a_transcript_that_is_gone_is_forgotten() {
+        let root = tempdir().unwrap();
+        let path = transcript_path(root.path(), SESSION);
+        write_lines(&path, &[user("2026-09-01T10:00:00Z", "/work", json!("Hi"))]);
+        scan_projects(root.path());
+        assert!(is_cached(&path));
+
+        fs::remove_dir_all(root.path().join("projects")).unwrap();
+        forget_gone();
+
+        assert!(!is_cached(&path));
     }
 
     #[test]

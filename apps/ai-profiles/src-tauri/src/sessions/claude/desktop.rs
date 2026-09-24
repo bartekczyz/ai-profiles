@@ -488,6 +488,23 @@ fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
 }
 
+/// Forget what was read of records that are gone, as those of a profile
+/// that was removed: a read only forgets those gone from its own data dir.
+pub fn forget_gone() {
+    let paths: Vec<PathBuf> = lock_records().keys().cloned().collect();
+    let gone: Vec<PathBuf> = paths.into_iter().filter(|path| !path.exists()).collect();
+    let mut cache = lock_records();
+    for path in gone {
+        cache.remove(&path);
+    }
+}
+
+/// Whether what was read of the file at `path` is cached.
+#[cfg(test)]
+fn is_cached(path: &Path) -> bool {
+    lock_records().contains_key(path)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -664,6 +681,20 @@ mod tests {
 
         assert_eq!(records[0].title.as_deref(), Some("Aaaa"));
         assert!(records[0].archived);
+    }
+
+    #[test]
+    fn a_record_that_is_gone_is_forgotten() {
+        let root = tempdir().unwrap();
+        let dir = org_dir(root.path(), ACCOUNT, ORG);
+        let path = write_record(&dir, "aaa", json!({ "cliSessionId": "s" }));
+        read_records(root.path());
+        assert!(is_cached(&path));
+
+        fs::remove_dir_all(root.path().join(RECORDS_DIR)).unwrap();
+        forget_gone();
+
+        assert!(!is_cached(&path));
     }
 
     #[test]
