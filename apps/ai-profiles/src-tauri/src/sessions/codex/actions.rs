@@ -69,13 +69,15 @@ pub async fn check(
 /// `ps -ax -o pid=,command=`.
 ///
 /// The thread is blocked while it is open outside the desktop app: an active
-/// status or a held writer lock (Ruling R13 — a listing's mtime-based
-/// freshness heuristic, Ruling R12, is too coarse for gating a write: it
-/// stays "fresh" for minutes after the process that held it, including the
-/// desktop app, is gone), unless the thread was started in the desktop app
-/// and that home's instance is what holds it (then it is only `app_to_quit`,
-/// as for Claude). Every write needs that instance quit first regardless,
-/// since it keeps its own thread catalog.
+/// status or a writer lock some process holds open, as `lsof` tells, unless
+/// the thread was started in the desktop app and that home's instance is
+/// what holds it (then it is only `app_to_quit`, as for Claude). Every write
+/// needs that instance quit first regardless, since it keeps its own thread
+/// catalog.
+///
+/// The lock file's age, which a listing goes by, is too coarse to gate a
+/// write on: it stays "fresh" for minutes after the process that held it,
+/// the desktop app included, is gone.
 async fn check_with(
     transport: &mut impl CodexTransport,
     home: &Home,
@@ -138,7 +140,8 @@ pub async fn apply(home: &Home, target: Target, action: SessionAction) -> AppRes
 /// [`apply`], written through `transport`, given the output of
 /// `ps -ax -o pid=,command=`.
 ///
-/// Re-probes right before writing (Ruling R13), in order: the thread's live
+/// A terminal can open the thread between the check and the write, so this
+/// probes again right before writing, in order: the thread's live
 /// status, over `transport`; the writer lock, by `lsof`; the desktop instance
 /// again. The process probes — the two things that can change from outside
 /// this call between the check and here — come last, as close to the write
@@ -421,11 +424,11 @@ mod tests {
 
     #[tokio::test]
     async fn quitting_the_desktop_app_clears_the_block_even_though_the_lock_file_is_still_fresh() {
-        // Regression: `check_with` used to gate on the writer lock's mtime
-        // (Ruling R12, a listing-only heuristic), which stays "fresh" for
-        // minutes after the process that held it — the desktop app, quit by
-        // the very action this check is guarding — is gone. Ruling R13's
-        // `lsof`-backed `held_lock` reports the lock accurately instead: the
+        // Regression: `check_with` used to gate on the writer lock's mtime,
+        // which only suits a listing: it stays "fresh" for minutes after the
+        // process that held it — the desktop app, quit by the very action
+        // this check is guarding — is gone. The `lsof`-backed `held_lock`
+        // reports the lock accurately instead: the
         // file exists here, with a brand new mtime, but nothing holds it
         // open, so neither check should block.
         let root = tempdir().unwrap();
@@ -627,9 +630,9 @@ mod tests {
         assert!(
             matches!(&applied, Err(AppError::Validation(message)) if message == OPEN_IN_TERMINAL)
         );
-        // The fresh status check runs before the lock is re-probed (Ruling
-        // R13's order: `thread/read`, then `lsof`, then the desktop app), so
-        // it's the only call — the write never happens.
+        // The fresh status check runs before the lock is probed again
+        // (`thread/read`, then `lsof`, then the desktop app), so it's the
+        // only call — the write never happens.
         assert_eq!(transport.calls.len(), 1);
         assert_eq!(transport.calls[0].0, "thread/read");
     }
