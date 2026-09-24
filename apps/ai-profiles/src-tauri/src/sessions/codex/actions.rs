@@ -28,8 +28,11 @@ use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
 use crate::sessions::actions::{ActionCheck, AppToQuit, Checked, SessionAction};
 use crate::sessions::instance::{desktop_pid, running_again};
-use crate::sessions::list::OPEN_IN_TERMINAL;
 use crate::sessions::Home;
+
+/// Why a Codex session some process has open can't be written: a terminal,
+/// an IDE, or another app-server may hold it, which can't be told apart.
+pub(super) const CODEX_HAS_IT_OPEN: &str = "Codex has it open — close it first";
 
 /// Why a Codex session can't be archived again.
 const ALREADY_ARCHIVED: &str = "It's already archived";
@@ -101,9 +104,9 @@ pub(super) async fn check_thread(
         .is_some_and(|status| status.kind == "active");
     let held = held_lock(&home.config_dir, session_id).await?;
     let open = !archived && (active || held);
-    let open_in_terminal = open && !(kind_desktop && desktop_running);
+    let open_elsewhere = open && !(kind_desktop && desktop_running);
     let blocker = match action {
-        _ if open_in_terminal => Some(OPEN_IN_TERMINAL),
+        _ if open_elsewhere => Some(CODEX_HAS_IT_OPEN),
         SessionAction::Archive if archived => Some(ALREADY_ARCHIVED),
         SessionAction::Restore if !archived => Some(NOT_ARCHIVED),
         _ => None,
@@ -132,7 +135,7 @@ pub async fn apply(home: &Home, target: Target, action: SessionAction) -> AppRes
 /// [`apply`], written through `transport`, given the output of
 /// `ps -ax -o pid=,command=`.
 ///
-/// A terminal can open the thread between the check and the write, so this
+/// Codex can open the thread between the check and the write, so this
 /// probes again right before writing, in order: the thread's live
 /// status, over `transport`; the writer lock, by `lsof`; the desktop instance
 /// again. The process probes — the two things that can change from outside
@@ -153,10 +156,10 @@ pub(super) async fn apply_with(
         .as_ref()
         .is_some_and(|status| status.kind == "active");
     if active {
-        return Err(AppError::Validation(OPEN_IN_TERMINAL.to_string()));
+        return Err(AppError::Validation(CODEX_HAS_IT_OPEN.to_string()));
     }
     if held_lock(&home.config_dir, &target.id).await? {
-        return Err(AppError::Validation(OPEN_IN_TERMINAL.to_string()));
+        return Err(AppError::Validation(CODEX_HAS_IT_OPEN.to_string()));
     }
     if desktop_pid(home, ps_output).is_some() {
         return Err(running_again(home));
@@ -367,7 +370,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(checked.check.blocker.as_deref(), Some(OPEN_IN_TERMINAL));
+        assert_eq!(checked.check.blocker.as_deref(), Some(CODEX_HAS_IT_OPEN));
         assert_eq!(checked.check.app_to_quit, None);
         assert_eq!(
             checked.target,
@@ -630,7 +633,7 @@ mod tests {
 
         drop(held);
         assert!(
-            matches!(&applied, Err(AppError::Validation(message)) if message == OPEN_IN_TERMINAL)
+            matches!(&applied, Err(AppError::Validation(message)) if message == CODEX_HAS_IT_OPEN)
         );
         // The fresh status check runs before the lock is probed again
         // (`thread/read`, then `lsof`, then the desktop app), so it's the
@@ -684,7 +687,7 @@ mod tests {
         let applied = apply_with(&mut transport, &home, &target, SessionAction::Archive, "").await;
 
         assert!(
-            matches!(&applied, Err(AppError::Validation(message)) if message == OPEN_IN_TERMINAL)
+            matches!(&applied, Err(AppError::Validation(message)) if message == CODEX_HAS_IT_OPEN)
         );
         assert_eq!(transport.calls.len(), 1);
     }

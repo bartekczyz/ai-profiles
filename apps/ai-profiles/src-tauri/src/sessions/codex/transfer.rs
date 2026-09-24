@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 
 use super::actions::{
-    apply_with, check_thread, held_lock, is_archived, ps_output, read_thread, resolve_error, Target,
+    apply_with, check_thread, held_lock, is_archived, ps_output, read_thread, resolve_error,
+    Target, CODEX_HAS_IT_OPEN,
 };
 use crate::app_kind::AppKind;
 use crate::codex_rpc::{CodexRpc, CodexRpcError, CodexTransport};
@@ -24,7 +25,6 @@ use crate::sessions::claude::archive_store::occupied;
 use crate::sessions::claude::copy::{move_new, place_new, ItemAction};
 use crate::sessions::claude::transfer::{DesktopAction, MovePlan, MoveReport, PlannedItem};
 use crate::sessions::instance::{desktop_pid, running_again};
-use crate::sessions::list::OPEN_IN_TERMINAL;
 use crate::sessions::Home;
 
 /// Where, in a destination's `archived_sessions/`, a copy it wouldn't take
@@ -76,7 +76,7 @@ pub async fn plan(source: &Home, destination: &Home, session_id: &str) -> AppRes
 /// the output of `ps -ax -o pid=,command=`.
 ///
 /// The move is blocked while archiving the session at the source is (it is
-/// open in a terminal, or archived already), while the thread has no rollout
+/// open in Codex, or archived already), while the thread has no rollout
 /// to copy, while the destination has the thread already, and while a file by
 /// the rollout's name sits in the destination's `archived_sessions/`. Each
 /// home's desktop app that runs has to quit first: it keeps its own thread
@@ -213,7 +213,7 @@ where
     let rollout = rollout.ok_or_else(|| AppError::Validation(NO_ROLLOUT.to_string()))?;
     confine(&rollout, &source, &session_id)?;
     if held_lock(&source.config_dir, &session_id).await? {
-        return Err(AppError::Validation(OPEN_IN_TERMINAL.to_string()));
+        return Err(AppError::Validation(CODEX_HAS_IT_OPEN.to_string()));
     }
     let ps_output = processes().await?;
     for home in [&source, &destination] {
@@ -779,8 +779,8 @@ mod tests {
         .plan;
         drop(held);
 
-        assert_eq!(active_plan.blockers, ["Close it in the terminal first"]);
-        assert_eq!(locked_plan.blockers, ["Close it in the terminal first"]);
+        assert_eq!(active_plan.blockers, [CODEX_HAS_IT_OPEN]);
+        assert_eq!(locked_plan.blockers, [CODEX_HAS_IT_OPEN]);
     }
 
     #[tokio::test]
@@ -907,7 +907,7 @@ mod tests {
         let moved = execute_with(prepared, nothing_running).await;
 
         drop(held);
-        assert_eq!(message(moved), "Close it in the terminal first");
+        assert_eq!(message(moved), CODEX_HAS_IT_OPEN);
         assert!(!setup.personal.config_dir.exists());
         assert_eq!(
             setup.calls(),
