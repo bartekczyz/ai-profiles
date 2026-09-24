@@ -3,10 +3,10 @@ import type { MovePlan, Session } from '@/lib/types'
 import { useState } from 'react'
 
 import { Button, Dialog, Kbd, useToast } from '@/design'
-import { extractErrorKind, extractErrorMessage } from '@/lib/extract-error-message'
 
 import { useMoveSession, useSessionMovePlan } from '../api/use-session-actions'
 import { PrimaryAction } from './confirm-session-action-dialog'
+import { FailureNotice } from './failure-notice'
 import { untitledSessionLabel } from './session-row'
 
 /**
@@ -53,14 +53,9 @@ type PlanBodyProps = {
    */
   plan: MovePlan | undefined
   /**
-   * What the move needs installed first, when that is why the plan or the
-   * move failed.
+   * Why the plan, or the move itself, failed, if it did.
    */
-  unavailableMessage: string | null
-  /**
-   * Why the plan, or the move itself, failed otherwise.
-   */
-  errorMessage: string | null
+  failure: unknown
   /**
    * Where the session goes.
    */
@@ -122,10 +117,6 @@ export function MoveSessionDialog({ profileId, session, destination, onClose }: 
   const canConfirm =
     plan !== undefined && blocker === null && (!plan.destinationNewer || replaceNewer) && !move.isPending
   const failure = move.error ?? (planQuery.isError ? planQuery.error : null)
-  // A missing tool is a state to explain, not a failure to raise the alarm over.
-  const missingTool = failure !== null && extractErrorKind(failure) === 'NotInstalled'
-  const unavailableMessage = missingTool ? extractErrorMessage(failure) : null
-  const errorMessage = failure !== null && !missingTool ? extractErrorMessage(failure) : null
   const title = session.title ?? untitledSessionLabel
 
   function handleConfirm() {
@@ -170,8 +161,7 @@ export function MoveSessionDialog({ profileId, session, destination, onClose }: 
       <PlanBody
         replaceNewer={replaceNewer}
         plan={plan}
-        unavailableMessage={unavailableMessage}
-        errorMessage={errorMessage}
+        failure={failure}
         destinationLabel={destination.label}
         onReplaceNewerChange={setReplaceNewer}
       />
@@ -180,26 +170,12 @@ export function MoveSessionDialog({ profileId, session, destination, onClose }: 
 }
 
 /**
- * The dialog's body: what the move needs installed, else why the plan or the
- * move failed, else that the plan is still on its way, else the plan.
+ * The dialog's body: why the plan or the move failed, else that the plan is
+ * still on its way, else the plan.
  */
-function PlanBody({
-  replaceNewer,
-  plan,
-  unavailableMessage,
-  errorMessage,
-  destinationLabel,
-  onReplaceNewerChange,
-}: PlanBodyProps) {
-  if (unavailableMessage !== null) {
-    return <p className="text-body text-ink-soft">{unavailableMessage}</p>
-  }
-  if (errorMessage !== null) {
-    return (
-      <p role="alert" className="text-body text-red">
-        {errorMessage}
-      </p>
-    )
+function PlanBody({ replaceNewer, plan, failure, destinationLabel, onReplaceNewerChange }: PlanBodyProps) {
+  if (failure !== null) {
+    return <FailureNotice failure={failure} />
   }
   if (plan === undefined) {
     return <p className="text-body text-muted">Working out what moves…</p>
