@@ -16,11 +16,10 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use super::archive_store::occupied;
-use super::copy::place_new;
 use super::non_blank;
 use super::transcript::TranscriptSummary;
 use crate::error::{AppError, AppResult};
+use crate::sessions::fs_ops::{occupied, place_new};
 use crate::sessions::list::transcript_title;
 use crate::sessions::Home;
 

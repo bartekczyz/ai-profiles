@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use super::archive_store::{is_session_dir_name, occupied, ArchivedBundle};
-use super::copy::{compare, ItemAction};
+use super::archive_store::{is_session_dir_name, ArchivedBundle};
+use super::copy::compare;
 use super::live::{live_sessions, LiveHolder};
 use super::ownership::{
     claimed_copy, claimed_ids, copies, kept_archived, needs_repair, owned_by, HeldTranscript,
@@ -26,8 +26,10 @@ use super::transcript::bundle_paths;
 use super::transfer::{memory_merges, relative_to, MemoryMerge, PLANS_DIR};
 use crate::error::AppResult;
 use crate::sessions::actions::{ActionCheck, AppToQuit, Checked};
+use crate::sessions::fs_ops::occupied;
 use crate::sessions::instance::{desktop_label, desktop_pid};
 use crate::sessions::list::{home_scans, transcript_title, OPEN_IN_TERMINAL};
+use crate::sessions::move_plan::ItemAction;
 use crate::sessions::Home;
 
 mod apply;

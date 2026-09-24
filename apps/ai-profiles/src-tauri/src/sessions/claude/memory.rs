@@ -10,9 +10,9 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-use super::archive_store::occupied;
 use super::copy::{place, same_bytes, write_replacing};
 use crate::error::AppResult;
+use crate::sessions::fs_ops::occupied;
 
 /// The index of a memory folder.
 const INDEX: &str = "MEMORY.md";

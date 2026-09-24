@@ -9,9 +9,11 @@
 pub mod actions;
 mod claude;
 mod codex;
+mod fs_ops;
 mod home;
 mod instance;
 mod list;
+mod move_plan;
 
 use std::path::PathBuf;
 
@@ -19,9 +21,9 @@ use crate::app_kind::AppKind;
 
 pub use actions::{ActionCheck, SessionAction};
 pub use claude::repair::RepairReport;
-pub use claude::transfer::{MovePlan, MoveReport};
 pub use home::home_for;
 pub use list::{list_sessions, SessionList};
+pub use move_plan::{MovePlan, MoveReport};
 
 /// Where one profile, or one app's stock install, keeps its sessions.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::non_blank;
 use crate::error::{AppError, AppResult};
+use crate::sessions::fs_ops::occupied;
 
 /// The folder under a config dir holding the archived bundles.
 const ARCHIVE_DIR: &str = "ai-profiles-archive";
@@ -315,11 +316,6 @@ pub(super) fn move_all(
         }
     }
     Ok(())
-}
-
-/// Something is at `path`: a file, a folder or a link, even a dangling one.
-pub(in crate::sessions) fn occupied(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok()
 }
 
 /// Remove `dir` and the folders in it, deepest first, as far as they are

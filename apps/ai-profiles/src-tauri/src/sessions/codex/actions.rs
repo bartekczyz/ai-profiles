@@ -26,7 +26,7 @@ use super::list::{lock_path, started_in_desktop, Thread};
 use crate::codex_rpc::{CodexRpc, CodexRpcError, CodexTransport};
 use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
-use crate::sessions::actions::{ActionCheck, AppToQuit, Checked, SessionAction};
+use crate::sessions::actions::{blocking, ActionCheck, AppToQuit, Checked, SessionAction};
 use crate::sessions::instance::{desktop_pid, running_again};
 use crate::sessions::Home;
 
@@ -95,8 +95,15 @@ pub(super) async fn check_thread(
     let thread = read_thread(transport, session_id)
         .await
         .map_err(|error| resolve_error(&error, session_id, home))?;
-    let archived = is_archived(&home.config_dir, thread.path.as_deref());
-    let kind_desktop = thread.path.as_deref().is_some_and(started_in_desktop);
+    let (config_dir, path) = (home.config_dir.clone(), thread.path.clone());
+    let (archived, kind_desktop) = blocking(move || {
+        let path = path.as_deref();
+        Ok((
+            is_archived(&config_dir, path),
+            path.is_some_and(started_in_desktop),
+        ))
+    })
+    .await?;
     let desktop_running = desktop_pid(home, ps_output).is_some();
     let active = thread
         .status
@@ -229,9 +236,7 @@ pub(super) fn is_archived(config_dir: &Path, path: Option<&Path>) -> bool {
 /// `unwrap_or_default` since a missed "open in desktop" badge there is only
 /// stale for a moment, this decides whether a write is safe to make.
 pub(super) async fn ps_output() -> AppResult<String> {
-    tokio::task::spawn_blocking(process_list)
-        .await
-        .map_err(|error| AppError::Io(std::io::Error::other(error)))?
+    blocking(process_list).await
 }
 
 /// Whether thread `id`'s writer lock in `codex_home` is held right now,
@@ -239,9 +244,7 @@ pub(super) async fn ps_output() -> AppResult<String> {
 pub(super) async fn held_lock(codex_home: &Path, id: &str) -> AppResult<bool> {
     let codex_home = codex_home.to_path_buf();
     let id = id.to_string();
-    let holder = tokio::task::spawn_blocking(move || lock_holder_pid(&codex_home, &id))
-        .await
-        .map_err(|error| AppError::Io(std::io::Error::other(error)))??;
+    let holder = blocking(move || lock_holder_pid(&codex_home, &id)).await?;
     Ok(holder.is_some())
 }
 

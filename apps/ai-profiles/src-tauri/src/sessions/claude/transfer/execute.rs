@@ -10,13 +10,15 @@ use super::{refuse_running, Item, MoveReport, Prepared, RecordWrite};
 use crate::error::{AppError, AppResult};
 use crate::sessions::actions::SessionAction;
 use crate::sessions::claude::archive;
-use crate::sessions::claude::archive_store::{move_all, occupied, replaced_dir, UNDONE_DIR};
-use crate::sessions::claude::copy::{place, ItemAction};
+use crate::sessions::claude::archive_store::{move_all, replaced_dir, UNDONE_DIR};
+use crate::sessions::claude::copy::place;
 use crate::sessions::claude::desktop::{
     build_destination_record, deleted_in, list_as_active, write_destination_record, ARCHIVED_INDEX,
 };
 use crate::sessions::claude::memory::merge_memory;
+use crate::sessions::fs_ops::occupied;
 use crate::sessions::instance::{desktop_label, running_desktop_pid};
+use crate::sessions::move_plan::ItemAction;
 use crate::sessions::Home;
 
 /// Where, in a move's backup folder, a desktop record it replaced goes, with

@@ -15,13 +15,15 @@ use super::{
 use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
 use crate::sessions::claude::archive_store::{
-    archive_bundle, move_all, occupied, replaced_dir, restore_bundle, UNDONE_DIR,
+    archive_bundle, move_all, replaced_dir, restore_bundle, UNDONE_DIR,
 };
-use crate::sessions::claude::copy::{compare, move_new, place, ItemAction};
+use crate::sessions::claude::copy::{compare, place};
 use crate::sessions::claude::live::registrations;
 use crate::sessions::claude::memory::merge_memory;
 use crate::sessions::claude::transfer::refuse_running;
+use crate::sessions::fs_ops::{move_new, occupied};
 use crate::sessions::instance::{desktop_pid, running_again};
+use crate::sessions::move_plan::ItemAction;
 use crate::sessions::Home;
 
 /// How long a listing of the running processes is taken to stay current
