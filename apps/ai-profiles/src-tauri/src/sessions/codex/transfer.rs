@@ -251,7 +251,7 @@ where
             "Moved to {}, but couldn't archive it in {} ({}). Archive it in {} to finish.",
             destination.label,
             source.label,
-            reason(&error),
+            error.message(),
             source.label
         ))
     })?;
@@ -274,15 +274,6 @@ fn refuse_other(source: &Home, destination: &Home) -> AppResult<()> {
         )));
     }
     Ok(())
-}
-
-/// What `error` says, without the prefix naming its kind: it is quoted in
-/// another error.
-fn reason(error: &AppError) -> String {
-    match error {
-        AppError::Validation(message) | AppError::NotFound(message) => message.clone(),
-        other => other.to_string(),
-    }
 }
 
 /// The error starting app-server for a move fails with.

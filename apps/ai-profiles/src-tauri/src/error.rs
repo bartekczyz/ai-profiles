@@ -17,6 +17,18 @@ pub enum AppError {
     NotFound(String),
 }
 
+impl AppError {
+    /// What the error says, without the prefix naming its kind: what the
+    /// user is shown, alone or quoted in another error.
+    pub fn message(&self) -> String {
+        match self {
+            AppError::Io(error) => error.to_string(),
+            AppError::Json(error) => error.to_string(),
+            AppError::Validation(message) | AppError::NotFound(message) => message.clone(),
+        }
+    }
+}
+
 impl Serialize for AppError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -30,7 +42,7 @@ impl Serialize for AppError {
         };
         let mut map = serializer.serialize_map(Some(2))?;
         map.serialize_entry("kind", kind)?;
-        map.serialize_entry("message", &self.to_string())?;
+        map.serialize_entry("message", &self.message())?;
         map.end()
     }
 }
@@ -46,6 +58,21 @@ mod tests {
         let error = AppError::Validation("bad name".to_string());
         let json = serde_json::to_string(&error).unwrap();
         assert!(json.contains(r#""kind":"Validation""#));
-        assert!(json.contains(r#""message":"validation error: bad name""#));
+        assert!(json.contains(r#""message":"bad name""#));
+    }
+
+    #[test]
+    fn the_message_of_an_error_leaves_out_its_kind() {
+        let io = AppError::Io(std::io::Error::other("disk full"));
+
+        assert_eq!(io.message(), "disk full");
+        assert_eq!(
+            AppError::NotFound("no such profile".to_string()).message(),
+            "no such profile"
+        );
+        assert_eq!(
+            serde_json::to_value(&io).unwrap(),
+            serde_json::json!({ "kind": "Io", "message": "disk full" })
+        );
     }
 }

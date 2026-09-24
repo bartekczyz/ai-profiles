@@ -298,7 +298,8 @@ pub fn execute(prepared: Prepared, at: DateTime<Utc>) -> AppResult<MoveReport> {
             return error;
         }
         AppError::Validation(format!(
-            "{error}. What the move replaced is backed up in {}",
+            "{}. What the move replaced is backed up in {}",
+            error.message(),
             backup.display()
         ))
     })
@@ -1430,6 +1431,7 @@ mod tests {
             message.contains("ai-profiles-archive/.replaced/s/2026-09-23T08-15-00.000Z"),
             "{message}"
         );
+        assert!(message.starts_with("Permission denied"), "{message}");
         assert!(!project.join("s.jsonl").exists());
     }
 }

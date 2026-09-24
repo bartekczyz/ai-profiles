@@ -548,14 +548,17 @@ fn launch_with<E: Effects>(distinct_dock_icon: bool, effects: &mut E) -> AppResu
                     "the wrapper was rebuilt but {problem}"
                 ))),
             },
-            Err(err) => Err(Bypass::RebuildFailed(err.to_string())),
+            Err(err) => Err(Bypass::RebuildFailed(err.message())),
         },
     };
     match wrapped {
         Ok(()) => Ok(None),
         Err(bypass) => {
             effects.open_stock().map_err(|err| {
-                AppError::Validation(format!("{bypass} Opening the stock app failed too: {err}"))
+                AppError::Validation(format!(
+                    "{bypass} Opening the stock app failed too: {}",
+                    err.message()
+                ))
             })?;
             Ok(Some(bypass))
         }
@@ -602,7 +605,7 @@ impl Effects for ProfileLaunch<'_> {
     }
 
     fn open_wrapper(&mut self) -> Result<(), Bypass> {
-        open_bundle(&self.launcher).map_err(|err| Bypass::OpenFailed(err.to_string()))?;
+        open_bundle(&self.launcher).map_err(|err| Bypass::OpenFailed(err.message()))?;
         let Some(vendor) = &self.vendor else {
             // Its process can't be told without the vendor's executable name.
             return Ok(());

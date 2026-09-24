@@ -283,7 +283,7 @@ impl MoveFailed {
             .collect();
         AppError::Validation(format!(
             "{}. {} couldn't be put back, {outcome}",
-            self.error,
+            self.error.message(),
             items.join(", ")
         ))
     }

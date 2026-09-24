@@ -219,14 +219,14 @@ fn apply_with(
     let mut memory_conflicts: Vec<String> = Vec::new();
     for session in sessions {
         let outcome = processes()
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.message())
             .and_then(|ps_output| {
                 let live = live_anywhere(&homes, &ps_output);
                 if open_in_terminal(&session.transcript_ids, &live) {
                     return Err(OPEN_IN_TERMINAL.to_string());
                 }
                 let backup = replaced_dir(&home.config_dir, &session.session_id, at)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| error.message())?;
                 repair_session(&home.config_dir, &session, &backup, at, rename)
                     .map_err(|error| failure(&error, &backup))
             });
@@ -398,9 +398,9 @@ fn transcript_move(
     paths.rotate_left(1);
     let mut items = Vec::new();
     for path in paths {
-        let relative = relative_to(&path, &holder.config_dir).map_err(|error| error.to_string())?;
+        let relative = relative_to(&path, &holder.config_dir).map_err(|error| error.message())?;
         let action =
-            compare(&path, &home.config_dir.join(&relative)).map_err(|error| error.to_string())?;
+            compare(&path, &home.config_dir.join(&relative)).map_err(|error| error.message())?;
         match action {
             ItemAction::Copy => items.push(relative),
             ItemAction::Same => {}
@@ -483,7 +483,8 @@ fn repair_session(
                 return Err(error);
             }
             return Err(AppError::Validation(format!(
-                "{error}. Putting the session back failed too: {}",
+                "{}. Putting the session back failed too: {}",
+                error.message(),
                 unwound.join("; ")
             )));
         }
@@ -586,7 +587,7 @@ fn unwind(
             Step::Archived { from, session_id } => restore_bundle(&from, &session_id),
         };
         if let Err(error) = undone {
-            failures.push(error.to_string());
+            failures.push(error.message());
         }
     }
     failures
@@ -606,10 +607,11 @@ fn move_exclusive(from: &Path, to: &Path) -> io::Result<()> {
 /// aside is, when it set anything aside into `backup`.
 fn failure(error: &AppError, backup: &Path) -> String {
     if !backup.exists() {
-        return error.to_string();
+        return error.message();
     }
     format!(
-        "{error}. What the repair set aside is kept in {}",
+        "{}. What the repair set aside is kept in {}",
+        error.message(),
         backup.display()
     )
 }
@@ -1191,6 +1193,11 @@ mod tests {
         assert_eq!(report.repaired, 0);
         assert_eq!(report.skipped.len(), 1);
         assert_eq!(report.skipped[0].id, "now");
+        assert!(
+            report.skipped[0].reason.starts_with("permission denied"),
+            "{}",
+            report.skipped[0].reason
+        );
         assert_eq!(tree(root.path()), before);
         assert!(default.config_dir.join(transcript_path("before")).exists());
         assert_eq!(claude_sessions(&personal, &homes, "").repair_count, 1);
