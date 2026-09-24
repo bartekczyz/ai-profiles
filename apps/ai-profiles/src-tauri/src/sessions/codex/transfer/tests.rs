@@ -10,7 +10,9 @@ use tempfile::{tempdir, TempDir};
 use super::*;
 use crate::app_kind::AppKind;
 use crate::codex_rpc::CodexRpcError;
-use crate::sessions::codex::fakes::{read_response, running_desktop, write_rollout};
+use crate::sessions::codex::fakes::{
+    read_response, running_desktop, write_rollout, ScriptedServer,
+};
 
 /// The moved thread's id.
 const ID: &str = "019e2222-3333-7444-8555-666677778888";
@@ -109,6 +111,18 @@ impl Setup {
         }
     }
 
+    /// A destination app-server started afresh, answering with `respond`.
+    fn fresh_destination<F>(&self, respond: F) -> Side<F>
+    where
+        F: FnMut(&str, &Value) -> Result<Value, CodexRpcError>,
+    {
+        Side {
+            side: "fresh destination",
+            log: self.log.clone(),
+            respond,
+        }
+    }
+
     /// A source app-server that knows the thread, idle, and archives it.
     fn idle_source(&self) -> Side<impl FnMut(&str, &Value) -> Result<Value, CodexRpcError>> {
         let read = read_response(ID, Some(&self.rollout), Some("notLoaded"));
@@ -164,6 +178,15 @@ async fn nothing_running() -> AppResult<String> {
     Ok(String::new())
 }
 
+/// A stand-in app-server that answers nothing.
+type NoServer = ScriptedServer<fn(&str, &Value) -> Result<Value, CodexRpcError>>;
+
+/// Starts the destination's app-server again: never, in a test that
+/// doesn't expect it to be.
+async fn never_restarted(_: Home) -> Result<NoServer, CodexRpcError> {
+    panic!("the destination's app-server was started again")
+}
+
 /// The message of a validation error.
 fn message<T>(result: AppResult<T>) -> String {
     match result {
@@ -213,7 +236,9 @@ async fn a_move_copies_the_rollout_unarchives_it_at_the_destination_then_archive
         }
     );
 
-    let report = execute_with(prepared, nothing_running).await.unwrap();
+    let report = execute_with(prepared, nothing_running, never_restarted)
+        .await
+        .unwrap();
 
     assert_eq!(report, MoveReport::default());
     assert_eq!(
@@ -255,7 +280,7 @@ async fn a_failed_unarchive_sets_the_copy_aside_and_leaves_the_source_unarchived
     .await
     .unwrap();
 
-    let moved = message(execute_with(prepared, nothing_running).await);
+    let moved = message(execute_with(prepared, nothing_running, never_restarted).await);
 
     let name = setup.rollout.file_name().unwrap().to_string_lossy();
     let aside = setup
@@ -298,7 +323,7 @@ async fn move_personal_refuses(setup: &Setup) -> String {
     )
     .await
     .unwrap();
-    message(execute_with(prepared, nothing_running).await)
+    message(execute_with(prepared, nothing_running, never_restarted).await)
 }
 
 #[tokio::test]
@@ -378,7 +403,7 @@ async fn a_rollout_replaced_since_the_plan_is_refused_before_anything_is_written
     fs::remove_file(&setup.rollout).unwrap();
     std::os::unix::fs::symlink(&outside, &setup.rollout).unwrap();
 
-    let moved = message(execute_with(prepared, nothing_running).await);
+    let moved = message(execute_with(prepared, nothing_running, never_restarted).await);
 
     assert_eq!(
         moved,
@@ -522,7 +547,7 @@ async fn a_file_by_the_rollouts_name_in_the_destinations_archive_is_never_replac
     .await
     .unwrap()
     .plan;
-    let moved = execute_with(prepared, nothing_running).await;
+    let moved = execute_with(prepared, nothing_running, never_restarted).await;
 
     let name = setup.rollout.file_name().unwrap().to_string_lossy();
     assert_eq!(
@@ -586,7 +611,7 @@ async fn nothing_is_written_when_a_terminal_opened_the_session_since_the_plan() 
     fs::create_dir_all(&locks).unwrap();
     let held = File::create(locks.join(format!("{ID}.lock"))).unwrap();
 
-    let moved = execute_with(prepared, nothing_running).await;
+    let moved = execute_with(prepared, nothing_running, never_restarted).await;
 
     drop(held);
     assert_eq!(message(moved), CODEX_HAS_IT_OPEN);
@@ -617,7 +642,7 @@ async fn nothing_is_written_when_a_desktop_app_started_again_since_the_plan() {
             async move { Ok(ps_output) }
         };
 
-        let moved = execute_with(prepared, processes).await;
+        let moved = execute_with(prepared, processes, never_restarted).await;
 
         assert_eq!(
             message(moved),
@@ -641,7 +666,7 @@ async fn a_source_that_cant_be_archived_after_the_destination_took_it_says_so() 
         .await
         .unwrap();
 
-    let moved = execute_with(prepared, nothing_running).await;
+    let moved = execute_with(prepared, nothing_running, never_restarted).await;
 
     assert_eq!(
         message(moved),
@@ -652,24 +677,14 @@ async fn a_source_that_cant_be_archived_after_the_destination_took_it_says_so() 
     assert!(setup.rollout.is_file());
 }
 
-/// A destination app-server whose `thread/unarchive` runs `unarchived`,
-/// and whose `thread/read` knows the thread only once `took` holds.
-fn destination_taking(
-    setup: &Setup,
-    took: Arc<Mutex<bool>>,
-    mut unarchived: impl FnMut() -> Result<Value, CodexRpcError> + Send,
-) -> Side<impl FnMut(&str, &Value) -> Result<Value, CodexRpcError>> {
-    let there = read_response(ID, Some(Path::new("/dest/sessions/rollout.jsonl")), None);
-    setup.destination(move |method, _| match method {
-        "thread/read" if *took.lock().unwrap() => Ok(there.clone()),
-        "thread/read" => Err(CodexRpcError::Rpc(format!("thread not loaded: {ID}"))),
-        "thread/unarchive" => unarchived(),
-        other => panic!("unexpected call: {other}"),
-    })
-}
-
-#[tokio::test]
-async fn an_unarchive_that_timed_out_after_the_destination_took_it_still_finishes_the_move() {
+/// Plans a move whose destination's unarchive takes the thread in, then
+/// fails with `failure`, after which its app-server answers any further
+/// call with `then`; a fresh one knows the thread. Returns what carrying the
+/// move out gave, the calls it made, and whether a copy was set aside.
+async fn move_through_lost_unarchive(
+    failure: CodexRpcError,
+    then: fn() -> Result<Value, CodexRpcError>,
+) -> (AppResult<MoveReport>, Vec<String>, bool) {
     let setup = Setup::new();
     let took = Arc::new(Mutex::new(false));
     let taking = took.clone();
@@ -679,12 +694,30 @@ async fn an_unarchive_that_timed_out_after_the_destination_took_it_still_finishe
         .config_dir
         .join("sessions/2026/09/01")
         .join(copy.file_name().unwrap());
-    let to = destination_taking(&setup, took, move || {
-        fs::create_dir_all(taken.parent().unwrap()).unwrap();
-        fs::rename(&copy, &taken).unwrap();
-        *taking.lock().unwrap() = true;
-        Err(CodexRpcError::Timeout)
+    let mut failure = Some(failure);
+    let mut lost = false;
+    let to = setup.destination(move |method, _| match method {
+        _ if lost => then(),
+        "thread/read" => Err(CodexRpcError::Rpc(format!("thread not loaded: {ID}"))),
+        "thread/unarchive" => {
+            fs::create_dir_all(taken.parent().unwrap()).unwrap();
+            fs::rename(&copy, &taken).unwrap();
+            *taking.lock().unwrap() = true;
+            lost = true;
+            Err(failure.take().unwrap())
+        }
+        other => panic!("unexpected call: {other}"),
     });
+    let there = read_response(ID, Some(Path::new("/dest/sessions/rollout.jsonl")), None);
+    let fresh = setup.fresh_destination(move |method, _| match method {
+        "thread/read" if *took.lock().unwrap() => Ok(there.clone()),
+        "thread/read" => Err(CodexRpcError::Rpc(format!("thread not loaded: {ID}"))),
+        other => panic!("unexpected call: {other}"),
+    });
+    let restart = move |home: Home| {
+        assert_eq!(home.id, "personal");
+        async move { Ok(fresh) }
+    };
     let prepared = plan_with(
         setup.idle_source(),
         to,
@@ -696,31 +729,72 @@ async fn an_unarchive_that_timed_out_after_the_destination_took_it_still_finishe
     .await
     .unwrap();
 
-    execute_with(prepared, nothing_running).await.unwrap();
+    let moved = execute_with(prepared, nothing_running, restart).await;
 
+    let set_aside = setup
+        .personal
+        .config_dir
+        .join("archived_sessions/.ai-profiles-failed")
+        .exists();
+    (moved, setup.calls(), set_aside)
+}
+
+#[tokio::test]
+async fn an_unarchive_that_timed_out_after_the_destination_took_it_still_finishes_the_move() {
+    let (moved, calls, set_aside) =
+        move_through_lost_unarchive(CodexRpcError::Timeout, || panic!("asked the stale server"))
+            .await;
+
+    moved.unwrap();
     assert_eq!(
-        setup.calls(),
+        calls,
         [
             "source thread/read",
             "destination thread/read",
             "destination thread/unarchive",
-            "destination thread/read",
+            "fresh destination thread/read",
             "source thread/read",
             "source thread/archive",
         ]
     );
-    assert!(!setup
-        .personal
-        .config_dir
-        .join("archived_sessions/.ai-profiles-failed")
-        .exists());
+    assert!(!set_aside);
+}
+
+#[tokio::test]
+async fn a_destination_whose_app_server_exited_is_asked_again_on_a_fresh_one() {
+    let (moved, calls, set_aside) =
+        move_through_lost_unarchive(CodexRpcError::Closed, || Err(CodexRpcError::Closed)).await;
+
+    moved.unwrap();
+    assert!(calls.contains(&"fresh destination thread/read".to_string()));
+    assert_eq!(calls.last().unwrap(), "source thread/archive");
+    assert!(!set_aside);
+}
+
+#[tokio::test]
+async fn a_destination_that_fails_after_an_unrelated_error_is_asked_again_on_a_fresh_one() {
+    let (moved, calls, _) =
+        move_through_lost_unarchive(CodexRpcError::Rpc("busy".to_string()), || {
+            Err(CodexRpcError::Closed)
+        })
+        .await;
+
+    moved.unwrap();
+    assert_eq!(
+        calls[2..5],
+        [
+            "destination thread/unarchive",
+            "destination thread/read",
+            "fresh destination thread/read",
+        ]
+    );
 }
 
 #[tokio::test]
 async fn an_unarchive_whose_outcome_cant_be_told_leaves_everything_where_it_is() {
     let setup = Setup::new();
-    // The app-server is gone after the failed unarchive, so asking it
-    // again fails too.
+    // The app-server is gone after the failed unarchive, and a fresh one
+    // won't start either.
     let mut gone = false;
     let to = setup.destination(move |method, _| match method {
         "thread/read" if !gone => Err(CodexRpcError::Rpc(format!("thread not loaded: {ID}"))),
@@ -739,8 +813,9 @@ async fn an_unarchive_whose_outcome_cant_be_told_leaves_everything_where_it_is()
     )
     .await
     .unwrap();
+    let restart = |_: Home| async { Err::<NoServer, _>(CodexRpcError::Closed) };
 
-    let moved = message(execute_with(prepared, nothing_running).await);
+    let moved = message(execute_with(prepared, nothing_running, restart).await);
 
     assert_eq!(
         moved,
@@ -774,7 +849,7 @@ async fn an_unarchive_that_failed_without_a_copy_left_names_no_location() {
     .await
     .unwrap();
 
-    let moved = message(execute_with(prepared, nothing_running).await);
+    let moved = message(execute_with(prepared, nothing_running, never_restarted).await);
 
     assert_eq!(moved, "Personal couldn't take it (Codex: boom)");
 }

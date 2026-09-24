@@ -17,6 +17,7 @@ use super::actions::{
     apply_with, check_thread, held_lock, is_archived, ps_output, read_thread, resolve_error,
     Target, CODEX_HAS_IT_OPEN,
 };
+use super::list::Thread;
 use crate::app_kind::AppKind;
 use crate::codex_rpc::{CodexRpc, CodexRpcError, CodexTransport};
 use crate::error::{AppError, AppResult};
@@ -208,7 +209,10 @@ fn look_at_files(
 
 /// Carry out `prepared`, a move [`plan`] let through.
 pub async fn execute(prepared: Prepared) -> AppResult<MoveReport> {
-    execute_with(prepared, ps_output).await
+    execute_with(prepared, ps_output, |home: Home| async move {
+        CodexRpc::start(&home.config_dir).await
+    })
+    .await
 }
 
 /// [`execute`], reading the process list with `processes` each time it looks
@@ -222,7 +226,8 @@ pub async fn execute(prepared: Prepared) -> AppResult<MoveReport> {
 ///
 /// A failed unarchive doesn't say whether the destination took the session
 /// (a timeout, or app-server exiting, may come after it did), so the
-/// destination is asked again. Taken, the move goes on. Not taken, the copy,
+/// destination is asked again, through an app-server `restart` starts afresh
+/// when its own is gone or stuck. Taken, the move goes on. Not taken, the copy,
 /// if it is still where it was put, is set aside in
 /// `archived_sessions/.ai-profiles-failed/`, and the source left as it was.
 /// When that can't be told, nothing more is done and the error says so.
@@ -230,15 +235,19 @@ pub async fn execute(prepared: Prepared) -> AppResult<MoveReport> {
 /// Last, the session is archived at the source, re-checking it there as
 /// archiving always does; if that fails, the destination has it already, so
 /// the error says both, and how to finish.
-pub(super) async fn execute_with<S, D, P, F>(
+pub(super) async fn execute_with<S, D, P, F, R, RF, T>(
     prepared: Prepared<S, D>,
     mut processes: P,
+    restart: R,
 ) -> AppResult<MoveReport>
 where
     S: CodexTransport,
     D: CodexTransport,
     P: FnMut() -> F,
     F: Future<Output = AppResult<String>>,
+    R: FnOnce(Home) -> RF,
+    RF: Future<Output = Result<T, CodexRpcError>>,
+    T: CodexTransport,
 {
     let Prepared {
         mut from,
@@ -270,7 +279,7 @@ where
         .request("thread/unarchive", json!({ "threadId": session_id }))
         .await
     {
-        let taken = taken(&mut to, &destination, &session_id).await;
+        let taken = taken(&mut to, &error, restart, &destination, &session_id).await;
         if taken != Some(true) {
             let (source, destination) = (source.clone(), destination.clone());
             let refusal = blocking(move || {
@@ -386,11 +395,48 @@ fn confine(path: &Path, source: &Home, session_id: &str) -> AppResult<()> {
     )))
 }
 
-/// Whether `destination` has thread `session_id` among its sessions, asked
-/// through `to`: `None` when that can't be told. A thread it finds only in its
+/// Whether `destination` has thread `session_id` among its sessions: `None`
+/// when that can't be told. A thread it finds only in its
 /// `archived_sessions/` — where the copy was put — isn't taken.
-async fn taken(to: &mut impl CodexTransport, destination: &Home, session_id: &str) -> Option<bool> {
-    match read_thread(to, session_id).await {
+///
+/// It is asked through `to`, unless the unarchive that failed with `failed`
+/// found `to` closed or too slow to answer, or asking it again does: then
+/// through an app-server `restart` starts afresh.
+async fn taken<T, R, RF>(
+    to: &mut impl CodexTransport,
+    failed: &CodexRpcError,
+    restart: R,
+    destination: &Home,
+    session_id: &str,
+) -> Option<bool>
+where
+    R: FnOnce(Home) -> RF,
+    RF: Future<Output = Result<T, CodexRpcError>>,
+    T: CodexTransport,
+{
+    if !connection_lost(failed) {
+        match read_thread(to, session_id).await {
+            Err(error) if connection_lost(&error) => {}
+            read => return taken_by(read, destination, session_id),
+        }
+    }
+    let mut fresh = restart(destination.clone()).await.ok()?;
+    taken_by(
+        read_thread(&mut fresh, session_id).await,
+        destination,
+        session_id,
+    )
+}
+
+/// Whether `read`, the destination's answer to reading thread `session_id`,
+/// says `destination` has it among its sessions: `None` when it doesn't
+/// say.
+fn taken_by(
+    read: Result<Thread, CodexRpcError>,
+    destination: &Home,
+    session_id: &str,
+) -> Option<bool> {
+    match read {
         Ok(thread) => Some(!is_archived(
             &destination.config_dir,
             thread.path.as_deref(),
@@ -400,6 +446,15 @@ async fn taken(to: &mut impl CodexTransport, destination: &Home, session_id: &st
             _ => None,
         },
     }
+}
+
+/// Whether `error` says the app-server it came from is gone or stuck, so
+/// asking it anything more is no use.
+fn connection_lost(error: &CodexRpcError) -> bool {
+    matches!(
+        error,
+        CodexRpcError::Closed | CodexRpcError::Timeout | CodexRpcError::Io(_)
+    )
 }
 
 /// The error for `copy`, which `destination` didn't take in, failing with
