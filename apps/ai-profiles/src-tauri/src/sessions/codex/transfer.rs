@@ -370,7 +370,7 @@ fn not_taken(copy: &Path, destination: &Home, error: &CodexRpcError) -> AppError
             aside.display()
         )),
         Ok((aside, Some(left))) => AppError::Validation(format!(
-            "{refused}. Its copy is set aside in {}, and left in {} too",
+            "{refused}. Its copy is set aside in {}, and is still also at {}",
             aside.display(),
             left.display()
         )),

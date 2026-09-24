@@ -89,7 +89,7 @@ pub fn place_new(from: &Path, target: &Path) -> AppResult<()> {
 ///
 /// Once linked, the file is at `to` whatever happens next, so a `from` that
 /// can't be unlinked is no failure: it is returned instead, for the caller to
-/// say a copy was left there.
+/// say the file is still also there, as a second link to it.
 pub fn move_new(from: &Path, to: &Path) -> io::Result<Option<PathBuf>> {
     move_new_with(from, to, |from| fs::remove_file(from))
 }

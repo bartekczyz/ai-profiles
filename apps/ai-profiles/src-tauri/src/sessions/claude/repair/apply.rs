@@ -4,6 +4,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 
@@ -14,13 +15,19 @@ use super::{
 use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
 use crate::sessions::claude::archive_store::{
-    archive_bundle, move_all, occupied, replaced_dir, restore_bundle,
+    archive_bundle, move_all, occupied, replaced_dir, restore_bundle, UNDONE_DIR,
 };
 use crate::sessions::claude::copy::{compare, move_new, place, ItemAction};
 use crate::sessions::claude::live::registrations;
 use crate::sessions::claude::memory::merge_memory;
 use crate::sessions::claude::transfer::refuse_running;
+use crate::sessions::instance::{desktop_pid, running_again};
 use crate::sessions::Home;
+
+/// How long a listing of the running processes is taken to stay current
+/// when looking for the repaired home's desktop app between sessions: well
+/// under the seconds that app takes to start.
+const LISTING_FRESH_FOR: Duration = Duration::from_millis(500);
 
 /// Carry out `prepared`, a repair [`check`](super::check) found, at `at`: for each session,
 /// copy the plans its transcripts wrote, merge its projects' memory, then move
@@ -37,35 +44,73 @@ use crate::sessions::Home;
 ///
 /// `home`'s desktop app must not run while its config dir is written, so one
 /// that started again since the check is looked for right before the first
-/// write, and the repair refused if it runs. A terminal or another desktop
-/// app may have opened a session since, so that is looked for right before
-/// each session moves: a process that has a session open registers it, so
-/// only a session something registered has the running processes listed.
+/// write, and the repair refused if it runs, and again before each session,
+/// which is skipped if it runs by then. The processes are listed for that at
+/// most every [`LISTING_FRESH_FOR`]. A terminal or another desktop app may
+/// have opened a session since, so that is looked for right before each
+/// session moves: a process that has a session open registers it, so only a
+/// session something registered has the running processes listed afresh.
 pub fn apply(prepared: PreparedRepair, at: DateTime<Utc>) -> AppResult<RepairReport> {
     let mut left = Vec::new();
     let mut report = apply_with(
         prepared,
         at,
         &mut |from, to| {
-            left.extend(move_exclusive(from, to)?);
+            if let Some(from) = move_exclusive(from, to)? {
+                left.push(still_also_at(to, &from));
+            }
             Ok(())
         },
         &mut process_list,
+        LISTING_FRESH_FOR,
     )?;
-    report.warnings.extend(
-        left.iter()
-            .map(|copy| format!("Left a copy at {}", copy.display())),
-    );
+    report.warnings.extend(left);
     Ok(report)
 }
 
+/// What is said of a file moved to `to` whose old name `from` couldn't be
+/// unlinked: both names are links to the one file.
+pub(super) fn still_also_at(to: &Path, from: &Path) -> String {
+    format!("{} is still also at {}", to.display(), from.display())
+}
+
+/// The running processes, as `ps -ax -o pid=,command=` lists them, listed
+/// with a closure and kept while current.
+struct Listing<'a, P: FnMut() -> AppResult<String>> {
+    /// Lists them.
+    processes: &'a mut P,
+    /// How long a listing stays current.
+    fresh_for: Duration,
+    /// The last listing, with when it was made.
+    last: Option<(Instant, String)>,
+}
+
+impl<P: FnMut() -> AppResult<String>> Listing<'_, P> {
+    /// The last listing while it is current, else a new one.
+    fn recent(&mut self) -> AppResult<String> {
+        match &self.last {
+            Some((made, listed)) if made.elapsed() < self.fresh_for => Ok(listed.clone()),
+            _ => self.fresh(),
+        }
+    }
+
+    /// A new listing.
+    fn fresh(&mut self) -> AppResult<String> {
+        let listed = (self.processes)()?;
+        self.last = Some((Instant::now(), listed.clone()));
+        Ok(listed)
+    }
+}
+
 /// [`apply()`], moving each file or folder with `rename` and listing the
-/// running processes, as `ps -ax -o pid=,command=` does, with `processes`.
+/// running processes, as `ps -ax -o pid=,command=` does, with `processes`, a
+/// listing staying current for `fresh_for`.
 pub(super) fn apply_with(
     prepared: PreparedRepair,
     at: DateTime<Utc>,
     rename: &mut impl FnMut(&Path, &Path) -> io::Result<()>,
     processes: &mut impl FnMut() -> AppResult<String>,
+    fresh_for: Duration,
 ) -> AppResult<RepairReport> {
     let PreparedRepair {
         home,
@@ -76,10 +121,15 @@ pub(super) fn apply_with(
     if !sessions.is_empty() {
         refuse_running(&home)?;
     }
+    let mut listing = Listing {
+        processes,
+        fresh_for,
+        last: None,
+    };
     let mut repaired: u32 = 0;
     let mut memory_conflicts: Vec<String> = Vec::new();
     for session in sessions {
-        let outcome = still_free(&session, &home, &homes, processes).and_then(|()| {
+        let outcome = still_free(&session, &home, &homes, &mut listing).and_then(|()| {
             let backup = replaced_dir(&home.config_dir, &session.session_id, at)
                 .map_err(|error| error.message())?;
             repair_session(&home.config_dir, &session, &backup, at, rename)
@@ -109,15 +159,20 @@ pub(super) fn apply_with(
 }
 
 /// Whether `session` of `home`, one of `homes`, is still free to move: `Err`
-/// with the reason when [`in_use`]. The running processes are listed with
-/// `processes` only when a process registered one of its transcripts in any
-/// home; one that can't be listed then keeps the session where it is.
-fn still_free(
+/// with the reason when `home`'s desktop app runs by the `listing`'s recent
+/// processes, or when [`in_use`]. The processes are listed afresh for that
+/// only when a process registered one of its transcripts in any home.
+/// Processes that can't be listed keep the session where it is.
+fn still_free<P: FnMut() -> AppResult<String>>(
     session: &SessionRepair,
     home: &Home,
     homes: &[Home],
-    processes: &mut impl FnMut() -> AppResult<String>,
+    listing: &mut Listing<P>,
 ) -> Result<(), String> {
+    let recent = listing.recent().map_err(|error| error.message())?;
+    if desktop_pid(home, &recent).is_some() {
+        return Err(running_again(home).message());
+    }
     let registered = homes.iter().any(|each| {
         registrations(&each.config_dir)
             .iter()
@@ -126,7 +181,7 @@ fn still_free(
     if !registered {
         return Ok(());
     }
-    let ps_output = processes().map_err(|error| error.message())?;
+    let ps_output = listing.fresh().map_err(|error| error.message())?;
     match in_use(
         &session.transcript_ids,
         home,
@@ -172,7 +227,7 @@ enum Step {
 /// rewrites into `backup`, moving each file or folder with `rename`, or, across
 /// volumes, archiving at `at` what was copied. A transcript that fails to
 /// move has the ones before it put back; what was copied of them is set
-/// aside into `backup`. Returns the memory conflicts.
+/// aside into `backup`'s undone folder. Returns the memory conflicts.
 fn repair_session(
     config_dir: &Path,
     session: &SessionRepair,
@@ -311,7 +366,8 @@ fn missing_folders(items: &[PathBuf], config_dir: &Path) -> Vec<PathBuf> {
 
 /// Take back `steps`, the last first: move what was moved into `config_dir`
 /// back with `rename`, restore what was archived, set what was copied aside
-/// into `backup`, and remove the folders made for them once empty. Returns
+/// into `backup`'s undone folder, where it never meets what `backup` backs
+/// up, and remove the folders made for them once empty. Returns
 /// what couldn't be taken back, naming what stays where.
 fn unwind(
     steps: Vec<Step>,
@@ -342,7 +398,7 @@ fn unwind(
                 let set_aside = move_all(
                     std::slice::from_ref(&item),
                     config_dir,
-                    backup,
+                    &backup.join(UNDONE_DIR),
                     &mut |from, to| fs::rename(from, to),
                 );
                 if let Err(failed) = set_aside {

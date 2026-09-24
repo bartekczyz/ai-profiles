@@ -52,9 +52,12 @@ describe('repairToast', () => {
   })
 
   it('names what a repair left behind', () => {
-    expect(repairToast(report(1, [], [], ['Left a copy at /Users/me/.claude/a.jsonl']), 'Personal').description).toBe(
-      '1 repaired · 0 skipped. Left a copy at /Users/me/.claude/a.jsonl',
-    )
+    expect(
+      repairToast(
+        report(1, [], [], ['/Users/me/profile/a.jsonl is still also at /Users/me/.claude/a.jsonl']),
+        'Personal',
+      ).description,
+    ).toBe('1 repaired · 0 skipped. /Users/me/profile/a.jsonl is still also at /Users/me/.claude/a.jsonl')
   })
 
   it('says so when nothing needed repair', () => {

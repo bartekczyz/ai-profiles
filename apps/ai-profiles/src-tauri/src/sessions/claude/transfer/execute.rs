@@ -10,7 +10,7 @@ use super::{refuse_running, Item, MoveReport, Prepared, RecordWrite};
 use crate::error::{AppError, AppResult};
 use crate::sessions::actions::SessionAction;
 use crate::sessions::claude::archive;
-use crate::sessions::claude::archive_store::{move_all, occupied, replaced_dir};
+use crate::sessions::claude::archive_store::{move_all, occupied, replaced_dir, UNDONE_DIR};
 use crate::sessions::claude::copy::{place, ItemAction};
 use crate::sessions::claude::desktop::{
     build_destination_record, deleted_in, list_as_active, write_destination_record, ARCHIVED_INDEX,
@@ -22,10 +22,6 @@ use crate::sessions::Home;
 /// Where, in a move's backup folder, a desktop record it replaced goes, with
 /// the archived index it rewrote.
 const RECORDS_BACKUP: &str = "desktop-records";
-
-/// Where, in a move's backup folder, what a move that failed had put at the
-/// destination is set aside, laid out like the backup folder.
-const UNDONE_DIR: &str = "undone";
 
 /// Something a move put at the destination, to take back should a later step
 /// fail.

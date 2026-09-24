@@ -5,12 +5,12 @@ use std::time::{Duration, SystemTime};
 use serde_json::{json, Value};
 use tempfile::tempdir;
 
-use super::apply::{apply_with, move_exclusive};
+use super::apply::{apply_with, move_exclusive, still_also_at};
 use super::*;
 
 use crate::error::AppError;
 use crate::sessions::actions::{AppToQuit, SessionAction};
-use crate::sessions::claude::archive_store::archived_bundles;
+use crate::sessions::claude::archive_store::{archived_bundles, replaced_dir};
 use crate::sessions::claude::{archive, transfer};
 use crate::sessions::list::claude_sessions;
 use crate::test_support::{fake_wrapper_process, opened_claude_home as home, tree};
@@ -23,6 +23,10 @@ const WRITTEN: u64 = 1_780_000_000;
 
 /// When the tests repair.
 const AT: &str = "2026-09-24T08:15:00Z";
+
+/// How long a process listing is taken to stay current in tests that don't
+/// start or stop anything while repairing.
+const A_WHILE: Duration = Duration::from_secs(60);
 
 /// Write `contents` to `path`, making its folder, dated [`WRITTEN`].
 fn write(path: &Path, contents: &str) {
@@ -234,6 +238,7 @@ fn across_volumes_the_transcripts_are_copied_and_archived_where_they_were() {
         AT.parse().unwrap(),
         &mut |_, _| Err(io::ErrorKind::CrossesDevices.into()),
         &mut || Ok(String::new()),
+        A_WHILE,
     )
     .unwrap();
 
@@ -286,6 +291,7 @@ fn a_session_that_cant_all_be_put_back_says_what_stays_in_the_profile() {
             move_exclusive(from, to).map(drop)
         },
         &mut || Ok(String::new()),
+        A_WHILE,
     )
     .unwrap();
 
@@ -308,7 +314,7 @@ fn a_session_that_cant_all_be_put_back_says_what_stays_in_the_profile() {
 }
 
 #[test]
-fn processes_are_only_listed_for_a_session_a_process_registered() {
+fn processes_are_listed_again_only_for_a_session_a_process_registered() {
     let root = tempdir().unwrap();
     let (default, personal, homes) = orphaned(root.path());
     transcript(&default, "other");
@@ -328,11 +334,121 @@ fn processes_are_only_listed_for_a_session_a_process_registered() {
             listed += 1;
             Ok(String::new())
         },
+        A_WHILE,
     )
     .unwrap();
 
     assert_eq!(report.repaired, 2);
-    assert_eq!(listed, 1);
+    assert_eq!(listed, 2);
+}
+
+#[test]
+fn sessions_left_once_the_profiles_desktop_app_started_again_are_skipped() {
+    let root = tempdir().unwrap();
+    let (default, personal, homes) = orphaned(root.path());
+    transcript(&default, "other");
+    record(&personal, "r2", json!({ "cliSessionId": "other" }));
+    let checked = check(&personal, &homes, "").unwrap();
+    let running = format!(
+        "  901 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir={}\n",
+        personal.gui_data_dir.display()
+    );
+    let mut listed = 0;
+
+    let report = apply_with(
+        checked.target,
+        AT.parse().unwrap(),
+        &mut |from, to| move_exclusive(from, to).map(drop),
+        &mut || {
+            listed += 1;
+            Ok(if listed == 1 {
+                String::new()
+            } else {
+                running.clone()
+            })
+        },
+        Duration::ZERO,
+    )
+    .unwrap();
+
+    assert_eq!(report.repaired, 1);
+    assert_eq!(report.skipped.len(), 1);
+    assert_eq!(
+        report.skipped[0].reason,
+        "Claude (Personal) is running again — quit it and try again"
+    );
+}
+
+#[test]
+fn a_session_whose_processes_cant_be_listed_stays_where_it_is() {
+    let root = tempdir().unwrap();
+    let (default, personal, homes) = orphaned(root.path());
+    let checked = check(&personal, &homes, "").unwrap();
+    write(
+        &default.config_dir.join("sessions/4100.json"),
+        &json!({ "pid": 4100, "sessionId": "now", "entrypoint": "cli" }).to_string(),
+    );
+    let mut listed = 0;
+
+    let report = apply_with(
+        checked.target,
+        AT.parse().unwrap(),
+        &mut |from, to| move_exclusive(from, to).map(drop),
+        &mut || {
+            listed += 1;
+            if listed == 1 {
+                return Ok(String::new());
+            }
+            Err(AppError::Io(io::Error::other("ps failed")))
+        },
+        A_WHILE,
+    )
+    .unwrap();
+
+    assert_eq!(report.repaired, 0);
+    assert_eq!(
+        report.skipped,
+        [SkippedSession {
+            id: "now".to_string(),
+            reason: "ps failed".to_string(),
+        }]
+    );
+    assert!(default.config_dir.join(transcript_path("now")).exists());
+}
+
+#[test]
+fn across_volumes_what_a_session_cut_short_had_copied_is_set_aside_out_of_the_backups_way() {
+    let root = tempdir().unwrap();
+    let (default, personal, homes) = orphaned(root.path());
+    let checked = check(&personal, &homes, "").unwrap();
+    // Nothing can be archived where the transcripts are.
+    write(&default.config_dir.join("ai-profiles-archive"), "");
+
+    let report = apply_with(
+        checked.target,
+        AT.parse().unwrap(),
+        &mut |_, _| Err(io::ErrorKind::CrossesDevices.into()),
+        &mut || Ok(String::new()),
+        A_WHILE,
+    )
+    .unwrap();
+
+    assert_eq!(report.repaired, 0);
+    let backup = replaced_dir(&personal.config_dir, "now", AT.parse().unwrap()).unwrap();
+    for path in bundle("before") {
+        assert!(backup.join("undone").join(&path).exists(), "{path}");
+        assert!(!backup.join(&path).exists(), "{path}");
+        assert!(!personal.config_dir.join(&path).exists(), "{path}");
+        assert!(default.config_dir.join(&path).exists(), "{path}");
+    }
+}
+
+#[test]
+fn a_file_left_at_its_old_place_too_is_named_as_still_there() {
+    assert_eq!(
+        still_also_at(Path::new("/p/s.jsonl"), Path::new("/d/s.jsonl")),
+        "/p/s.jsonl is still also at /d/s.jsonl"
+    );
 }
 
 #[test]
@@ -667,6 +783,7 @@ fn a_session_moves_whole_or_stays_where_it_was() {
             move_exclusive(from, to).map(drop)
         },
         &mut || Ok(String::new()),
+        A_WHILE,
     )
     .unwrap();
 
@@ -726,6 +843,7 @@ fn a_session_opened_in_a_terminal_since_the_check_is_skipped() {
         AT.parse().unwrap(),
         &mut |from, to| move_exclusive(from, to).map(drop),
         &mut || Ok("  4100 claude\n".to_string()),
+        A_WHILE,
     )
     .unwrap();
 
@@ -775,7 +893,7 @@ fn a_repair_report_crosses_the_bridge_in_camel_case() {
             reason: "Close it in the terminal first".to_string(),
         }],
         memory_conflicts: vec!["deploy.md".to_string()],
-        warnings: vec!["Left a copy at /a.jsonl".to_string()],
+        warnings: vec!["/p/a.jsonl is still also at /a.jsonl".to_string()],
     };
 
     assert_eq!(
@@ -784,7 +902,7 @@ fn a_repair_report_crosses_the_bridge_in_camel_case() {
             "repaired": 2,
             "skipped": [{ "id": "s", "reason": "Close it in the terminal first" }],
             "memoryConflicts": ["deploy.md"],
-            "warnings": ["Left a copy at /a.jsonl"],
+            "warnings": ["/p/a.jsonl is still also at /a.jsonl"],
         })
     );
 }

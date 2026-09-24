@@ -32,6 +32,11 @@ const REPLACED_STAMP_FORMAT: &str = "%Y-%m-%dT%H-%M-%S%.3fZ";
 /// The folder under [`ARCHIVE_DIR`] holding what moves replaced.
 const REPLACED_DIR: &str = ".replaced";
 
+/// The folder in a [`replaced_dir`] that what a move or repair cut short had
+/// put in place is set aside into, laid out like the backup folder, so it
+/// never meets what that folder backs up.
+pub(in crate::sessions) const UNDONE_DIR: &str = "undone";
+
 /// Why an archived session can't be restored over files it would replace.
 pub const ACTIVE_COPY: &str = "It's already active in this profile";
 
