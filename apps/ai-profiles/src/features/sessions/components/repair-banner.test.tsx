@@ -90,7 +90,8 @@ describe('RepairBanner', () => {
     expect(repairSessions).toHaveBeenCalledWith('p1', false)
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.sessions.all })
-    const summary = await screen.findByText(/2 repaired/)
+    // The toast's text can show twice while it is announced to screen readers.
+    const [summary] = await screen.findAllByText(/2 repaired/)
     expect(summary).toHaveTextContent(/1 skipped/)
     expect(summary).toHaveTextContent(/Close it in the terminal first/)
   })
