@@ -78,10 +78,10 @@ pub fn registrations(config_dir: &Path) -> Vec<Registration> {
 /// A running `claude` keeps an entry in `<config>/sessions/<pid>.json` (see
 /// [`registrations`]), and an entry whose pid is no longer running is left
 /// behind by one that crashed, so only entries whose pid `ps_output` lists
-/// count. A session open in a terminal and the desktop app at once is held by
+/// as a `claude` count. A session open in a terminal and the desktop app at once is held by
 /// the terminal, the holder that only the user can close.
 pub fn live_sessions(config_dir: &Path, ps_output: &str) -> HashMap<String, LiveHolder> {
-    let running = running_pids(ps_output);
+    let running = claude_pids(ps_output);
     let mut live = HashMap::new();
     for registration in registrations(config_dir) {
         if !running.contains(&registration.pid) {
@@ -96,12 +96,21 @@ pub fn live_sessions(config_dir: &Path, ps_output: &str) -> HashMap<String, Live
     live
 }
 
-/// The pids listed in `ps -ax -o pid=,command=` output: the first word of each
-/// line.
-fn running_pids(ps_output: &str) -> HashSet<i32> {
+/// The pids of the `claude` processes listed in `ps -ax -o pid=,command=`
+/// output: the first word of each line whose command names `claude`. A pid
+/// left in a registry by a `claude` that crashed may since run something
+/// else, which holds no session.
+fn claude_pids(ps_output: &str) -> HashSet<i32> {
     ps_output
         .lines()
-        .filter_map(|line| line.split_whitespace().next()?.parse().ok())
+        .filter_map(|line| {
+            let (pid, command) = line.trim_start().split_once(char::is_whitespace)?;
+            command
+                .to_lowercase()
+                .contains("claude")
+                .then(|| pid.parse().ok())
+                .flatten()
+        })
         .collect()
 }
 
@@ -157,6 +166,16 @@ mod tests {
         write_registry(root.path(), 4300, "closed", "cli");
 
         assert!(live_sessions(root.path(), PS_OUTPUT).is_empty());
+    }
+
+    #[test]
+    fn a_pid_now_running_something_other_than_claude_is_not_live() {
+        let root = tempdir().unwrap();
+        write_registry(root.path(), 4100, "closed", "cli");
+
+        let reused = "  4100 /usr/sbin/cupsd -l\n";
+
+        assert!(live_sessions(root.path(), reused).is_empty());
     }
 
     #[test]

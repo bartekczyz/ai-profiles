@@ -53,32 +53,51 @@ pub struct Owned {
     pub claimed_transcripts: Vec<HeldTranscript>,
 }
 
+/// Every copy of each transcript of the app, by the transcript's id: the
+/// transcript as each home holding it has it, with the home's id, in the
+/// order of the scans.
+pub(super) type Copies<'a> = HashMap<&'a str, Vec<(&'a TranscriptSummary, &'a str)>>;
+
 /// The sessions home `home_id` owns, given what every home of the app holds.
 /// A record of a session the desktop app never started Claude Code for names
 /// no transcript and is left out. Of several records of one session in the
 /// home, as after switching accounts, the last active one is used.
+///
+/// Every home's transcripts are gone through once, then every home's
+/// records once: for the sessions `home_id`'s own records are of, and for the
+/// transcripts in `home_id`'s config dir any record claims.
 pub fn owned_by(home_id: &str, scans: &[HomeScan]) -> Vec<Owned> {
     let Some(own) = scans.iter().find(|scan| scan.home_id == home_id) else {
         return Vec::new();
     };
-    let index = transcript_index(own, scans);
+    let copies = copies(scans);
     let mut owned: Vec<Owned> = Vec::new();
     let mut by_id: HashMap<String, usize> = HashMap::new();
-    for record in &own.records {
-        let Some(session) = record_session(record, &index) else {
-            continue;
-        };
-        if let Some(&position) = by_id.get(&session.session_id) {
-            let kept = owned[position].record.as_ref();
-            if kept.is_some_and(|kept| kept.last_activity_at < record.last_activity_at) {
-                owned[position] = session;
+    let mut claimed: HashSet<&str> = HashSet::new();
+    for scan in scans {
+        for record in &scan.records {
+            for id in claimed_ids(record) {
+                if claimed_copy(&scan.home_id, id, &copies) == Some(home_id) {
+                    claimed.insert(id);
+                }
             }
-            continue;
+            if scan.home_id != home_id {
+                continue;
+            }
+            let Some(session) = record_session(record, home_id, &copies) else {
+                continue;
+            };
+            if let Some(&position) = by_id.get(&session.session_id) {
+                let kept = owned[position].record.as_ref();
+                if kept.is_some_and(|kept| kept.last_activity_at < record.last_activity_at) {
+                    owned[position] = session;
+                }
+                continue;
+            }
+            by_id.insert(session.session_id.clone(), owned.len());
+            owned.push(session);
         }
-        by_id.insert(session.session_id.clone(), owned.len());
-        owned.push(session);
     }
-    let claimed = claimed_from(home_id, scans);
     for transcript in &own.transcripts {
         let session_id = &transcript.session_id;
         if by_id.contains_key(session_id) || claimed.contains(session_id.as_str()) {
@@ -99,74 +118,40 @@ pub fn owned_by(home_id: &str, scans: &[HomeScan]) -> Vec<Owned> {
     owned
 }
 
-/// Every transcript of the app by id, with the home holding it: `own`'s copy
-/// when it has one, else the first other home's.
-fn transcript_index<'a>(
-    own: &'a HomeScan,
-    scans: &'a [HomeScan],
-) -> HashMap<&'a str, (&'a TranscriptSummary, &'a str)> {
-    let mut index = HashMap::new();
-    let others = scans.iter().filter(|scan| scan.home_id != own.home_id);
-    for scan in std::iter::once(own).chain(others) {
-        for transcript in &scan.transcripts {
-            index
-                .entry(transcript.session_id.as_str())
-                .or_insert((transcript, scan.home_id.as_str()));
-        }
-    }
-    index
-}
-
-/// The ids of the transcripts in `home_id`'s config dir that a record, of
-/// this home or another, claims. A record claims the copy in its own home's
-/// config dir when there is one; only when there isn't does it claim another
-/// home's, the first that has one, as [`transcript_index`] finds it (an
-/// orphan). So a session moved to another home and restored here still lists
-/// here.
-fn claimed_from<'a>(home_id: &str, scans: &'a [HomeScan]) -> HashSet<&'a str> {
-    let holders = holders(scans);
-    scans
-        .iter()
-        .flat_map(|scan| {
-            scan.records
-                .iter()
-                .flat_map(claimed_ids)
-                .map(move |id| (scan.home_id.as_str(), id))
-        })
-        .filter(|(claimant, id)| claimed_copy(claimant, id, &holders) == Some(home_id))
-        .map(|(_, id)| id)
-        .collect()
-}
-
-/// The ids of the homes whose config dirs hold each transcript, in the order
-/// of `scans`, by the transcript's id.
-pub(super) fn holders(scans: &[HomeScan]) -> HashMap<&str, Vec<&str>> {
-    let mut holders: HashMap<&str, Vec<&str>> = HashMap::new();
+/// Every copy of each transcript `scans` hold (see [`Copies`]).
+pub(super) fn copies(scans: &[HomeScan]) -> Copies<'_> {
+    let mut copies: Copies = HashMap::new();
     for scan in scans {
         for transcript in &scan.transcripts {
-            holders
+            copies
                 .entry(transcript.session_id.as_str())
                 .or_default()
-                .push(scan.home_id.as_str());
+                .push((transcript, scan.home_id.as_str()));
         }
     }
-    holders
+    copies
+}
+
+/// The copy of transcript `id` a record of home `claimant` claims, of its
+/// `copies`, with the home holding it: `claimant`'s own when it has one, else
+/// the first other home's (an orphan). So a session moved to another home and
+/// restored here still lists here. `None` when no home has it.
+fn claimed_held<'a>(
+    claimant: &str,
+    id: &str,
+    copies: &Copies<'a>,
+) -> Option<(&'a TranscriptSummary, &'a str)> {
+    let held = copies.get(id)?;
+    held.iter()
+        .find(|(_, home_id)| *home_id == claimant)
+        .or_else(|| held.first())
+        .copied()
 }
 
 /// The id of the home whose copy of transcript `id` a record of home
-/// `claimant` claims, given the `holders` of each transcript: `claimant`'s
-/// own copy when it has one, else the first other home's. `None` when no
-/// home has it.
-pub(super) fn claimed_copy<'a>(
-    claimant: &'a str,
-    id: &str,
-    holders: &HashMap<&str, Vec<&'a str>>,
-) -> Option<&'a str> {
-    let homes = holders.get(id)?;
-    if homes.contains(&claimant) {
-        return Some(claimant);
-    }
-    homes.first().copied()
+/// `claimant` claims, of its `copies` (see [`claimed_held`]).
+pub(super) fn claimed_copy<'a>(claimant: &str, id: &str, copies: &Copies<'a>) -> Option<&'a str> {
+    claimed_held(claimant, id, copies).map(|(_, home_id)| home_id)
 }
 
 /// The ids of the transcripts `record` claims: its current one, then its
@@ -179,12 +164,10 @@ pub(super) fn claimed_ids(record: &DesktopRecord) -> impl Iterator<Item = &str> 
         .map(String::as_str)
 }
 
-/// The session `record` is of, with its transcripts looked up in `index`.
-/// `None` for a record that claims no transcript at all.
-fn record_session(
-    record: &DesktopRecord,
-    index: &HashMap<&str, (&TranscriptSummary, &str)>,
-) -> Option<Owned> {
+/// The session `record`, of home `home_id`, is of, with the copies of its
+/// transcripts it claims of `copies`. `None` for a record that claims no
+/// transcript at all.
+fn record_session(record: &DesktopRecord, home_id: &str, copies: &Copies) -> Option<Owned> {
     let mut seen = HashSet::new();
     let ids: Vec<&str> = claimed_ids(record).filter(|id| seen.insert(*id)).collect();
     if ids.is_empty() {
@@ -192,10 +175,10 @@ fn record_session(
     }
     let claimed_transcripts: Vec<HeldTranscript> = ids
         .iter()
-        .filter_map(|id| index.get(id))
-        .map(|(summary, home_id)| HeldTranscript {
-            summary: (*summary).clone(),
-            home_id: home_id.to_string(),
+        .filter_map(|id| claimed_held(home_id, id, copies))
+        .map(|(summary, holder)| HeldTranscript {
+            summary: summary.clone(),
+            home_id: holder.to_string(),
         })
         .collect();
     let current = record.cli_session_id.as_deref();
@@ -262,6 +245,7 @@ mod tests {
             prior_cli_session_ids: Vec::new(),
             title: None,
             cwd: None,
+            created_at: None,
             last_activity_at: DateTime::from_timestamp(active_at, 0),
             archived: false,
         }
@@ -496,6 +480,37 @@ mod tests {
         assert_eq!(
             claimed(&owned[0]),
             [("first", DEFAULT), ("second", DEFAULT)]
+        );
+        assert_eq!(owned_by(DEFAULT, &scans), []);
+    }
+
+    #[test]
+    fn two_records_of_a_home_that_continued_the_same_transcript_both_claim_it() {
+        let scans = [
+            scan(DEFAULT, &["before"], vec![]),
+            scan(
+                PERSONAL,
+                &["now", "later"],
+                vec![
+                    continued("r1", Some("now"), &["before"]),
+                    continued("r2", Some("later"), &["before"]),
+                ],
+            ),
+        ];
+
+        let owned = owned_by(PERSONAL, &scans);
+
+        assert_eq!(
+            summary(&owned),
+            [
+                ("now", Some("local_r1"), Some(PERSONAL)),
+                ("later", Some("local_r2"), Some(PERSONAL)),
+            ]
+        );
+        assert_eq!(claimed(&owned[0]), [("now", PERSONAL), ("before", DEFAULT)]);
+        assert_eq!(
+            claimed(&owned[1]),
+            [("later", PERSONAL), ("before", DEFAULT)]
         );
         assert_eq!(owned_by(DEFAULT, &scans), []);
     }

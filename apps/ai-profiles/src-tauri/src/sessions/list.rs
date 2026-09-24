@@ -76,7 +76,8 @@ pub struct Session {
     /// app-server only lists that.
     pub last_prompt: Option<String>,
     /// When the session was last used: the later of its desktop record's last
-    /// activity and its transcript's last record.
+    /// activity and its transcript's last record. Without either, when its
+    /// record was last written, else when it was created.
     pub last_used_at: DateTime<Utc>,
     /// The session is archived.
     pub archived: bool,
@@ -211,6 +212,7 @@ fn owned_session(home: &Home, owned: Owned, live: &HashMap<String, LiveHolder>) 
     .flatten()
     .max()
     .or_else(|| record.and_then(|record| modified_at(&record.path)))
+    .or_else(|| record.and_then(|record| record.created_at))
     .unwrap_or_default();
     let archived = record.is_some_and(|record| record.archived);
     let state = if transcript.is_none() {
@@ -291,6 +293,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::sessions::claude::desktop::DesktopRecord;
 
     const ACCOUNT: &str = "1a19a582-d7b1-4f72-acef-cbe78c1a68e4";
     const ORG: &str = "18d53058-434e-4c78-9624-e290f7a80ccb";
@@ -642,6 +645,33 @@ mod tests {
                 repair_count: 0,
             }
         );
+    }
+
+    #[test]
+    fn a_record_with_no_activity_or_file_date_was_last_used_when_created() {
+        let root = tempdir().unwrap();
+        let personal = home(root.path(), "personal", false);
+        let record = DesktopRecord {
+            path: root.path().join("gone/local_r1.json"),
+            local_id: "local_r1".to_string(),
+            cli_session_id: Some("gone".to_string()),
+            prior_cli_session_ids: Vec::new(),
+            title: None,
+            cwd: None,
+            created_at: Some(utc("2026-08-01T10:00:00Z")),
+            last_activity_at: None,
+            archived: false,
+        };
+        let owned = Owned {
+            session_id: "gone".to_string(),
+            transcript: None,
+            record: Some(record),
+            claimed_transcripts: Vec::new(),
+        };
+
+        let session = owned_session(&personal, owned, &HashMap::new());
+
+        assert_eq!(session.last_used_at, utc("2026-08-01T10:00:00Z"));
     }
 
     #[test]

@@ -59,6 +59,8 @@ pub struct DesktopRecord {
     pub title: Option<String>,
     /// The folder the session works in.
     pub cwd: Option<String>,
+    /// When the session was started: its `createdAt`, in ms since the epoch.
+    pub created_at: Option<DateTime<Utc>>,
     /// When the session was last active: its `lastActivityAt`, in ms since
     /// the epoch.
     pub last_activity_at: Option<DateTime<Utc>>,
@@ -89,6 +91,8 @@ struct RecordFile {
     title: Option<String>,
     /// The folder the session works in.
     cwd: Option<String>,
+    /// When the session was started, in ms since the epoch.
+    created_at: Option<f64>,
     /// When the session was last active, in ms since the epoch.
     last_activity_at: Option<f64>,
     /// Archived from within the app.
@@ -148,6 +152,9 @@ pub fn read_records(gui_data_dir: &Path) -> Vec<DesktopRecord> {
                     .collect(),
                 title: non_blank(record.title),
                 cwd: non_blank(record.cwd),
+                created_at: record
+                    .created_at
+                    .and_then(|millis| DateTime::from_timestamp_millis(millis as i64)),
                 last_activity_at: record
                     .last_activity_at
                     .and_then(|millis| DateTime::from_timestamp_millis(millis as i64)),
@@ -533,6 +540,7 @@ mod tests {
                     prior_cli_session_ids: vec!["cli-before".to_string()],
                     title: Some("Fix the login bug".to_string()),
                     cwd: Some("/work/app".to_string()),
+                    created_at: None,
                     last_activity_at: DateTime::from_timestamp_millis(1_790_113_004_345),
                     archived: false,
                 },
@@ -543,6 +551,7 @@ mod tests {
                     prior_cli_session_ids: Vec::new(),
                     title: None,
                     cwd: Some("/work/other".to_string()),
+                    created_at: None,
                     last_activity_at: None,
                     archived: false,
                 },

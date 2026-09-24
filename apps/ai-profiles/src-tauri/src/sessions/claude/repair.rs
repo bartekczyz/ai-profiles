@@ -26,7 +26,7 @@ use super::copy::{compare, move_new, place, ItemAction};
 use super::live::{live_sessions, registrations, LiveHolder};
 use super::memory::merge_memory;
 use super::ownership::{
-    claimed_copy, claimed_ids, holders, owned_by, HeldTranscript, HomeScan, Owned,
+    claimed_copy, claimed_ids, copies, owned_by, HeldTranscript, HomeScan, Owned,
 };
 use super::transcript::bundle_paths;
 use super::transfer::{
@@ -271,7 +271,7 @@ struct Context<'a> {
 /// its own home's copy: that is its session's, to restore, while one in
 /// another home is left to be repaired.
 fn listers(scans: &[HomeScan]) -> HashMap<(String, String), Vec<String>> {
-    let holders = holders(scans);
+    let copies = copies(scans);
     let mut listers: HashMap<(String, String), Vec<String>> = HashMap::new();
     for scan in scans {
         for (record, id) in scan
@@ -279,7 +279,7 @@ fn listers(scans: &[HomeScan]) -> HashMap<(String, String), Vec<String>> {
             .iter()
             .flat_map(|record| claimed_ids(record).map(move |id| (record, id)))
         {
-            let Some(copy) = claimed_copy(&scan.home_id, id, &holders) else {
+            let Some(copy) = claimed_copy(&scan.home_id, id, &copies) else {
                 continue;
             };
             if record.archived && copy != scan.home_id {
