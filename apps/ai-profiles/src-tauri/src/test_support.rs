@@ -29,28 +29,64 @@ pub(crate) static APP_DIR_TEST_LOCK: Mutex<()> = Mutex::new(());
 /// `data_dir`: `<root>/Claude (Fake).app/Contents/MacOS/Claude.bin
 /// --user-data-dir=<data_dir>`. It is a shell script that waits for input, which
 /// its parent's end of the pipe never sends, so it runs until it is killed.
+/// Returns once `ps` shows it so (see [`ready`]).
 ///
 /// A real wrapper needs the vendor app installed and a link step; this needs
 /// neither, and looks the same to the code that looks for it.
 pub(crate) fn fake_wrapper_process(root: &Path, data_dir: &Path) -> Child {
-    wrapper_stand_in(root, data_dir, "#!/bin/sh\nread _\n", Stdio::inherit())
+    let child = wrapper_stand_in(
+        root,
+        data_dir,
+        "#!/bin/sh\necho ready\nread _\n",
+        Stdio::piped(),
+    );
+    ready(child, data_dir)
 }
 
 /// As [`fake_wrapper_process`], but it ignores SIGTERM, like an app that
-/// won't quit when asked: only SIGKILL ends it. Returns once it ignores it.
+/// won't quit when asked: only SIGKILL ends it. Returns once it ignores it
+/// and `ps` shows it.
 pub(crate) fn stubborn_wrapper_process(root: &Path, data_dir: &Path) -> Child {
-    let mut child = wrapper_stand_in(
+    let child = wrapper_stand_in(
         root,
         data_dir,
         "#!/bin/sh\ntrap '' TERM\necho ready\nread _\n",
         Stdio::piped(),
     );
-    let mut ready = String::new();
+    ready(child, data_dir)
+}
+
+/// `child`, a stand-in wrapper on `data_dir` whose script says `ready` once it
+/// runs, when it is ready to be looked for: it said so, and `ps` lists it with
+/// its whole command line. Starting a script execs a shell, which on macOS
+/// execs another, and until the last has started `ps` can show the process by
+/// another command line, or by its name alone.
+fn ready(mut child: Child, data_dir: &Path) -> Child {
+    let mut said = String::new();
     BufReader::new(child.stdout.take().unwrap())
-        .read_line(&mut ready)
+        .read_line(&mut said)
         .unwrap();
-    assert_eq!(ready.trim(), "ready");
-    child
+    assert_eq!(said.trim(), "ready");
+    let pid = child.id().to_string();
+    let command = format!(
+        "/Contents/MacOS/Claude.bin --user-data-dir={}",
+        data_dir.display()
+    );
+    for _ in 0..400 {
+        let listed = crate::launch::process_list().unwrap();
+        let shown = listed.lines().any(|line| {
+            line.trim_start()
+                .split_once(char::is_whitespace)
+                .is_some_and(|(listed_pid, listed_command)| {
+                    listed_pid == pid && listed_command.trim_end().ends_with(&command)
+                })
+        });
+        if shown {
+            return child;
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    panic!("ps never showed the stand-in wrapper as {command}");
 }
 
 /// Starts `script` as `<root>/Claude (Fake).app/Contents/MacOS/Claude.bin
