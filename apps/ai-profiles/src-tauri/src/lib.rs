@@ -4,6 +4,7 @@ mod accounts;
 mod app_kind;
 mod app_state;
 pub mod cli;
+mod codex_rpc;
 mod commands;
 mod deps;
 mod error;
@@ -13,6 +14,7 @@ mod migration;
 mod path_setup;
 mod paths;
 mod profiles;
+mod sessions;
 mod shared_config;
 mod slug;
 #[cfg(test)]
@@ -134,6 +136,14 @@ pub fn run() {
             commands::get_profile_usage,
             commands::open_external_url,
             commands::open_cli_login,
+            commands::list_sessions,
+            commands::check_session_action,
+            commands::archive_session,
+            commands::restore_session,
+            commands::plan_session_move,
+            commands::move_session,
+            commands::check_session_repair,
+            commands::repair_sessions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -3,6 +3,8 @@ import type { GuiLaunch } from './use-gui-launch'
 
 import { Suspense, useState } from 'react'
 
+import { PaneLayout } from '@/components/pane-layout'
+import { SessionsPanel } from '@/features/sessions/components/sessions-panel'
 import { appSpecs } from '@/lib/app-registry'
 import { useAppState } from '@/lib/app-state/use-app-state'
 import { copyToClipboard, openDefaultGui, profilePaths } from '@/lib/commands'
@@ -14,7 +16,6 @@ import { BrandSwatch, ProfileDetailHeader } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
 import { ProfileDetailMigrateAction } from './profile-detail-migrate-action'
 import { ProfileDetailOverflowMenu, ProfileDetailOverflowMenuFallback } from './profile-detail-overflow-menu'
-import { ProfileDetailShell } from './profile-detail-shell'
 import { ProfileDetailSurfacesPanel } from './profile-detail-surfaces-panel'
 import { ProfileDetailUsageCard } from './profile-detail-usage-card'
 import { RenameDefaultProfileDialog } from './rename-default-profile-dialog'
@@ -53,41 +54,46 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
   // soon as the paths land.
   const launch = useGuiLaunch()
   return (
-    <ProfileDetailShell>
-      <ProfileDetailHeader
-        name={entry.customName ?? displayName}
-        swatch={<BrandSwatch app={entry.app} />}
-        action={<ProfileDetailMigrateAction onMigrate={onMigrate} />}
-        subline={
-          signedInAs ? (
-            <>
-              <span>{stockInstall}</span>
-              <span className="mx-2 text-border">·</span>
-              <span title={accountTitle(account)}>{signedInAs}</span>
-            </>
-          ) : (
-            stockInstall
-          )
-        }
-        info={<ProfileDetailInfo app={entry.app} />}
-        menu={
-          // Its own boundary, as on the managed pane: the identity block and
-          // Import render immediately and only the paths behind the reveal
-          // destinations wait. No `onDelete` — a stock install is not ours to
-          // remove, so the menu is reveal-only.
-          <Suspense key={entry.id} fallback={<ProfileDetailOverflowMenuFallback />}>
-            <ProfileDetailOverflowMenu
-              profileId={entry.id}
-              onError={setActionError}
-              onRename={() => setRenaming(true)}
-            />
-          </Suspense>
-        }
-      />
-
+    <PaneLayout
+      aside={<SessionsPanel key={entry.id} profileId={entry.id} app={entry.app} />}
+      header={
+        <ProfileDetailHeader
+          name={entry.customName ?? displayName}
+          swatch={<BrandSwatch app={entry.app} />}
+          action={<ProfileDetailMigrateAction onMigrate={onMigrate} />}
+          subline={
+            signedInAs ? (
+              <>
+                <span>{stockInstall}</span>
+                <span className="mx-2 text-border">·</span>
+                <span title={accountTitle(account)}>{signedInAs}</span>
+              </>
+            ) : (
+              stockInstall
+            )
+          }
+          info={<ProfileDetailInfo app={entry.app} />}
+          menu={
+            // Its own boundary, as on the managed pane: the identity block and
+            // Import render immediately and only the paths behind the reveal
+            // destinations wait. No `onDelete` — a stock install is not ours to
+            // remove, so the menu is reveal-only.
+            <Suspense key={entry.id} fallback={<ProfileDetailOverflowMenuFallback />}>
+              <ProfileDetailOverflowMenu
+                profileId={entry.id}
+                onError={setActionError}
+                onRename={() => setRenaming(true)}
+              />
+            </Suspense>
+          }
+        />
+      }
+    >
       <ProfileDetailUsageCard app={entry.app} profileId={entry.id} cliEnabled={entry.surfaces.cli} />
 
-      <div className="mb-6">
+      {/* Stacked, the sessions card follows 14px below, as the cards above
+          space themselves; beside it, this ends the column. */}
+      <div className="mb-3.5 pane-wide:mb-6">
         <Suspense key={entry.id} fallback={<DefaultSurfaces entry={entry} launch={launch} onError={setActionError} />}>
           <ResolvedDefaultSurfaces entry={entry} launch={launch} onError={setActionError} />
         </Suspense>
@@ -107,7 +113,7 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
           await appState.update({ defaultProfileName: { app: entry.app, name } })
         }}
       />
-    </ProfileDetailShell>
+    </PaneLayout>
   )
 }
 

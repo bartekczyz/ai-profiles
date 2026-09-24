@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "ai-profiles",
-        "width": 900,
-        "height": 620,
+        "width": 1280,
+        "height": 800,
         "minWidth": 600,
         "minHeight": 400,
         "resizable": true,

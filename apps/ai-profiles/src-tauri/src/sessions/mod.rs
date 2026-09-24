@@ -1,0 +1,56 @@
+//! Local coding sessions kept by each profile: Claude Code's and Codex's.
+//!
+//! A [`Home`] is one place sessions live, a managed profile or an app's stock
+//! install ("Default"). The per-app submodules read the sessions a home holds
+//! from the apps' own files, which are undocumented internals that can change
+//! between versions, so everything here reads leniently and skips what it
+//! cannot make sense of rather than failing the whole listing.
+
+pub mod actions;
+mod claude;
+mod codex;
+mod fs_ops;
+mod home;
+mod instance;
+mod list;
+mod move_plan;
+
+use std::path::PathBuf;
+
+use crate::app_kind::AppKind;
+
+pub use actions::{ActionCheck, SessionAction};
+pub use claude::repair::RepairReport;
+pub use home::home_for;
+pub use list::{list_sessions, SessionList};
+pub use move_plan::{MovePlan, MoveReport};
+
+/// Where one profile, or one app's stock install, keeps its sessions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Home {
+    /// The profile's id, or `default:<app>` for the stock install.
+    pub id: String,
+    /// The app whose sessions live here.
+    pub app: AppKind,
+    /// The profile's name, or the stock install's display name (the one the
+    /// user gave it, else "Default").
+    pub label: String,
+    /// The CLI's config dir: `CLAUDE_CONFIG_DIR` for Claude, `CODEX_HOME` for
+    /// Codex. The CLI half of every session lives here.
+    pub config_dir: PathBuf,
+    /// The desktop app's `--user-data-dir`, or its stock Application Support
+    /// dir for the stock install.
+    pub gui_data_dir: PathBuf,
+    /// The stock install rather than a managed profile.
+    pub stock: bool,
+    /// Whether the home's desktop app reads its sessions from `config_dir`.
+    /// False for a profile whose launcher was built before launchers set the
+    /// config home: its desktop app still reads the stock one.
+    pub desktop_reads_config_dir: bool,
+}
+
+/// `value` unless it is blank. The apps write empty strings for fields they
+/// have no value for yet.
+fn non_blank(value: Option<String>) -> Option<String> {
+    value.filter(|text| !text.trim().is_empty())
+}

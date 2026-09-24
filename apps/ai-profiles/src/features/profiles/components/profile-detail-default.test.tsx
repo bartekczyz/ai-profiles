@@ -20,10 +20,18 @@ import { renderWithQuery } from '@/test/render-with-query'
 
 import { DefaultProfileDetail } from './profile-detail-default'
 
+// The sessions panel lists the profiles a session can move to, which these
+// tests don't set up.
+vi.mock('@/features/profiles/api/use-sidebar-entries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/profiles/api/use-sidebar-entries')>()),
+  useSidebarEntries: vi.fn(() => []),
+}))
+
 vi.mock('@/lib/commands', async () => {
   const actual = await vi.importActual<typeof import('@/lib/commands')>('@/lib/commands')
   return {
     ...actual,
+    listSessions: vi.fn(async () => ({ sessions: [], repairCount: 0 })),
     profilePaths: vi.fn(),
     // Unanswered unless a test answers it: the account line isn't what most
     // of these tests are about, and its answer re-renders the header.
@@ -60,6 +68,7 @@ const appState: AppState = {
   selectedEntryId: null,
   dockIconAcknowledgedAt: null,
   defaultProfileNames: {},
+  dismissedRepairSessions: {},
 }
 
 const guiDataDir = '/Users/ada/Library/Application Support/Claude'

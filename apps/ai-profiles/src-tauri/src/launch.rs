@@ -51,6 +51,18 @@ pub fn find_running_pid(ps_output: &str, data_dir: &str, gui_macos_exec: &str) -
     )
 }
 
+/// Every PID [`find_running_pid`] would pick from, in `ps` order: an app
+/// doesn't keep to one instance per data dir.
+pub fn find_running_pids(ps_output: &str, data_dir: &str, gui_macos_exec: &str) -> Vec<i32> {
+    pids_ending_with(
+        ps_output,
+        &[
+            stock_suffix(data_dir, gui_macos_exec),
+            wrapper_suffix(data_dir, gui_macos_exec),
+        ],
+    )
+}
+
 /// As [`find_running_pid`], but only for a profile running from its wrapper.
 pub fn find_running_wrapper_pid(
     ps_output: &str,
@@ -73,26 +85,29 @@ fn wrapper_suffix(data_dir: &str, gui_macos_exec: &str) -> String {
 
 /// The PID of the first process in `ps_output` whose command line ends with one
 /// of `suffixes`.
-fn first_pid_ending_with(ps_output: &str, suffixes: &[String]) -> Option<i32> {
-    for line in ps_output.lines() {
-        let Some((pid, command)) = line.trim_start().split_once(char::is_whitespace) else {
-            continue;
-        };
-        let command = command.trim_end();
-        if suffixes
-            .iter()
-            .any(|suffix| command.ends_with(suffix.as_str()))
-        {
-            if let Ok(parsed) = pid.parse::<i32>() {
-                return Some(parsed);
-            }
-        }
-    }
-    None
+pub(crate) fn first_pid_ending_with(ps_output: &str, suffixes: &[String]) -> Option<i32> {
+    pids_ending_with(ps_output, suffixes).into_iter().next()
+}
+
+/// The PIDs of the processes in `ps_output` whose command line ends with one
+/// of `suffixes`, in `ps` order.
+pub(crate) fn pids_ending_with(ps_output: &str, suffixes: &[String]) -> Vec<i32> {
+    ps_output
+        .lines()
+        .filter_map(|line| {
+            let (pid, command) = line.trim_start().split_once(char::is_whitespace)?;
+            let command = command.trim_end();
+            suffixes
+                .iter()
+                .any(|suffix| command.ends_with(suffix.as_str()))
+                .then(|| pid.parse::<i32>().ok())
+                .flatten()
+        })
+        .collect()
 }
 
 /// Every running process, one `pid command` line each.
-fn process_list() -> AppResult<String> {
+pub(crate) fn process_list() -> AppResult<String> {
     let output = Command::new("ps")
         .args(["-ax", "-o", "pid=,command="])
         .output()
@@ -533,14 +548,17 @@ fn launch_with<E: Effects>(distinct_dock_icon: bool, effects: &mut E) -> AppResu
                     "the wrapper was rebuilt but {problem}"
                 ))),
             },
-            Err(err) => Err(Bypass::RebuildFailed(err.to_string())),
+            Err(err) => Err(Bypass::RebuildFailed(err.message())),
         },
     };
     match wrapped {
         Ok(()) => Ok(None),
         Err(bypass) => {
             effects.open_stock().map_err(|err| {
-                AppError::Validation(format!("{bypass} Opening the stock app failed too: {err}"))
+                AppError::Validation(format!(
+                    "{bypass} Opening the stock app failed too: {}",
+                    err.message()
+                ))
             })?;
             Ok(Some(bypass))
         }
@@ -587,7 +605,7 @@ impl Effects for ProfileLaunch<'_> {
     }
 
     fn open_wrapper(&mut self) -> Result<(), Bypass> {
-        open_bundle(&self.launcher).map_err(|err| Bypass::OpenFailed(err.to_string()))?;
+        open_bundle(&self.launcher).map_err(|err| Bypass::OpenFailed(err.message()))?;
         let Some(vendor) = &self.vendor else {
             // Its process can't be told without the vendor's executable name.
             return Ok(());
