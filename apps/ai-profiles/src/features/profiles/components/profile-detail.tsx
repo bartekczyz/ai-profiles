@@ -9,8 +9,10 @@ import { useDependencies } from '@/features/dependencies/api/use-dependencies'
 import { SessionsPanel } from '@/features/sessions/components/sessions-panel'
 import { appSpecs, wrapperCommand } from '@/lib/app-registry'
 
+import { useProfileAccount } from '../api/use-profile-account'
 import { useProfileLastUsed } from '../api/use-profile-last-used'
 import { useProfilePaths } from '../api/use-profile-paths'
+import { accountLabel, accountTitle } from './account-line'
 import { formatLastUsed } from './format-last-used'
 import { ProfileDetailHeader, ProfileSwatch } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
@@ -33,6 +35,8 @@ type Props = {
 export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: Props) {
   const [actionError, setActionError] = useState<string | null>(null)
   const command = wrapperCommand(profile.app, profile.slug)
+  const account = useProfileAccount(profile.id)
+  const signedInAs = accountLabel(account)
   // Above the boundary below, which swaps one surfaces panel for another as
   // soon as the paths land.
   const launch = useGuiLaunch()
@@ -48,6 +52,12 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
           subline={
             <>
               <span>{appSpecs[profile.app].displayName}</span>
+              {signedInAs ? (
+                <>
+                  <span className="mx-2 text-border">·</span>
+                  <span title={accountTitle(account)}>{signedInAs}</span>
+                </>
+              ) : null}
               <span className="mx-2 text-border">·</span>
               <span className="text-muted-strong">{formatLastUsed(profile.lastUsedAt)}</span>
             </>

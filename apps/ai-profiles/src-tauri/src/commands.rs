@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 
+use crate::accounts::{self, AccountStatus};
 use crate::app_kind::{spec, AppKind};
 use crate::app_state::{self, AppState, AppStatePatch};
 use crate::deps::{self, Dependencies};
@@ -240,6 +241,13 @@ pub fn open_default_gui(handle: tauri::AppHandle, app: AppKind, data_dir: String
 #[tauri::command]
 pub fn profile_paths(id: String) -> AppResult<ProfilePaths> {
     profiles::paths(&id)
+}
+
+/// Whether profile `id` is signed in, and as whom, read from what its apps
+/// keep on disk.
+#[tauri::command(async)]
+pub fn profile_account(id: String) -> AppResult<AccountStatus> {
+    accounts::read(&id)
 }
 
 /// Open a web URL (or `mailto:` link) in the user's default handler via

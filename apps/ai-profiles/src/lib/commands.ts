@@ -1,5 +1,6 @@
 import type { AppId } from './app-registry'
 import type {
+  AccountStatus,
   ActionCheck,
   AppMetadata,
   AppState,
@@ -79,6 +80,10 @@ export function openDefaultGui(app: AppId, dataDir: string): Promise<void> {
 
 export function profilePaths(id: string): Promise<ProfilePaths> {
   return invoke<ProfilePaths>('profile_paths', { id })
+}
+
+export function profileAccount(id: string): Promise<AccountStatus> {
+  return invoke<AccountStatus>('profile_account', { id })
 }
 
 export function copyToClipboard(text: string): Promise<void> {
