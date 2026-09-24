@@ -2,7 +2,6 @@ import type { ArchivedSession, SessionSummary } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { formatDistanceToNow } from 'date-fns'
 import { Archive, ArchiveRestore, ArrowDownToLine, ArrowRightLeft, Monitor, Terminal, Trash2 } from 'lucide-react'
 
 import { Button, Skeleton, StatusDot } from '@/design'
@@ -13,7 +12,7 @@ import { ArchiveSessionDialog } from './archive-session-dialog'
 import { DeleteArchiveDialog } from './delete-archive-dialog'
 import { RestoreSessionDialog } from './restore-session-dialog'
 import { sessionErrorMessage } from './session-error-message'
-import { shortenHomePath } from './shorten-home-path'
+import { SessionRowBase, sessionPanelClasses, sessionRowClasses } from './session-row-base'
 import { TransferSessionDialog } from './transfer-session-dialog'
 
 /** The stock install's id, where a session left in the Default folder is. */
@@ -21,11 +20,6 @@ const stockId = 'default:claude'
 
 /** Rows shown before "Show all". */
 const collapsedCount = 5
-
-const panelClasses = 'rounded-[10px] border border-border-soft bg-white/30 dark:bg-white/[0.02]'
-
-const rowClasses =
-  'flex min-h-[46px] items-center justify-between gap-3 border-t border-border-soft px-[13px] py-[8px] first:border-t-0'
 
 type Props = {
   /** Profile id, or `default:claude` for the stock install. */
@@ -58,9 +52,9 @@ export function ProfileDetailSessions({ profileId }: Props) {
         <h2 className="text-meta font-medium text-ink-soft">Sessions</h2>
         {data ? <span className="text-meta text-muted">{sessions.length}</span> : null}
       </div>
-      <div className={panelClasses}>
+      <div className={sessionPanelClasses}>
         {isLoading ? (
-          <div className={rowClasses}>
+          <div className={sessionRowClasses}>
             <Skeleton shape="text" className="w-2/3" />
           </div>
         ) : error ? (
@@ -109,7 +103,7 @@ export function ProfileDetailSessions({ profileId }: Props) {
       </div>
 
       {showArchived && archived.length > 0 ? (
-        <div className={`${panelClasses} mt-2`}>
+        <div className={`${sessionPanelClasses} mt-2`}>
           <ul aria-label="Archived sessions">
             {archived.map((session) => (
               <ArchivedRow
@@ -177,14 +171,11 @@ type SessionRowProps = {
 }
 
 function SessionRow({ session, onMove, onArchive }: SessionRowProps) {
-  const title = session.title ?? session.lastPrompt ?? session.id
   return (
-    <li className={rowClasses}>
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-body text-ink" title={title}>
-            {title}
-          </span>
+    <SessionRowBase
+      title={session.title ?? session.lastPrompt ?? session.id}
+      badges={
+        <>
           <SurfacePill surface={surfaceOf(session)} />
           {session.leftInDefault ? (
             <span
@@ -203,48 +194,43 @@ function SessionRow({ session, onMove, onArchive }: SessionRowProps) {
               Open
             </span>
           ) : null}
-        </div>
-        <div className="flex min-w-0 font-mono text-mono text-muted-strong">
-          <span className="truncate" title={session.cwd ?? undefined}>
-            {session.cwd ? shortenHomePath(session.cwd) : 'unknown folder'}
-          </span>
-          <span className="shrink-0 whitespace-nowrap">
-            <span className="mx-1.5 text-border">·</span>
-            {formatDistanceToNow(new Date(session.updatedAt), { addSuffix: true })}
-          </span>
-        </div>
-      </div>
-      {session.running && !session.openInDesktop ? (
-        <div className="shrink-0 text-right" title="A terminal has it open.">
-          <div className="flex items-center justify-end gap-1.5 text-meta text-ink-soft">
-            <StatusDot tone="success" />
-            Open
+        </>
+      }
+      folder={session.cwd}
+      at={session.updatedAt}
+      actions={
+        session.running && !session.openInDesktop ? (
+          <div className="shrink-0 text-right" title="A terminal has it open.">
+            <div className="flex items-center justify-end gap-1.5 text-meta text-ink-soft">
+              <StatusDot tone="success" />
+              Open
+            </div>
+            <div className="text-meta text-muted">Close to move or archive</div>
           </div>
-          <div className="text-meta text-muted">Close to move or archive</div>
-        </div>
-      ) : (
-        <div className="flex shrink-0 items-center gap-1">
-          {session.leftInDefault ? (
-            <Button variant="ghost" size="sm" leadingIcon={<ArrowDownToLine />} onClick={onMove}>
-              Move here
-            </Button>
-          ) : session.unmovableReason ? (
-            <span className="cursor-default px-2 text-meta text-muted" title={session.unmovableReason}>
-              Can't move
-            </span>
-          ) : (
-            <Button variant="ghost" size="sm" leadingIcon={<ArrowRightLeft />} onClick={onMove}>
-              Move
-            </Button>
-          )}
-          {session.leftInDefault ? null : (
-            <Button variant="ghost" size="sm" aria-label="Archive" title="Archive" onClick={onArchive}>
-              <Archive aria-hidden className="h-3.5 w-3.5" />
-            </Button>
-          )}
-        </div>
-      )}
-    </li>
+        ) : (
+          <div className="flex shrink-0 items-center gap-1">
+            {session.leftInDefault ? (
+              <Button variant="ghost" size="sm" leadingIcon={<ArrowDownToLine />} onClick={onMove}>
+                Move here
+              </Button>
+            ) : session.unmovableReason ? (
+              <span className="cursor-default px-2 text-meta text-muted" title={session.unmovableReason}>
+                Can't move
+              </span>
+            ) : (
+              <Button variant="ghost" size="sm" leadingIcon={<ArrowRightLeft />} onClick={onMove}>
+                Move
+              </Button>
+            )}
+            {session.leftInDefault ? null : (
+              <Button variant="ghost" size="sm" aria-label="Archive" title="Archive" onClick={onArchive}>
+                <Archive aria-hidden className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        )
+      }
+    />
   )
 }
 
@@ -257,46 +243,35 @@ function ArchivedRow({
   onRestore: () => void
   onDelete: () => void
 }) {
-  const title = session.title ?? session.id
   return (
-    <li className={rowClasses}>
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-body text-ink-soft" title={title}>
-            {title}
-          </span>
+    <SessionRowBase
+      title={session.title ?? session.id}
+      muted
+      badges={
+        <>
           <SurfacePill surface={session.inDesktop ? 'desktop' : 'cli'} />
-        </div>
-        <div className="flex min-w-0 font-mono text-mono text-muted-strong">
-          <span className="truncate" title={session.cwd ?? undefined}>
-            {session.cwd ? shortenHomePath(session.cwd) : 'unknown folder'}
-          </span>
-          {session.archivedAt ? (
-            <span className="shrink-0 whitespace-nowrap">
-              <span className="mx-1.5 text-border">·</span>
-              archived {formatDistanceToNow(new Date(session.archivedAt), { addSuffix: true })}
-            </span>
-          ) : null}
-          <span className="shrink-0 whitespace-nowrap">
-            <span className="mx-1.5 text-border">·</span>
-            {formatBytes(session.sizeBytes)}
-          </span>
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <Button variant="ghost" size="sm" leadingIcon={<ArchiveRestore />} onClick={onRestore}>
-          Restore
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label="Delete"
-          title={`Delete this archive for good, freeing ${formatBytes(session.sizeBytes)}`}
-          onClick={onDelete}
-        >
-          <Trash2 aria-hidden className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-    </li>
+          <span className="shrink-0 text-meta text-muted-strong">{formatBytes(session.sizeBytes)}</span>
+        </>
+      }
+      folder={session.cwd}
+      at={session.archivedAt}
+      atLabel="archived"
+      actions={
+        <>
+          <Button variant="ghost" size="sm" leadingIcon={<ArchiveRestore />} onClick={onRestore}>
+            Restore
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Delete"
+            title={`Delete this archive for good, freeing ${formatBytes(session.sizeBytes)}`}
+            onClick={onDelete}
+          >
+            <Trash2 aria-hidden className="h-3.5 w-3.5" />
+          </Button>
+        </>
+      }
+    />
   )
 }

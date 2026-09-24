@@ -7,11 +7,13 @@ import { Check, LoaderCircle } from 'lucide-react'
 
 import { Button, cn, Dialog, Kbd } from '@/design'
 import { useAppState } from '@/lib/app-state/use-app-state'
+import { mergeTransferMemory } from '@/lib/commands'
 import { formatBytes } from '@/lib/format-bytes'
 
 import { useTransferPlan, useTransferSession } from '../api/use-profile-sessions'
 import { useProfiles } from '../api/use-profiles'
 import { appsToQuitNote } from './apps-to-quit'
+import { type MemoryChoice, memoryDecisions, ProjectMemory } from './project-memory'
 import { sessionErrorMessage } from './session-error-message'
 import { shortenHomePath } from './shorten-home-path'
 
@@ -56,6 +58,7 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
     : undefined
   const [afterwards, setAfterwards] = useState<Afterwards>('archive')
   const [replaceNewer, setReplaceNewer] = useState(false)
+  const [choices, setChoices] = useState<Record<string, MemoryChoice>>({})
   const [report, setReport] = useState<TransferReport | null>(null)
   const [moveError, setMoveError] = useState<string | null>(null)
   const [progress, resetProgress] = useTransferProgress(session.id)
@@ -91,7 +94,14 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
     setMoveError(null)
     resetProgress()
     try {
-      setReport(await move.mutateAsync({ ...request, replaceNewer, quitApps: appsToQuit.length > 0 }))
+      setReport(
+        await move.mutateAsync({
+          ...request,
+          replaceNewer,
+          quitApps: appsToQuit.length > 0,
+          memory: memoryDecisions(plan.data?.memory ?? [], choices),
+        }),
+      )
     } catch (caught) {
       setMoveError(sessionErrorMessage(caught, 'The session could not be moved.'))
       await plan.refetch()
@@ -160,6 +170,9 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
             replaceNewer={replaceNewer}
             onReplaceNewer={setReplaceNewer}
             onRecheck={() => void plan.refetch()}
+            choices={choices}
+            onChoice={(path, choice) => setChoices((previous) => ({ ...previous, [path]: choice }))}
+            merge={(path) => (request ? mergeTransferMemory(request, path) : Promise.reject(new Error('No move')))}
           />
           {moveError ? (
             <p role="alert" className="text-meta text-red">
@@ -181,6 +194,7 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
               onChange={(event) => {
                 setDestinationId(event.target.value)
                 setReplaceNewer(false)
+                setChoices({})
               }}
             >
               {destinations.map((destination) => (
@@ -195,7 +209,7 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
           <AfterwardsChoice
             source={plan.data?.sourceLabel ?? 'this profile'}
             destination={plan.data?.destinationLabel ?? 'the other profile'}
-            sourceBytes={plan.data?.sourceBytes ?? null}
+            archiveBytes={plan.data?.archiveBytes ?? null}
             value={afterwards}
             onChange={setAfterwards}
           />
@@ -207,6 +221,9 @@ export function TransferSessionDialog({ open, sourceId, session, destinationId: 
             replaceNewer={replaceNewer}
             onReplaceNewer={setReplaceNewer}
             onRecheck={() => void plan.refetch()}
+            choices={choices}
+            onChoice={(path, choice) => setChoices((previous) => ({ ...previous, [path]: choice }))}
+            merge={(path) => (request ? mergeTransferMemory(request, path) : Promise.reject(new Error('No move')))}
           />
 
           {moveError ? (
@@ -227,6 +244,9 @@ function PlanBody({
   replaceNewer,
   onReplaceNewer,
   onRecheck,
+  choices,
+  onChoice,
+  merge,
 }: {
   plan: TransferPlan | undefined
   loading: boolean
@@ -234,6 +254,9 @@ function PlanBody({
   replaceNewer: boolean
   onReplaceNewer: (value: boolean) => void
   onRecheck: () => void
+  choices: Record<string, MemoryChoice>
+  onChoice: (path: string, choice: MemoryChoice) => void
+  merge: (path: string) => Promise<string>
 }) {
   if (loading) {
     return <p className="text-meta text-muted">Checking…</p>
@@ -272,6 +295,14 @@ function PlanBody({
           {plan.destinationLabel} has a newer copy of this session. Replace it anyway?
         </label>
       ) : null}
+      <ProjectMemory
+        memory={plan.memory}
+        source={plan.sourceLabel}
+        destination={plan.destinationLabel}
+        choices={choices}
+        onChoice={onChoice}
+        merge={merge}
+      />
       {plan.blockers.length > 0 ? (
         <div role="alert" className="space-y-1">
           {plan.blockers.map((blocker) => (
@@ -390,24 +421,25 @@ function DesktopLine({ plan }: { plan: TransferPlan }) {
 function AfterwardsChoice({
   source,
   destination,
-  sourceBytes,
+  archiveBytes,
   value,
   onChange,
 }: {
   source: string
   /** The profile it moves to. */
   destination: string
-  /** What deleting frees, once the plan says. */
-  sourceBytes: number | null
+  /** What the archive holds before it's compressed, once the plan says. */
+  archiveBytes: number | null
   value: Afterwards
   onChange: (value: Afterwards) => void
 }) {
-  const size = sourceBytes === null ? null : formatBytes(sourceBytes)
+  // At most: the archive is compressed, by how much depends on the transcript.
+  const size = archiveBytes === null ? null : formatBytes(archiveBytes)
   const options: Array<{ value: Afterwards; label: string; hint: string }> = [
     {
       value: 'archive',
-      label: size === null ? 'Archive it' : `Archive it (${size})`,
-      hint: 'Only one profile lists it. Its transcript is kept in session-transfer-backups, and can be restored.',
+      label: size === null ? 'Archive it' : `Archive it (up to ${size})`,
+      hint: 'Only one profile lists it. Its transcript is kept in session-transfer-backups, compressed, and can be restored.',
     },
     {
       value: 'delete',
@@ -470,11 +502,6 @@ function ReportBody({ report, destinationLabel }: { report: TransferReport; dest
       {report.backupDir ? (
         <p className="text-meta text-muted">
           What it replaced went to <code className="font-mono text-mono">{shortenHomePath(report.backupDir)}</code>.
-        </p>
-      ) : null}
-      {report.memoryConflicts.length > 0 ? (
-        <p className="text-meta text-amber">
-          Project memory that differed was left as the destination had it: {report.memoryConflicts.join(', ')}.
         </p>
       ) : null}
     </div>

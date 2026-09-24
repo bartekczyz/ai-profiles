@@ -1,16 +1,23 @@
-import type { Dependencies } from '@/lib/types'
+import type { Dependencies, RemoteHost } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ToastProvider } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
 import { pressOutside } from '@/test/press-outside'
+import { renderWithQuery } from '@/test/render-with-query'
 
 import { CreateProfileDialog } from './create-profile-dialog'
+
+vi.mock('@/lib/commands', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/commands')>('@/lib/commands')
+  // The server a remote profile is made on already has `taken`.
+  return { ...actual, remoteListAccounts: vi.fn(async () => [{ name: 'taken' }]) }
+})
 
 const ONLY_CLAUDE_INSTALLED: Dependencies = {
   apps: {
@@ -40,7 +47,7 @@ function setup(overrides: Partial<Parameters<typeof CreateProfileDialog>[0]> = {
   const onClose = vi.fn()
   const onCreate = vi.fn().mockResolvedValue(undefined)
   const onAcknowledgeDockIcon = vi.fn().mockResolvedValue(undefined)
-  render(
+  renderWithQuery(
     <ToastProvider>
       <CreateProfileDialog
         open
@@ -55,6 +62,46 @@ function setup(overrides: Partial<Parameters<typeof CreateProfileDialog>[0]> = {
   )
   return { onClose, onCreate, onAcknowledgeDockIcon, user: userEvent.setup() }
 }
+
+const server: RemoteHost = {
+  id: 'h1',
+  label: 'xjopa1',
+  hostname: 'xjopa1',
+  addresses: [],
+  fingerprint: 'ab'.repeat(32),
+  clientId: 'c1',
+  pairedAt: '2026-09-22T00:00:00Z',
+  lastGoodAddress: null,
+  profiles: {},
+}
+
+describe('CreateProfileDialog — Claude CLI Remote', () => {
+  it('makes a profile on the chosen server, with a name the server can use', async () => {
+    const onCreateRemote = vi.fn().mockResolvedValue(undefined)
+    const { user, onCreate, onClose } = setup({
+      remoteHosts: [server],
+      initialRemoteHostId: 'h1',
+      onCreateRemote,
+    })
+    expect(screen.getByLabelText('Server')).toHaveTextContent('xjopa1')
+    expect(screen.queryByText('Surfaces')).toBeNull()
+    await user.type(screen.getByLabelText('Name'), '../x')
+    expect(screen.getByRole('button', { name: /Create profile/ })).toBeDisabled()
+    await user.clear(screen.getByLabelText('Name'))
+    await user.type(screen.getByLabelText('Name'), 'Taken')
+    expect(await screen.findByText('xjopa1 already has a profile called Taken.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Create profile/ })).toBeDisabled()
+    await user.clear(screen.getByLabelText('Name'))
+    await user.type(screen.getByLabelText('Name'), 'work')
+    expect(screen.getByText('On xjopa1: ~/.claude-accounts/work')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Create profile/ }))
+    await waitFor(() =>
+      expect(onCreateRemote).toHaveBeenCalledWith({ hostId: 'h1', name: 'work', color: expect.any(String) }),
+    )
+    expect(onCreate).not.toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalled()
+  })
+})
 
 describe('CreateProfileDialog', () => {
   it('disables Create when name is empty', () => {
@@ -137,7 +184,7 @@ describe('CreateProfileDialog', () => {
   it('shows a toast (not an inline message) when the backend rejects, and keeps the dialog open', async () => {
     const onCreate = vi.fn().mockRejectedValue({ kind: 'Validation', message: 'validation error: slug already exists' })
     const onClose = vi.fn()
-    render(
+    renderWithQuery(
       <ToastProvider>
         <CreateProfileDialog
           open
@@ -161,7 +208,7 @@ describe('CreateProfileDialog', () => {
 describe('CreateProfileDialog — dependency awareness', () => {
   function renderWith(deps: Dependencies) {
     const onCreate = vi.fn().mockResolvedValue(undefined)
-    render(
+    renderWithQuery(
       <ToastProvider>
         <CreateProfileDialog
           open
@@ -212,7 +259,7 @@ describe('CreateProfileDialog — dependency awareness', () => {
 
   it('submits only the available surface when one is missing', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined)
-    render(
+    renderWithQuery(
       <ToastProvider>
         <CreateProfileDialog
           open
@@ -246,7 +293,7 @@ describe('CreateProfileDialog — dependency awareness', () => {
 describe('CreateProfileDialog — app-type picker behaviour', () => {
   it('pre-selects codex and calls onCreate with app: codex when only Codex is installed', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined)
-    render(
+    renderWithQuery(
       <ToastProvider>
         <CreateProfileDialog
           open
@@ -272,7 +319,7 @@ describe('CreateProfileDialog — app-type picker behaviour', () => {
 
   it('blocks submit with both apps installed until the user picks one', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined)
-    render(
+    renderWithQuery(
       <ToastProvider>
         <CreateProfileDialog
           open
@@ -292,7 +339,7 @@ describe('CreateProfileDialog — app-type picker behaviour', () => {
   })
 
   it('renders the Codex GUI install link when Codex is selected and GUI is missing', async () => {
-    render(
+    renderWithQuery(
       <ToastProvider>
         <CreateProfileDialog
           open
@@ -409,7 +456,7 @@ describe('CreateProfileDialog — Dock icon', () => {
         </ToastProvider>
       )
     }
-    render(<Harness />)
+    renderWithQuery(<Harness />)
     const user = userEvent.setup()
     await user.click(dockIconOption())
     const explanation = await screen.findByRole('dialog')

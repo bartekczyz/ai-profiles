@@ -16,6 +16,8 @@ use crate::paths::{
     stock_gui_support_dir,
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
+use crate::remote::hosts::{HostList, RemoteHost};
+use crate::remote::{self, secrets, PairingPreview};
 use crate::sessions::{
     self, ArchiveCheck, ArchiveReport, ArchivedSession, RestoreCheck, RestoreReport,
     SessionSummary, TransferPlan, TransferReport, TransferRequest,
@@ -25,6 +27,10 @@ use crate::usage::{
     codex::CodexQuotaProvider,
     quota::{ClaudeQuotaCache, ClaudeQuotaProvider},
     ProfileUsage,
+};
+use ai_profiles_core::api::{
+    DeletedAccount, DirListing, HostInfo, LaunchResult as RemoteLaunch, LoginStart,
+    NewSessionRequest, RemoteAccount, RemoteSession, WindowKey, WindowScreen,
 };
 
 #[tauri::command]
@@ -332,6 +338,466 @@ pub fn restore_session(
     sessions::restore(&profile_id, &session_id, &archive, quit_app)
 }
 
+/// The remote hosts this Mac is paired with.
+#[tauri::command(async)]
+pub fn remote_list_hosts() -> AppResult<Vec<RemoteHost>> {
+    HostList::default_list()?.load()
+}
+
+/// What a pairing code says, before pairing with it.
+#[tauri::command]
+pub fn remote_preview_pairing(code: String) -> AppResult<PairingPreview> {
+    remote::preview(&code)
+}
+
+/// Pair with the host a code from `ai-profiles-server pair` names.
+#[tauri::command]
+pub async fn remote_pair_host(code: String, label: Option<String>) -> AppResult<RemoteHost> {
+    remote::pair(&HostList::default_list()?, secrets::store(), &code, label).await
+}
+
+#[tauri::command(async)]
+pub fn remote_rename_host(host_id: String, label: String) -> AppResult<RemoteHost> {
+    remote::rename(&HostList::default_list()?, &host_id, &label)
+}
+
+/// Forget a host, telling it so when it can be reached.
+#[tauri::command]
+pub async fn remote_remove_host(host_id: String) -> AppResult<()> {
+    remote::remove(&HostList::default_list()?, secrets::store(), &host_id).await
+}
+
+#[tauri::command]
+pub async fn remote_host_info(host_id: String) -> AppResult<HostInfo> {
+    remote::info(&HostList::default_list()?, secrets::store(), &host_id).await
+}
+
+#[tauri::command]
+pub async fn remote_list_accounts(host_id: String) -> AppResult<Vec<RemoteAccount>> {
+    remote::accounts(&HostList::default_list()?, secrets::store(), &host_id).await
+}
+
+#[tauri::command]
+pub async fn remote_list_sessions(
+    host_id: String,
+    account: String,
+) -> AppResult<Vec<RemoteSession>> {
+    remote::sessions(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_list_dirs(host_id: String, path: Option<String>) -> AppResult<DirListing> {
+    remote::dirs(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        path.as_deref(),
+    )
+    .await
+}
+
+/// Start a Claude session on a remote host, in tmux with Remote Control.
+#[tauri::command]
+pub async fn remote_new_session(
+    host_id: String,
+    account: String,
+    request: NewSessionRequest,
+) -> AppResult<RemoteLaunch> {
+    remote::new_session(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &request,
+    )
+    .await
+}
+
+/// Resume a remote session in tmux, or find the window it's already in.
+#[tauri::command]
+pub async fn remote_resume_session(
+    host_id: String,
+    account: String,
+    session_id: String,
+    trust_folder: bool,
+) -> AppResult<RemoteLaunch> {
+    remote::resume(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &session_id,
+        trust_folder,
+    )
+    .await
+}
+
+/// Rename a remote session: its title, the registry and Remote Control.
+#[tauri::command]
+pub async fn remote_rename_session(
+    host_id: String,
+    account: String,
+    session_id: String,
+    name: String,
+) -> AppResult<ai_profiles_core::api::RenameSessionResult> {
+    remote::rename_session(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &session_id,
+        &name,
+    )
+    .await
+}
+
+/// What moving a remote session to another account on its host would do.
+#[tauri::command]
+pub async fn remote_transfer_plan(
+    host_id: String,
+    account: String,
+    session_id: String,
+    to: String,
+) -> AppResult<ai_profiles_core::api::TransferPlan> {
+    remote::transfer_plan(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &session_id,
+        &to,
+    )
+    .await
+}
+
+/// Move a remote session to another account on its host.
+#[tauri::command]
+pub async fn remote_transfer_session(
+    host_id: String,
+    account: String,
+    session_id: String,
+    request: ai_profiles_core::api::TransferRequest,
+) -> AppResult<ai_profiles_core::api::TransferReport> {
+    remote::transfer(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &session_id,
+        &request,
+    )
+    .await
+}
+
+/// How far a remote move has got; `None` before it starts and once it ends.
+#[tauri::command]
+pub async fn remote_transfer_progress(
+    host_id: String,
+    progress_id: String,
+) -> AppResult<Option<ai_profiles_core::api::MoveProgress>> {
+    remote::transfer_progress(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &progress_id,
+    )
+    .await
+}
+
+/// Ask Claude on the host to merge a memory note a move conflicts on.
+#[tauri::command]
+pub async fn remote_merge_memory(
+    host_id: String,
+    account: String,
+    session_id: String,
+    to: String,
+    path: String,
+) -> AppResult<String> {
+    remote::merge_memory(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &session_id,
+        &ai_profiles_core::api::MemoryMergeRequest { to, path },
+    )
+    .await
+    .map(|result| result.merged)
+}
+
+/// Archive a remote session. Returns where its transcript went.
+#[tauri::command]
+pub async fn remote_archive_session(
+    host_id: String,
+    account: String,
+    session_id: String,
+) -> AppResult<String> {
+    remote::archive(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &session_id,
+    )
+    .await
+    .map(|result| result.archived_to)
+}
+
+/// A remote account's archived sessions.
+#[tauri::command]
+pub async fn remote_archived_sessions(
+    host_id: String,
+    account: String,
+) -> AppResult<Vec<ai_profiles_core::api::ArchivedSession>> {
+    remote::archived(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+    )
+    .await
+}
+
+/// Delete an archived remote session for good. Returns what it freed, in bytes.
+#[tauri::command]
+pub async fn remote_delete_archive(
+    host_id: String,
+    account: String,
+    session_id: String,
+    archive: String,
+) -> AppResult<u64> {
+    remote::delete_archive(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &session_id,
+        &archive,
+    )
+    .await
+    .map(|result| result.freed_bytes)
+}
+
+/// Put an archived remote session back.
+#[tauri::command]
+pub async fn remote_restore_session(
+    host_id: String,
+    account: String,
+    session_id: String,
+    archive: String,
+) -> AppResult<String> {
+    remote::restore(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &session_id,
+        &archive,
+    )
+    .await
+    .map(|result| result.transcript)
+}
+
+/// End a running remote session. `true` if it was running.
+#[tauri::command]
+pub async fn remote_stop_session(
+    host_id: String,
+    account: String,
+    session_id: String,
+) -> AppResult<bool> {
+    remote::stop(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &session_id,
+    )
+    .await
+    .map(|result| result.was_running)
+}
+
+/// Restart a remote session on the host's current `claude`: stop it, then
+/// resume it.
+#[tauri::command]
+pub async fn remote_restart_session(
+    host_id: String,
+    account: String,
+    session_id: String,
+    trust_folder: bool,
+) -> AppResult<RemoteLaunch> {
+    remote::restart(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &session_id,
+        trust_folder,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_window_screen(
+    host_id: String,
+    account: String,
+    window_id: String,
+) -> AppResult<WindowScreen> {
+    remote::window_screen(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &window_id,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_window_keys(
+    host_id: String,
+    account: String,
+    window_id: String,
+    keys: Vec<WindowKey>,
+) -> AppResult<WindowScreen> {
+    remote::window_keys(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &window_id,
+        keys,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_create_account(host_id: String, name: String) -> AppResult<RemoteAccount> {
+    remote::create_account(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &name,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_delete_account(host_id: String, account: String) -> AppResult<DeletedAccount> {
+    remote::delete_account(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+    )
+    .await
+}
+
+/// Open a remote session's Remote Control view in the Claude app signed in
+/// as `email`, or on claude.ai.
+#[tauri::command]
+pub async fn remote_open_in_claude(
+    email: Option<String>,
+    bridge_session_id: String,
+) -> AppResult<remote::open_in_claude::Opened> {
+    tokio::task::spawn_blocking(move || {
+        remote::open_in_claude::open_in_claude(
+            email.as_deref(),
+            &bridge_session_id,
+            env!("CARGO_PKG_VERSION"),
+        )
+    })
+    .await
+    .map_err(|err| AppError::Validation(format!("opening it failed: {err}")))?
+}
+
+/// Rename a remote profile (its account on the host).
+#[tauri::command]
+pub async fn remote_rename_account(
+    host_id: String,
+    account: String,
+    new_name: String,
+    stop_running: bool,
+) -> AppResult<RemoteAccount> {
+    remote::rename_account(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        &new_name,
+        stop_running,
+    )
+    .await
+}
+
+/// Give a remote profile its color.
+#[tauri::command]
+pub fn remote_set_profile_color(
+    host_id: String,
+    account: String,
+    color: String,
+) -> AppResult<RemoteHost> {
+    remote::set_profile_color(&HostList::default_list()?, &host_id, &account, &color)
+}
+
+/// Sign a remote profile out. Returns how many running sessions were stopped.
+#[tauri::command]
+pub async fn remote_logout(host_id: String, account: String, stop_running: bool) -> AppResult<u32> {
+    remote::logout(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        stop_running,
+    )
+    .await
+}
+
+/// Start signing a remote account in, opening its sign-in page in the browser.
+#[tauri::command]
+pub async fn remote_login_start(host_id: String, account: String) -> AppResult<LoginStart> {
+    remote::start_login(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &account,
+        true,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_login_submit(
+    host_id: String,
+    login_id: String,
+    code: String,
+) -> AppResult<RemoteAccount> {
+    remote::submit_login(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &login_id,
+        &code,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_login_cancel(host_id: String, login_id: String) -> AppResult<()> {
+    remote::cancel_login(
+        &HostList::default_list()?,
+        secrets::store(),
+        &host_id,
+        &login_id,
+    )
+    .await
+}
+
 /// Whether profile `id` is signed in, and as whom, read from what its apps
 /// keep on disk.
 #[tauri::command(async)]
@@ -387,6 +853,38 @@ pub fn open_cli_login(id: String) -> AppResult<()> {
         )));
     }
     Ok(())
+}
+
+/// Opens a new Terminal window attached (over ssh) to a remote host's tmux
+/// window. The command is built and checked in Rust
+/// ([`remote::terminal_attach_command`]), never taken as a shell line.
+/// Open a Terminal window attached to a remote tmux window over ssh. Probes
+/// ssh first: refuses, saying what to set up, when Terminal would only show
+/// ssh failing, and returns a hint when Terminal is going to ask something.
+#[tauri::command]
+pub async fn remote_open_in_terminal(
+    host_id: String,
+    attach_command: String,
+) -> AppResult<Option<String>> {
+    let host = HostList::default_list()?.find(&host_id)?;
+    let command = remote::terminal_attach_command(&host, &attach_command)?;
+    // Off the async runtime's threads: the probe can take its full timeout.
+    let hostname = host.hostname.clone();
+    let access = tokio::task::spawn_blocking(move || remote::probe_ssh(&hostname))
+        .await
+        .map_err(|err| AppError::Validation(format!("the ssh check failed: {err}")))?;
+    let hint = remote::ssh_advice(&host.hostname, &access)?;
+    let status = Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(terminal_applescript(&command))
+        .status()
+        .map_err(AppError::Io)?;
+    if !status.success() {
+        return Err(AppError::Validation(format!(
+            "osascript exited with status {status}"
+        )));
+    }
+    Ok(hint)
 }
 
 /// Pure: the interactive CLI command for a profile entry — the per-profile

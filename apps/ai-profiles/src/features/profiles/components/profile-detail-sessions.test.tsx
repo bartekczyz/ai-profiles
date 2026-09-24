@@ -14,6 +14,7 @@ import {
   listProfiles,
   listSessions,
   loadAppState,
+  mergeTransferMemory,
   planSessionTransfer,
   restoreSession,
   transferSession,
@@ -52,6 +53,7 @@ vi.mock('@/lib/commands', async () => {
     restoreSession: vi.fn(),
     deleteArchivedSession: vi.fn(),
     planSessionTransfer: vi.fn(),
+    mergeTransferMemory: vi.fn(),
     transferSession: vi.fn(),
   }
 })
@@ -105,6 +107,8 @@ function plan(overrides: Partial<TransferPlan> = {}): TransferPlan {
     appsToQuit: [],
     notes: ["Connectors come from Personal's own settings."],
     sourceBytes: 2048,
+    archiveBytes: 2048,
+    memory: [],
     ...overrides,
   }
 }
@@ -217,8 +221,7 @@ describe('ProfileDetailSessions', () => {
         '/Users/ada/Library/Application Support/ai-profiles/profiles/work/cli-config/session-transfer-backups/s1/t-archived',
       freedBytes: null,
       deleteError: null,
-      memoryCopied: [],
-      memoryConflicts: ['notes.md'],
+      memory: [],
     })
     renderWithQuery(<ProfileDetailSessions profileId="work" />)
     const { user, dialog } = await openMoveDialog()
@@ -226,7 +229,7 @@ describe('ProfileDetailSessions', () => {
     await user.selectOptions(within(dialog).getByRole('combobox'), 'personal')
     const afterwards = within(dialog).getByRole('group', { name: /The session on Work/ })
     // Archiving stays the default: it can be undone, and says what it keeps.
-    expect(await within(afterwards).findByRole('radio', { name: /Archive it \(2.0 KB\)/ })).toBeChecked()
+    expect(await within(afterwards).findByRole('radio', { name: /Archive it \(up to 2.0 KB\)/ })).toBeChecked()
     expect(within(dialog).queryByRole('checkbox', { name: /desktop app/ })).toBeNull()
     expect(await within(dialog).findByText("Personal's desktop app will list it too.")).toBeInTheDocument()
     await user.click(within(afterwards).getByRole('radio', { name: /Keep it/ }))
@@ -245,11 +248,80 @@ describe('ProfileDetailSessions', () => {
         deleteSource: false,
         replaceNewer: false,
         quitApps: false,
+        memory: {},
       }),
     )
     const done = await screen.findByRole('dialog', { name: 'Session moved' })
     expect(within(done).getByText(/and its desktop app lists it/)).toBeInTheDocument()
-    expect(within(done).getByText(/notes\.md/)).toBeInTheDocument()
+  })
+
+  it('asks what to keep of a memory note both profiles changed, and can have Claude merge it', async () => {
+    vi.mocked(listSessions).mockResolvedValue([session()])
+    vi.mocked(planSessionTransfer).mockResolvedValue(
+      plan({
+        memory: [
+          { path: 'new.md', action: 'add', newer: 'source', sourceText: null, destinationText: null },
+          {
+            path: 'rules.md',
+            action: 'conflict',
+            newer: 'destination',
+            sourceText: "Work's rule",
+            destinationText: "Personal's rule",
+          },
+          { path: 'MEMORY.md', action: 'index', newer: 'source', sourceText: null, destinationText: null },
+        ],
+      }),
+    )
+    let finishMerge: (text: string) => void = () => {}
+    vi.mocked(mergeTransferMemory).mockReturnValue(
+      new Promise((resolve) => {
+        finishMerge = resolve
+      }),
+    )
+    vi.mocked(transferSession).mockResolvedValue({
+      destinationTranscript: '/p/personal/cli-config/projects/-code/s1.jsonl',
+      backupDir: null,
+      desktopRecord: null,
+      archivedTo: null,
+      freedBytes: null,
+      deleteError: null,
+      memory: [],
+    })
+    renderWithQuery(<ProfileDetailSessions profileId="work" />)
+    const { user, dialog } = await openMoveDialog()
+    await user.selectOptions(within(dialog).getByRole('combobox'), 'personal')
+
+    const note = (await within(dialog).findByText('memory/rules.md')).closest('li') as HTMLElement
+    expect(within(note).getByText('Both profiles changed it.')).toBeInTheDocument()
+    expect(within(note).getByRole('button', { name: 'Keep newer (Personal)' })).toHaveAttribute('aria-pressed', 'true')
+    // What needs deciding comes before what happens by itself.
+    expect(
+      note.compareDocumentPosition(within(dialog).getByText(/add\s+memory\/new\.md/)) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    await user.click(within(note).getByRole('button', { name: 'Merge with Claude' }))
+    // While Claude merges, the choice stays put, and says it's the merge.
+    expect(within(note).getByRole('button', { name: "Work's" })).toBeDisabled()
+    expect(within(note).getByRole('button', { name: 'Claude is merging…' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(note).getByRole('button', { name: 'Keep newer (Personal)' })).toHaveAttribute('aria-pressed', 'false')
+    act(() => finishMerge('both rules'))
+    expect(await within(note).findByText('both rules')).toBeInTheDocument()
+    expect(mergeTransferMemory).toHaveBeenCalledWith(expect.objectContaining({ destinationId: 'personal' }), 'rules.md')
+    // Written, it's chosen.
+    expect(within(note).getByRole('button', { name: 'Claude’s merge' })).toHaveAttribute('aria-pressed', 'true')
+    // Choosing another option and coming back uses the same merge.
+    await user.click(within(note).getByRole('button', { name: "Work's" }))
+    await user.click(within(note).getByRole('button', { name: 'Claude’s merge' }))
+    expect(within(note).getByRole('button', { name: 'Claude’s merge' })).toHaveAttribute('aria-pressed', 'true')
+    expect(mergeTransferMemory).toHaveBeenCalledTimes(1)
+    await user.click(within(dialog).getByRole('button', { name: /^Move/ }))
+
+    await waitFor(() =>
+      expect(transferSession).toHaveBeenCalledWith(
+        expect.objectContaining({ memory: { 'rules.md': { take: 'merged', text: 'both rules' } } }),
+      ),
+    )
   })
 
   it('shows each step of the move as it runs', async () => {
@@ -291,8 +363,7 @@ describe('ProfileDetailSessions', () => {
       archivedTo: '/a',
       freedBytes: null,
       deleteError: null,
-      memoryCopied: [],
-      memoryConflicts: [],
+      memory: [],
     })
     expect(await screen.findByRole('dialog', { name: 'Session moved' })).toBeInTheDocument()
   })
@@ -307,8 +378,7 @@ describe('ProfileDetailSessions', () => {
       archivedTo: null,
       freedBytes: 174_063_616,
       deleteError: null,
-      memoryCopied: [],
-      memoryConflicts: [],
+      memory: [],
     })
     renderWithQuery(<ProfileDetailSessions profileId="work" />)
     const { user, dialog } = await openMoveDialog()
@@ -343,8 +413,7 @@ describe('ProfileDetailSessions', () => {
       archivedTo: '/Users/ada/.claude/session-transfer-backups/s1/t-archived',
       freedBytes: null,
       deleteError: null,
-      memoryCopied: [],
-      memoryConflicts: [],
+      memory: [],
     })
     renderWithQuery(<ProfileDetailSessions profileId="work" />)
 
@@ -368,6 +437,7 @@ describe('ProfileDetailSessions', () => {
         deleteSource: false,
         replaceNewer: false,
         quitApps: false,
+        memory: {},
       }),
     )
   })
@@ -384,8 +454,7 @@ describe('ProfileDetailSessions', () => {
       archivedTo: null,
       freedBytes: null,
       deleteError: null,
-      memoryCopied: [],
-      memoryConflicts: [],
+      memory: [],
     })
     renderWithQuery(<ProfileDetailSessions profileId="work" />)
     const { user, dialog } = await openMoveDialog()

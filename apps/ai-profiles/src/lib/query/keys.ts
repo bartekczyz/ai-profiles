@@ -30,6 +30,23 @@ export const queryKeys = {
     restoreCheck: (profileId: string, sessionId: string, archive: string) =>
       ['sessions', 'restore-check', profileId, sessionId, archive] as const,
   },
+  // Remote hosts and what they report. Never persisted (the provider only
+  // dehydrates usage), and outside `profiles` so a local reorder doesn't
+  // refetch a machine across the network.
+  remote: {
+    all: ['remote'] as const,
+    hosts: ['remote', 'hosts'] as const,
+    info: (hostId: string) => ['remote', hostId, 'info'] as const,
+    accounts: (hostId: string) => ['remote', hostId, 'accounts'] as const,
+    sessions: (hostId: string, account: string) => ['remote', hostId, 'accounts', account, 'sessions'] as const,
+    archived: (hostId: string, account: string) => ['remote', hostId, 'accounts', account, 'archived'] as const,
+    transferPlan: (hostId: string, account: string, sessionId: string, to: string) =>
+      ['remote', hostId, 'accounts', account, 'transfer', sessionId, to] as const,
+    dirs: (hostId: string, path: string | null) => ['remote', hostId, 'dirs', path] as const,
+    move: (hostId: string, progressId: string | null) => ['remote', hostId, 'moves', progressId] as const,
+    window: (hostId: string, account: string, windowId: string) =>
+      ['remote', hostId, 'accounts', account, 'windows', windowId] as const,
+  },
   dependencies: ['dependencies'] as const,
   migration: {
     existing: ['migration', 'existing'] as const,

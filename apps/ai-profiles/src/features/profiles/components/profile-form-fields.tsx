@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { AppId, Dependencies, Surfaces } from '@/lib/types'
+import type { AppId, Dependencies, RemoteHost, Surfaces } from '@/lib/types'
 
 import { Check, Info } from 'lucide-react'
 
@@ -12,8 +12,23 @@ import { presetColors } from '@/lib/colors'
 
 import { ColorSwatchPicker } from './color-swatch-picker'
 
+/** The type that makes a profile on a paired server rather than on this Mac. */
+export const remoteType = 'remote'
+
+/** An app on this Mac, a profile on a server, or not chosen yet. */
+export type ProfileType = AppId | typeof remoteType | ''
+
+/**
+ * A name the server takes for a new account folder: letters, digits, `-` and
+ * `_`, starting with a letter or digit, at most 64, and not `default`. Mirrors
+ * `valid_new_name` in the server.
+ */
+export function isValidRemoteProfileName(name: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(name) && name !== 'default'
+}
+
 type Props = {
-  app?: AppId | ''
+  app?: ProfileType
   name: string
   color: string
   surfaces: Surfaces
@@ -25,7 +40,15 @@ type Props = {
   dependencies: Dependencies
   installedApps?: ReadonlyArray<AppId>
   showSlugPreview?: boolean
-  onAppChange?: (app: AppId) => void
+  onAppChange?: (app: Exclude<ProfileType, ''>) => void
+  /** Offers the remote type: the paired servers, and which is chosen. */
+  remote?: {
+    hosts: Array<RemoteHost>
+    hostId: string
+    onHostChange: (hostId: string) => void
+    /** Another profile on that server has the name (ignoring case). */
+    taken?: boolean
+  }
   onNameChange: (name: string) => void
   onColorChange: (color: string) => void
   onSurfacesChange: (next: Surfaces) => void
@@ -80,9 +103,26 @@ export function ProfileFormFields({
   onSurfacesChange,
   onDistinctDockIconChange,
   onExplainDockIcon,
+  remote,
 }: Props) {
+  if (app === remoteType && remote) {
+    return (
+      <RemoteFields
+        name={name}
+        color={color}
+        remote={remote}
+        typeField={
+          onAppChange !== undefined && installedApps !== undefined ? (
+            <TypeField app={app} installedApps={installedApps} remote={remote} onAppChange={onAppChange} />
+          ) : null
+        }
+        onNameChange={onNameChange}
+        onColorChange={onColorChange}
+      />
+    )
+  }
   const slugPreview = name.trim().length > 0 ? slugifyPreview(name) : ''
-  const resolvedApp = app !== '' && app !== undefined ? app : undefined
+  const resolvedApp = app !== '' && app !== undefined && app !== remoteType ? app : undefined
   const spec = resolvedApp !== undefined ? appSpecs[resolvedApp] : null
   const appDeps = resolvedApp !== undefined ? dependencies.apps[resolvedApp] : null
   // The Dock icon belongs to the desktop launcher, so it means nothing without one.
@@ -91,20 +131,7 @@ export function ProfileFormFields({
   return (
     <div className="space-y-4">
       {onAppChange !== undefined && installedApps !== undefined ? (
-        <Field label="Type">
-          <Select value={app ?? ''} onValueChange={(value) => onAppChange(value as AppId)}>
-            <SelectTrigger aria-label="App type" className="w-full">
-              <SelectValue placeholder="Choose an app" />
-            </SelectTrigger>
-            <SelectContent>
-              {appIds.map((id) => (
-                <SelectItem key={id} disabled={!installedApps.includes(id)} value={id}>
-                  {appSpecs[id].displayName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
+        <TypeField app={app} installedApps={installedApps} remote={remote} onAppChange={onAppChange} />
       ) : null}
       <Field htmlFor="profile-name" label="Name">
         <Input
@@ -301,3 +328,114 @@ function ToggleRow({ checked, disabled, title, description, nested = false, info
 }
 
 export { presetColors }
+
+function TypeField({
+  app,
+  installedApps,
+  remote,
+  onAppChange,
+}: {
+  app: ProfileType | undefined
+  installedApps: ReadonlyArray<AppId>
+  remote: Props['remote']
+  onAppChange: (app: Exclude<ProfileType, ''>) => void
+}) {
+  return (
+    <Field label="Type">
+      <Select value={app ?? ''} onValueChange={(value) => onAppChange(value as Exclude<ProfileType, ''>)}>
+        <SelectTrigger aria-label="App type" className="w-full">
+          <SelectValue placeholder="Choose an app" />
+        </SelectTrigger>
+        <SelectContent>
+          {appIds.map((id) => (
+            <SelectItem key={id} disabled={!installedApps.includes(id)} value={id}>
+              {appSpecs[id].displayName}
+            </SelectItem>
+          ))}
+          {remote ? (
+            <SelectItem disabled={remote.hosts.length === 0} value={remoteType}>
+              Claude CLI Remote
+            </SelectItem>
+          ) : null}
+        </SelectContent>
+      </Select>
+    </Field>
+  )
+}
+
+/**
+ * A profile on a paired server: which server, then a name the server can use
+ * as its account folder, and the color it shows in with here. Claude runs on
+ * the server, in tmux, so there are no surfaces on this Mac to pick.
+ */
+function RemoteFields({
+  name,
+  color,
+  remote,
+  typeField,
+  onNameChange,
+  onColorChange,
+}: {
+  name: string
+  color: string
+  remote: NonNullable<Props['remote']>
+  typeField: ReactNode
+  onNameChange: (name: string) => void
+  onColorChange: (color: string) => void
+}) {
+  const host = remote.hosts.find((candidate) => candidate.id === remote.hostId)
+  const trimmed = name.trim()
+  return (
+    <div className="space-y-4">
+      {typeField}
+      <Field label="Server">
+        <Select value={remote.hostId} onValueChange={remote.onHostChange}>
+          <SelectTrigger aria-label="Server" className="w-full">
+            <SelectValue placeholder="Choose a server" />
+          </SelectTrigger>
+          <SelectContent>
+            {remote.hosts.map((candidate) => (
+              <SelectItem key={candidate.id} value={candidate.id}>
+                {candidate.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field htmlFor="profile-name" label="Name">
+        <Input
+          autoFocus
+          id="profile-name"
+          type="text"
+          value={name}
+          onChange={(event) => onNameChange(event.target.value)}
+          placeholder="work"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+        />
+        <p
+          className={cn(
+            'mt-1.5 font-mono text-mono',
+            trimmed && (!isValidRemoteProfileName(trimmed) || remote.taken) ? 'text-red' : 'text-muted-strong',
+          )}
+        >
+          {trimmed === ''
+            ? '\u00A0'
+            : !isValidRemoteProfileName(trimmed)
+              ? 'Letters, digits, - and _, starting with a letter or digit. "default" is taken.'
+              : remote.taken
+                ? `${host?.label ?? 'The server'} already has a profile called ${trimmed}.`
+                : `On ${host?.label ?? 'the server'}: ~/.claude-accounts/${trimmed}`}
+        </p>
+      </Field>
+      <Field label="Color">
+        <ColorSwatchPicker value={color} onChange={onColorChange} />
+      </Field>
+      <p className="text-meta text-muted">
+        After it's made, you sign it in: its sign-in page opens in your browser, and you paste the code back here.
+      </p>
+    </div>
+  )
+}

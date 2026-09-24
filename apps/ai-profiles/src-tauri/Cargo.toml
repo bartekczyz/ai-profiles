@@ -54,6 +54,11 @@ ai-profiles-core = { path = "core", features = ["tls"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
+# The remote-host client is tested against the real server, in-process.
+ai-profiles-server = { path = "server" }
+tokio = { version = "1", features = ["net", "sync", "rt-multi-thread", "io-util"] }
+# A host that takes a request and never answers it.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-process = "2"

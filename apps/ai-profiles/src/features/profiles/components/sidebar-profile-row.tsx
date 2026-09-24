@@ -6,7 +6,10 @@ import { SidebarSurfaceIcons } from './sidebar-surface-icons'
 type Props = {
   name: string
   swatch: ReactNode
-  surfaces: Surfaces
+  /** The desktop and terminal marks. Rows that aren't local profiles omit it. */
+  surfaces?: Surfaces
+  /** Shown in the marks' column instead, e.g. a count of running sessions. */
+  trailing?: ReactNode
   selected: boolean
   /**
    * App mark for the row's leading column, shown only when the sidebar spans
@@ -34,7 +37,16 @@ type Props = {
 const rowClassName =
   'group/row grid w-full transform-gpu grid-cols-[13px_10px_1fr_auto_auto] items-center gap-1.5 rounded-md py-[7px] pr-1.5 pl-2 text-left cursor-pointer transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-white/45 dark:hover:bg-white/[0.04] data-[active=true]:bg-white/72 data-[active=true]:shadow-[0_1px_2px_rgba(40,30,20,0.04),inset_0_0_0_1px_rgba(229,224,210,0.55)] dark:data-[active=true]:bg-white/[0.08] dark:data-[active=true]:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_0_0_1px_rgba(255,255,255,0.05)]'
 
-export function SidebarProfileRow({ name, swatch, surfaces, selected, glyph, shortcutIndex, onSelect }: Props) {
+export function SidebarProfileRow({
+  name,
+  swatch,
+  surfaces,
+  trailing,
+  selected,
+  glyph,
+  shortcutIndex,
+  onSelect,
+}: Props) {
   const hasShortcut = shortcutIndex !== undefined && shortcutIndex < 9
   return (
     <button
@@ -53,7 +65,7 @@ export function SidebarProfileRow({ name, swatch, surfaces, selected, glyph, sho
       </span>
       {swatch}
       <span className="truncate text-[12.5px] font-medium tracking-[-0.005em] text-ink">{name}</span>
-      <SidebarSurfaceIcons surfaces={surfaces} />
+      {surfaces ? <SidebarSurfaceIcons surfaces={surfaces} /> : <span className="flex items-center">{trailing}</span>}
       {hasShortcut ? (
         // Bare label rather than a Kbd chip: at 200px the sidebar cannot spare
         // the chip's padding and border, and profile names are what the column

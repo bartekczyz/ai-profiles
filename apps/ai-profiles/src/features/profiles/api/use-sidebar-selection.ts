@@ -22,13 +22,19 @@ type Result = {
  * Falls back to entries[0] when the persisted id no longer matches any
  * entry (e.g. the user deleted the selected profile, or migration
  * removed the default row).
+ *
+ * `isExtraId` names ids that are valid without being entries — a remote
+ * host's account — so selecting one isn't undone as stale.
  */
-export function useSidebarSelection(entries: Array<SidebarEntry>): Result {
+export function useSidebarSelection(
+  entries: Array<SidebarEntry>,
+  isExtraId: (id: string) => boolean = () => false,
+): Result {
   const appState = useAppState()
   const persisted = appState.state.selectedEntryId
 
   const [selectedId, setSelectedId] = useState<string | null>(() => {
-    if (persisted && entries.some((entry) => entryId(entry) === persisted)) {
+    if (persisted && (entries.some((entry) => entryId(entry) === persisted) || isExtraId(persisted))) {
       return persisted
     }
     return entries.length > 0 ? entryId(entries[0]) : null
@@ -45,11 +51,11 @@ export function useSidebarSelection(entries: Array<SidebarEntry>): Result {
       }
       return
     }
-    const present = entries.some((entry) => entryId(entry) === selectedId)
+    const present = entries.some((entry) => entryId(entry) === selectedId) || isExtraId(selectedId)
     if (!present) {
       setSelectedId(entries.length > 0 ? entryId(entries[0]) : null)
     }
-  }, [entries, selectedId])
+  }, [entries, selectedId, isExtraId])
 
   // Debounced AppState persistence — only fires on user-initiated
   // changes, not the initial restore or effect-driven fallback.

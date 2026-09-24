@@ -40,6 +40,8 @@
   --color-green: #5b8f5a;
   --color-red: #b15a4e;
   --color-amber: #c19a4a;
+  /* Remote Control: a session you can reach from the Claude app. */
+  --color-blue: #3f78c8;
 
   /* ---------- Chrome borders ---------- */
   --color-border: #e5e0d2;
@@ -154,6 +156,7 @@
   --color-green: #7ba876;
   --color-red: #d08372;
   --color-amber: #d4a96b;
+  --color-blue: #6ea3ec;
 
   --color-border: #332e27;
   --color-border-soft: #2a2520;

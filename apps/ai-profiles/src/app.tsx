@@ -3,9 +3,10 @@
 import type { AppId } from '@/lib/app-registry'
 import type { SidebarEntry } from '@/lib/types'
 
-import { Activity, Suspense, useEffect, useRef, useState } from 'react'
+import { Activity, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { useHotkey } from '@tanstack/react-hotkeys'
+import { useQueryClient } from '@tanstack/react-query'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
@@ -31,17 +32,24 @@ import { DefaultProfileDetail } from '@/features/profiles/components/profile-det
 import { ProfileDetailSkeleton } from '@/features/profiles/components/profile-detail-skeleton'
 import { Sidebar } from '@/features/profiles/components/sidebar'
 import { SidebarSkeleton } from '@/features/profiles/components/sidebar-skeleton'
+import { useAdoptRemoteProfiles, useRemoteHosts, useRemoteProfiles } from '@/features/remote/api/use-remote'
+import { RemoteAccountDetail } from '@/features/remote/components/remote-account-detail'
+import { RemoteHostSection } from '@/features/remote/components/remote-host-section'
+import { SignInDialog } from '@/features/remote/components/sign-in-dialog'
+import { parseRemoteSelection, remoteSelectionId } from '@/features/remote/lib/remote-selection'
 import { SettingsView } from '@/features/settings/components/settings-view'
 import { SettingsViewSkeleton } from '@/features/settings/components/settings-view-skeleton'
 import { UpdateToastTrigger } from '@/features/updater/components/update-toast-trigger'
 import { WhatsNewHost } from '@/features/whats-new/components/whats-new-host'
 import { wrapperCommand } from '@/lib/app-registry'
 import { useAppState } from '@/lib/app-state/use-app-state'
+import { remoteCreateAccount, remoteSetProfileColor } from '@/lib/commands'
 import { QueryErrorBoundary } from '@/lib/query/error-boundary'
+import { queryKeys } from '@/lib/query/keys'
 
 type DialogState =
   | { kind: 'none' }
-  | { kind: 'create' }
+  | { kind: 'create'; remoteHostId?: string }
   | { kind: 'edit' }
   | { kind: 'delete' }
   | { kind: 'about' }
@@ -97,7 +105,29 @@ function SelectByIndexHotkey({ index, enabled, onSelect }: SelectByIndexHotkeyPr
 function AppContent() {
   const profiles = useProfiles()
   const entries = useSidebarEntries()
-  const selection = useSidebarSelection(entries)
+  const remoteHosts = useRemoteHosts()
+  // A remote account's id is a valid selection while its host is paired.
+  const isRemoteId = useCallback(
+    (id: string) => {
+      const remote = parseRemoteSelection(id)
+      return remote !== null && remoteHosts.some((host) => host.id === remote.hostId)
+    },
+    [remoteHosts],
+  )
+  const selection = useSidebarSelection(entries, isRemoteId)
+  const queryClient = useQueryClient()
+  const remoteProfiles = useRemoteProfiles(remoteHosts)
+  useAdoptRemoteProfiles(remoteProfiles)
+  // A remote profile just made, being signed in.
+  const [signingIn, setSigningIn] = useState<{ hostId: string; account: string } | null>(null)
+  // ⌘1..⌘9 in sidebar order: this Mac's profiles, then each server's.
+  const shortcutTargets = [
+    ...entries
+      .filter((entry): entry is Extract<SidebarEntry, { kind: 'managed' }> => entry.kind === 'managed')
+      .map((entry) => entry.profile.id),
+    ...remoteProfiles.map((profile) => profile.id),
+  ]
+  const remoteSelected = parseRemoteSelection(selection.selectedId)
   const claudeMigration = useMigration('claude')
   const codexMigration = useMigration('codex')
   const appState = useAppState()
@@ -383,7 +413,7 @@ function AppContent() {
   // The empty-state screen owns the whole window when there are no entries
   // yet — no sidebar, no panes. As soon as the first profile/default entry
   // lands, the sidebar appears and the detail pane takes over.
-  const isEmpty = entries.length === 0
+  const isEmpty = entries.length === 0 && remoteHosts.length === 0
 
   return (
     <div className="relative flex h-full flex-col">
@@ -436,6 +466,21 @@ function AppContent() {
             onReorder={(ids) => {
               void profiles.reorder(ids)
             }}
+            renderExtraSections={(query) =>
+              remoteHosts.map((host) => (
+                <RemoteHostSection
+                  key={host.id}
+                  host={host}
+                  selectedId={selection.selectedId}
+                  query={query}
+                  shortcutIndexFor={(id) => shortcutTargets.indexOf(id)}
+                  onSelect={(id) => {
+                    selection.select(id)
+                    setRightPane({ kind: 'profile' })
+                  }}
+                />
+              ))
+            }
           />
           {/* Activity keeps the off-screen pane mounted so toggling gear ↔ profile
               never re-fetches dependencies/backups or re-runs profile-detail effects.
@@ -463,6 +508,18 @@ function AppContent() {
               </QueryErrorBoundary>
             ) : null}
           </Activity>
+          <Activity mode={rightPane.kind === 'profile' && remoteSelected !== null ? 'visible' : 'hidden'}>
+            {remoteSelected ? (
+              <QueryErrorBoundary>
+                <RemoteAccountDetail
+                  key={selection.selectedId}
+                  hostId={remoteSelected.hostId}
+                  account={remoteSelected.account}
+                  onRenamed={(name) => selection.select(remoteSelectionId(remoteSelected.hostId, name))}
+                />
+              </QueryErrorBoundary>
+            ) : null}
+          </Activity>
           <Activity mode={rightPane.kind === 'settings' ? 'visible' : 'hidden'}>
             <Suspense fallback={<SettingsViewSkeleton />}>
               <QueryErrorBoundary>
@@ -480,7 +537,20 @@ function AppContent() {
       )}
 
       <CreateProfileDialog
+        // Fresh each time it opens, so it starts on the type it was opened for.
+        key={dialog.kind === 'create' ? (dialog.remoteHostId ?? 'local') : 'closed'}
         open={dialog.kind === 'create'}
+        remoteHosts={remoteHosts}
+        initialRemoteHostId={dialog.kind === 'create' ? dialog.remoteHostId : undefined}
+        onCreateRemote={async ({ hostId, name, color }) => {
+          await remoteCreateAccount({ hostId, name })
+          await remoteSetProfileColor({ hostId, account: name, color })
+          await queryClient.invalidateQueries({ queryKey: queryKeys.remote.accounts(hostId) })
+          await queryClient.invalidateQueries({ queryKey: queryKeys.remote.hosts })
+          selection.select(remoteSelectionId(hostId, name))
+          setRightPane({ kind: 'profile' })
+          setSigningIn({ hostId, account: name })
+        }}
         dependencies={dependencies.deps}
         dockIconAcknowledged={appState.state.dockIconAcknowledgedAt !== null}
         submitting={submitting}
@@ -541,23 +611,35 @@ function AppContent() {
         />
       ) : null}
 
-      {/* Mod+1..Mod+9 — one binding per managed profile slot (default row
-          is not numbered). Disabled when any overlay is open to avoid
-          stealing keystrokes from the dialog/palette/migration prompt. */}
-      {entries
-        .filter((entry): entry is Extract<SidebarEntry, { kind: 'managed' }> => entry.kind === 'managed')
-        .slice(0, 9)
-        .map((managedEntry, index) => (
-          <SelectByIndexHotkey
-            key={managedEntry.profile.id}
-            index={index}
-            enabled={!overlayOpen}
-            onSelect={() => {
-              selection.select(managedEntry.profile.id)
-              setRightPane({ kind: 'profile' })
-            }}
-          />
-        ))}
+      {/* Mod+1..Mod+9 — one binding per profile slot: this Mac's managed
+          profiles, then each server's (default rows are not numbered).
+          Disabled when any overlay is open to avoid stealing keystrokes
+          from the dialog/palette/migration prompt. */}
+      {shortcutTargets.slice(0, 9).map((id, index) => (
+        <SelectByIndexHotkey
+          key={id}
+          index={index}
+          enabled={!overlayOpen}
+          onSelect={() => {
+            selection.select(id)
+            setRightPane({ kind: 'profile' })
+          }}
+        />
+      ))}
+      {signingIn
+        ? (() => {
+            const host = remoteHosts.find((candidate) => candidate.id === signingIn.hostId)
+            return host ? (
+              <SignInDialog
+                open
+                host={host}
+                account={signingIn.account}
+                cancelLabel="Skip for now"
+                onClose={() => setSigningIn(null)}
+              />
+            ) : null
+          })()
+        : null}
 
       <CommandPalette
         open={palette.open}

@@ -13,6 +13,7 @@ mod migration;
 mod path_setup;
 mod paths;
 mod profiles;
+mod remote;
 mod sessions;
 mod shared_config;
 mod slug;
@@ -125,6 +126,40 @@ pub fn run() {
             commands::open_default_gui,
             commands::profile_paths,
             commands::profile_account,
+            commands::remote_list_hosts,
+            commands::remote_preview_pairing,
+            commands::remote_pair_host,
+            commands::remote_rename_host,
+            commands::remote_remove_host,
+            commands::remote_host_info,
+            commands::remote_list_accounts,
+            commands::remote_list_sessions,
+            commands::remote_list_dirs,
+            commands::remote_new_session,
+            commands::remote_resume_session,
+            commands::remote_stop_session,
+            commands::remote_restart_session,
+            commands::remote_set_profile_color,
+            commands::remote_logout,
+            commands::remote_rename_account,
+            commands::remote_open_in_claude,
+            commands::remote_rename_session,
+            commands::remote_transfer_plan,
+            commands::remote_transfer_session,
+            commands::remote_merge_memory,
+            commands::remote_transfer_progress,
+            commands::remote_archive_session,
+            commands::remote_archived_sessions,
+            commands::remote_restore_session,
+            commands::remote_delete_archive,
+            commands::remote_open_in_terminal,
+            commands::remote_window_screen,
+            commands::remote_window_keys,
+            commands::remote_create_account,
+            commands::remote_delete_account,
+            commands::remote_login_start,
+            commands::remote_login_submit,
+            commands::remote_login_cancel,
             commands::detect_existing_install,
             commands::detect_existing_sizes,
             commands::import_existing_install,

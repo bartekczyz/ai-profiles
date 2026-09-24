@@ -73,8 +73,9 @@ export function Dialog({
       return
     }
     const target = event.target as HTMLElement | null
-    // Enter in a textarea is a newline, not a submit.
-    if (target?.tagName === 'TEXTAREA') {
+    // Enter in a textarea is a newline, not a submit; one that takes its
+    // keys itself (a terminal) keeps it too.
+    if (target?.tagName === 'TEXTAREA' || target?.closest?.('[data-keeps-escape]')) {
       return
     }
     // preventDefault stops the focused element's default Enter behaviour
@@ -98,6 +99,12 @@ export function Dialog({
         />
         <DialogPrimitive.Content
           onKeyDown={handleKeyDown}
+          onEscapeKeyDown={(event) => {
+            // An element that takes Escape itself (a terminal) keeps it.
+            if ((event.target as HTMLElement | null)?.closest?.('[data-keeps-escape]')) {
+              event.preventDefault()
+            }
+          }}
           onPointerDownOutside={(event) => {
             if (!closeOnOutsideClick) {
               event.preventDefault()

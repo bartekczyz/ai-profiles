@@ -99,6 +99,9 @@ function primeInitialLoads({
     if (command === 'get_app_metadata') {
       return metadata
     }
+    if (command === 'remote_list_hosts') {
+      return []
+    }
     throw new Error(`unexpected command in test: ${command}`)
   })
 }

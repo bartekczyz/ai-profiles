@@ -1,14 +1,16 @@
-import type { AppId, Dependencies, Surfaces } from '@/lib/types'
+import type { AppId, Dependencies, RemoteHost, Surfaces } from '@/lib/types'
 
 import { useState } from 'react'
 
 import { Button, Dialog, Kbd, useToast } from '@/design'
+// cross-feature: a remote profile's name has to be free on its server
+import { useRemoteAccounts } from '@/features/remote/api/use-remote'
 import { appIds, appSpecs } from '@/lib/app-registry'
 import { isValidHexColor, presetColors } from '@/lib/colors'
 import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { DockIconConsentDialog } from './dock-icon-consent-dialog'
-import { ProfileFormFields } from './profile-form-fields'
+import { isValidRemoteProfileName, ProfileFormFields, type ProfileType, remoteType } from './profile-form-fields'
 import { useDockIconConsent } from './use-dock-icon-consent'
 
 type Props = {
@@ -31,6 +33,12 @@ type Props = {
     surfaces: Surfaces
     distinctDockIcon: boolean
   }) => Promise<void>
+  /** Paired servers, where a Claude CLI Remote profile can be made. */
+  remoteHosts?: Array<RemoteHost>
+  /** Open on the remote type, on this server. */
+  initialRemoteHostId?: string
+  /** Make a profile on a server. Resolves once it exists there. */
+  onCreateRemote?: (input: { hostId: string; name: string; color: string }) => Promise<void>
 }
 
 export function CreateProfileDialog({
@@ -41,6 +49,9 @@ export function CreateProfileDialog({
   onClose,
   onAcknowledgeDockIcon,
   onCreate,
+  remoteHosts = [],
+  initialRemoteHostId,
+  onCreateRemote,
 }: Props) {
   const toast = useToast()
   const [name, setName] = useState('')
@@ -53,15 +64,27 @@ export function CreateProfileDialog({
   const installedApps = appIds.filter((id) => dependencies.apps[id].guiInstalled || dependencies.apps[id].cliInstalled)
   // Pre-select when exactly one app is installed; otherwise leave empty so the
   // user makes a deliberate choice.
-  const defaultApp: AppId | '' = installedApps.length === 1 ? installedApps[0] : ''
-  const [app, setApp] = useState<AppId | ''>(defaultApp)
+  const defaultApp: ProfileType =
+    initialRemoteHostId !== undefined ? remoteType : installedApps.length === 1 ? installedApps[0] : ''
+  const [app, setApp] = useState<ProfileType>(defaultApp)
+  const [hostId, setHostId] = useState<string>(initialRemoteHostId ?? remoteHosts[0]?.id ?? '')
+  const remote = app === remoteType
+  // Names on the chosen server, to say before creating that one is taken.
+  const serverProfiles = useRemoteAccounts(hostId, remote && hostId !== '')
+  const takenOnServer =
+    remote && (serverProfiles.data ?? []).some((account) => account.name.toLowerCase() === name.trim().toLowerCase())
 
-  const appDeps = app !== '' ? dependencies.apps[app] : null
+  const appDeps = app !== '' && !remote ? dependencies.apps[app] : null
   const effectiveGui = surfaces.gui && (appDeps?.guiInstalled ?? false)
   const effectiveCli = surfaces.cli && (appDeps?.cliInstalled ?? false)
-  const canSubmit = app !== '' && name.trim().length > 0 && isValidHexColor(color) && (effectiveGui || effectiveCli)
+  const canSubmit = remote
+    ? remoteHosts.some((host) => host.id === hostId) &&
+      isValidRemoteProfileName(name.trim()) &&
+      !takenOnServer &&
+      isValidHexColor(color)
+    : app !== '' && name.trim().length > 0 && isValidHexColor(color) && (effectiveGui || effectiveCli)
 
-  const dockIconByDefault = app !== '' && dockIconAcknowledged && appSpecs[app].dockIcon.defaultOn
+  const dockIconByDefault = app !== '' && !remote && dockIconAcknowledged && appSpecs[app].dockIcon.defaultOn
   const dockIcon = (dockIconChoice ?? dockIconByDefault) && effectiveGui
   const dockIconConsent = useDockIconConsent({
     acknowledged: dockIconAcknowledged,
@@ -71,6 +94,18 @@ export function CreateProfileDialog({
 
   async function handleSubmit() {
     if (!canSubmit || submitting) {
+      return
+    }
+    if (remote) {
+      try {
+        await onCreateRemote?.({ hostId, name: name.trim(), color })
+        setName('')
+        setColor(presetColors[0])
+        setApp(defaultApp)
+        onClose()
+      } catch (caught) {
+        toast.error('Could not create profile.', extractErrorMessage(caught))
+      }
       return
     }
     // canSubmit guarantees app !== '', so cast is safe
@@ -99,7 +134,11 @@ export function CreateProfileDialog({
       <Dialog
         open={open}
         title="New profile"
-        description="A profile bundles a Desktop launcher and a CLI wrapper. Pick a name and color; everything else stays isolated."
+        description={
+          remote
+            ? 'A profile on a server: Claude runs there, in tmux, with Remote Control, signed in as its own account.'
+            : 'A profile bundles a Desktop launcher and a CLI wrapper. Pick a name and color; everything else stays isolated.'
+        }
         closeOnOutsideClick={false}
         onClose={onClose}
         onSubmit={handleSubmit}
@@ -129,6 +168,9 @@ export function CreateProfileDialog({
           dependencies={dependencies}
           installedApps={installedApps}
           onAppChange={setApp}
+          remote={
+            onCreateRemote ? { hosts: remoteHosts, hostId, onHostChange: setHostId, taken: takenOnServer } : undefined
+          }
           onNameChange={setName}
           onColorChange={setColor}
           onSurfacesChange={setSurfaces}
@@ -138,7 +180,7 @@ export function CreateProfileDialog({
       </Dialog>
       {/* A sibling rather than a child, so keys pressed in it are not taken for
           keys pressed in the form underneath. */}
-      {app !== '' ? (
+      {app !== '' && app !== remoteType ? (
         <DockIconConsentDialog
           open={dockIconConsent.open}
           app={app}

@@ -80,6 +80,15 @@ describe('useSidebarSelection', () => {
     expect(result.current.selectedId).toBe('default:claude')
   })
 
+  it('keeps a selected remote account instead of falling back', async () => {
+    const isRemote = (id: string) => id === 'remote:h1:marcus2'
+    const { result } = renderHook(() => useSidebarSelection([defaultClaudeEntry(), managed('managed-1')], isRemote))
+    act(() => result.current.select('remote:h1:marcus2'))
+    expect(result.current.selectedId).toBe('remote:h1:marcus2')
+    act(() => result.current.select('remote:gone:x'))
+    expect(result.current.selectedId).toBe('default:claude')
+  })
+
   it('returns null when there are no entries', () => {
     const { result } = renderHook(() => useSidebarSelection([]))
     expect(result.current.selectedId).toBeNull()

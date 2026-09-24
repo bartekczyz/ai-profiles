@@ -1,4 +1,4 @@
-import type { Ref } from 'react'
+import type { ReactNode, Ref } from 'react'
 import type { SidebarEntry } from '@/lib/types'
 import type { SidebarGroup } from '../api/use-sidebar-entries'
 
@@ -62,9 +62,24 @@ type Props = {
    * when omitted, the rows render but drag-to-reorder is disabled.
    */
   onReorder?: (ids: Array<string>) => void
+  /**
+   * Sections after the local ones (remote hosts), given the search text so
+   * they filter with it. Each renders its own `<section>`, so it gets the
+   * same hairline separator as the app groups.
+   */
+  renderExtraSections?: (query: string) => ReactNode
 }
 
-export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreate, onSettings, onReorder }: Props) {
+export function Sidebar({
+  entries,
+  selectedId,
+  searchInputRef,
+  onSelect,
+  onCreate,
+  onSettings,
+  onReorder,
+  renderExtraSections,
+}: Props) {
   const [query, setQuery] = useState('')
 
   const groups = groupEntriesByApp(entries)
@@ -102,6 +117,7 @@ export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreat
             onReorder={onReorder}
           />
         ))}
+        {renderExtraSections?.(query)}
       </div>
       <footer className="mt-2 flex items-center gap-2 border-t border-border pt-2.5">
         <Button
