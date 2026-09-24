@@ -317,6 +317,19 @@ describe('SessionsPanel', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('says why archiving is held back in the words of the session’s app', async () => {
+    mockSessions([makeSession({ id: 'busy', title: 'Busy', state: 'openInTerminal' })])
+    renderWithQuery(
+      <ToastProvider>
+        <SessionsPanel profileId="default:codex" app="codex" />
+      </ToastProvider>,
+    )
+    await screen.findByRole('list', { name: 'Sessions' })
+
+    const archive = within(row('Busy')).getByRole('button', { name: 'Archive' })
+    expect(archive).toHaveAccessibleDescription('Codex has it open — close it first')
+  })
+
   it('moves a session to another profile of the app picked from its row', async () => {
     mockSessions(mixed)
     const { user } = await renderPanel()

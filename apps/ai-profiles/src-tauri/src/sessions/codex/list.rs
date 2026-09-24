@@ -840,7 +840,7 @@ mod tests {
                     archived: false,
                     state: SessionState::OpenInTerminal,
                     needs_repair: false,
-                    unmovable_reason: Some("Close it in the terminal first".to_string()),
+                    unmovable_reason: Some("Codex has it open — close it first".to_string()),
                 },
                 Session {
                     id: CLI.to_string(),

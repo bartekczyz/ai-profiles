@@ -30,6 +30,10 @@ const IN_SCRATCH_FOLDER: &str = "Lives in the desktop app's scratch folder";
 /// Why a session open in a terminal can't move, or be archived.
 pub(super) const OPEN_IN_TERMINAL: &str = "Close it in the terminal first";
 
+/// Why a Codex session some process has open can't be written: a terminal,
+/// an IDE, or another app-server may hold it, which can't be told apart.
+pub(super) const CODEX_HAS_IT_OPEN: &str = "Codex has it open — close it first";
+
 /// Where a session was started.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -275,7 +279,8 @@ fn archived_session(home: &Home, bundle: ArchivedBundle) -> Session {
 }
 
 /// Why a session of `home` in `state`, working in `cwd`, can't be moved, if
-/// it can't: lasting reasons before one the user can clear.
+/// it can't: lasting reasons before one the user can clear. An open Codex
+/// session may be held by more than a terminal, and says so.
 pub(super) fn unmovable_reason(
     home: &Home,
     state: SessionState,
@@ -285,7 +290,10 @@ pub(super) fn unmovable_reason(
     let reason = match state {
         SessionState::TranscriptMissing => TRANSCRIPT_DELETED,
         _ if in_scratch => IN_SCRATCH_FOLDER,
-        SessionState::OpenInTerminal => OPEN_IN_TERMINAL,
+        SessionState::OpenInTerminal => match home.app {
+            AppKind::Claude => OPEN_IN_TERMINAL,
+            AppKind::Codex => CODEX_HAS_IT_OPEN,
+        },
         SessionState::Idle | SessionState::OpenInDesktop => return None,
     };
     Some(reason.to_string())

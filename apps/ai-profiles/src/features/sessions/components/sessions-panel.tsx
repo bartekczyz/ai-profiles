@@ -138,6 +138,7 @@ export function SessionsPanel({ profileId, app }: Props) {
       unavailableMessage={unavailableMessage}
       tabTotal={inTab.length}
       sessions={visible}
+      app={app}
       moveTargets={moveTargets}
       emptyTitle={tab === 'active' ? 'No sessions yet' : 'No archived sessions'}
       emptyHint={

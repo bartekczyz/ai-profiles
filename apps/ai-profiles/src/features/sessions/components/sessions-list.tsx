@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { Session, SessionAction } from '@/lib/types'
+import type { AppId, Session, SessionAction } from '@/lib/types'
 import type { MoveTarget } from './move-session-dialog'
 import type { SessionRowAction } from './session-row-actions'
 
@@ -36,6 +36,10 @@ type Props = {
    * The rows to show, filtered and ordered.
    */
   sessions: Array<Session>
+  /**
+   * The app the sessions are of.
+   */
+  app: AppId
   /**
    * The other profiles of the app a session can be moved to.
    */
@@ -74,6 +78,10 @@ type RowActionsInput = {
    * The session the row shows.
    */
   session: Session
+  /**
+   * The app the session is of.
+   */
+  app: AppId
   /**
    * The other profiles of the app a session can be moved to.
    */
@@ -137,6 +145,7 @@ export function SessionsList({
   unavailableMessage,
   tabTotal,
   sessions,
+  app,
   moveTargets,
   emptyTitle,
   emptyHint,
@@ -182,7 +191,7 @@ export function SessionsList({
         <SessionRow
           key={session.id}
           session={session}
-          actions={sessionRowActions({ session, moveTargets, onAction, onMove })}
+          actions={sessionRowActions({ session, app, moveTargets, onAction, onMove })}
         />
       ))}
     </ul>
@@ -193,8 +202,8 @@ export function SessionsList({
  * The actions `session`'s row offers: Move, when the session can go to
  * another profile, then Archive or Restore.
  */
-function sessionRowActions({ session, moveTargets, onAction, onMove }: RowActionsInput): Array<SessionRowAction> {
-  const actions: Array<SessionRowAction> = rowActions(session).map((item) => ({
+function sessionRowActions({ session, app, moveTargets, onAction, onMove }: RowActionsInput): Array<SessionRowAction> {
+  const actions: Array<SessionRowAction> = rowActions(session, app).map((item) => ({
     id: item.action,
     label: actionLabels[item.action],
     disabledReason: item.disabledReason,

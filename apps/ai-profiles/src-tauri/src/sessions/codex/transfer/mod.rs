@@ -14,8 +14,7 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 
 use super::actions::{
-    apply_with, check_thread, held_lock, is_archived, ps_output, read_thread, resolve_error,
-    Target, CODEX_HAS_IT_OPEN,
+    apply_with, check_thread, held_lock, is_archived, ps_output, read_thread, resolve_error, Target,
 };
 use super::list::Thread;
 use crate::app_kind::AppKind;
@@ -24,6 +23,7 @@ use crate::error::{AppError, AppResult};
 use crate::sessions::actions::{blocking, AppToQuit, SessionAction};
 use crate::sessions::fs_ops::{move_new, occupied, place_new};
 use crate::sessions::instance::{desktop_pid, running_again};
+use crate::sessions::list::CODEX_HAS_IT_OPEN;
 use crate::sessions::move_plan::{DesktopAction, ItemAction, MovePlan, MoveReport, PlannedItem};
 use crate::sessions::Home;
 

@@ -28,11 +28,8 @@ use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
 use crate::sessions::actions::{blocking, ActionCheck, AppToQuit, Checked, SessionAction};
 use crate::sessions::instance::{desktop_pid, running_again};
+use crate::sessions::list::CODEX_HAS_IT_OPEN;
 use crate::sessions::Home;
-
-/// Why a Codex session some process has open can't be written: a terminal,
-/// an IDE, or another app-server may hold it, which can't be told apart.
-pub(super) const CODEX_HAS_IT_OPEN: &str = "Codex has it open — close it first";
 
 /// Why a Codex session can't be archived again.
 const ALREADY_ARCHIVED: &str = "It's already archived";
