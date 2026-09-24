@@ -212,10 +212,47 @@ describe('SessionsPanel', () => {
     expectRows(['Old parser work'])
   })
 
-  it('names an untitled session by its fallback', async () => {
-    mockSessions([makeSession({ id: 'x', title: null, cwd: '/Users/ada/Developer/app' })])
-    await renderPanel()
-    expectRows(['Untitled session'])
+  it('finds an untitled session by its folder and acts on it', async () => {
+    mockSessions([makeSession({ id: 'x', title: null, cwd: '/Users/ada/Developer/app' }), ...mixed])
+    const { user } = await renderPanel()
+    await user.type(screen.getByRole('searchbox'), 'Developer/app')
+    expect(rows()).toHaveLength(1)
+    const [untitled] = rows()
+
+    await user.click(within(untitled).getByRole('button', { name: 'Archive' }))
+    await screen.findByRole('dialog')
+    expect(checkSessionAction).toHaveBeenCalledWith('p1', 'x', 'archive')
+  })
+
+  it('shows neither rows nor counts until the first listing lands', async () => {
+    let land: (list: SessionList) => void = () => {}
+    vi.mocked(listSessions).mockReturnValue(
+      new Promise((resolve) => {
+        land = resolve
+      }),
+    )
+    renderWithQuery(<SessionsPanel profileId="p1" app="claude" />)
+
+    expect(screen.getByRole('tab', { name: 'Active' })).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Sessions' })).toBeNull()
+    expect(screen.queryByText('No sessions yet')).toBeNull()
+
+    await act(async () => land({ sessions: mixed, repairCount: 0 }))
+    expect(await screen.findByRole('tab', { name: 'Active 3' })).toBeInTheDocument()
+    expectRows(['Refactor the parser', 'Plan the launch', 'Fix the build'])
+  })
+
+  it('says so when the profile has no sessions yet, on either tab', async () => {
+    mockSessions([])
+    const user = userEvent.setup()
+    renderWithQuery(<SessionsPanel profileId="p1" app="claude" />)
+
+    expect(await screen.findByText('No sessions yet')).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Sessions' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull()
+
+    await user.click(screen.getByRole('tab', { name: /Archived/ }))
+    expect(screen.getByText('No archived sessions')).toBeInTheDocument()
   })
 
   it('retries a failed listing once, then shows the error inline and refetches on Retry', async () => {
