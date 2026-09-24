@@ -11,6 +11,7 @@ import { archiveSession, checkSessionAction, restoreSession } from '@/lib/comman
 import { queryKeys } from '@/lib/query/keys'
 import { makeRetryingClient, renderWithQuery } from '@/test/render-with-query'
 
+import { makeSession } from '../test/make-session'
 import { ConfirmSessionActionDialog } from './confirm-session-action-dialog'
 
 vi.mock('@/lib/commands', () => ({
@@ -20,22 +21,10 @@ vi.mock('@/lib/commands', () => ({
 }))
 
 /**
- * A session with every optional field empty, overridden per case.
+ * The desktop session each case acts on, overridden per case.
  */
-function makeSession(overrides: Partial<Session> = {}): Session {
-  return {
-    id: 's1',
-    kind: 'desktop',
-    title: 'Fix the login bug',
-    cwd: null,
-    lastPrompt: null,
-    lastUsedAt: '2026-09-01T10:00:00Z',
-    archived: false,
-    state: 'idle',
-    needsRepair: false,
-    unmovableReason: null,
-    ...overrides,
-  }
+function loginBugSession(overrides: Partial<Session> = {}): Session {
+  return makeSession({ kind: 'desktop', title: 'Fix the login bug', ...overrides })
 }
 
 /**
@@ -75,7 +64,7 @@ beforeEach(() => {
 describe('ConfirmSessionActionDialog', () => {
   it('offers no way to go ahead while something only the user can clear stands in the way', async () => {
     mockCheck({ blocker: 'Close it in the terminal first' })
-    const { user, onClose } = await renderDialog(makeSession())
+    const { user, onClose } = await renderDialog(loginBugSession())
     expect(await screen.findByText('Close it in the terminal first')).toBeInTheDocument()
     expect(screen.getAllByRole('button').filter((button) => !button.hasAttribute('disabled'))).toHaveLength(1)
     await user.keyboard('{Enter}')
@@ -86,14 +75,14 @@ describe('ConfirmSessionActionDialog', () => {
 
   it('quits the desktop app in the way when the user confirms', async () => {
     mockCheck({ appToQuit: { homeId: 'p1', label: 'Claude (Work)' } })
-    const { user } = await renderDialog(makeSession())
+    const { user } = await renderDialog(loginBugSession())
     await user.click(await screen.findByRole('button', { name: /Claude \(Work\)/ }))
     expect(archiveSession).toHaveBeenCalledWith('p1', 's1', true)
   })
 
   it('goes ahead without quitting anything when nothing is in the way', async () => {
     mockCheck({})
-    const { user } = await renderDialog(makeSession({ archived: true }), 'restore')
+    const { user } = await renderDialog(loginBugSession({ archived: true }), 'restore')
     await waitFor(() => expect(screen.getByRole('button', { name: /^Restore/ })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: /^Restore/ }))
     expect(restoreSession).toHaveBeenCalledWith('p1', 's1', false)
@@ -101,7 +90,7 @@ describe('ConfirmSessionActionDialog', () => {
 
   it('closes and refreshes the session lists once the action is done', async () => {
     mockCheck({})
-    const { user, onClose, client } = await renderDialog(makeSession())
+    const { user, onClose, client } = await renderDialog(loginBugSession())
     const invalidate = vi.spyOn(client, 'invalidateQueries')
     await waitFor(() => expect(screen.getByRole('button', { name: /^Archive/ })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: /^Archive/ }))
@@ -112,7 +101,7 @@ describe('ConfirmSessionActionDialog', () => {
   it('stays open and says why when the action fails', async () => {
     mockCheck({ appToQuit: { homeId: 'p1', label: 'Claude (Work)' } })
     vi.mocked(archiveSession).mockRejectedValue({ kind: 'Validation', message: 'Claude (Work) didn’t quit' })
-    const { user, onClose } = await renderDialog(makeSession())
+    const { user, onClose } = await renderDialog(loginBugSession())
     await user.click(await screen.findByRole('button', { name: /Claude \(Work\)/ }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Claude (Work) didn’t quit')
     expect(onClose).not.toHaveBeenCalled()
@@ -123,7 +112,7 @@ describe('ConfirmSessionActionDialog', () => {
       kind: 'NotInstalled',
       message: 'Install the Codex CLI to archive or restore this session',
     })
-    await renderDialog(makeSession(), 'archive', makeRetryingClient())
+    await renderDialog(loginBugSession(), 'archive', makeRetryingClient())
     expect(await screen.findByText('Install the Codex CLI to archive or restore this session')).toBeInTheDocument()
     expect(checkSessionAction).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('alert')).toBeNull()

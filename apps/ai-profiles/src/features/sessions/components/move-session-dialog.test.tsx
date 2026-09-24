@@ -10,6 +10,7 @@ import { moveSession, planSessionMove } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 import { makeRetryingClient, renderWithQuery } from '@/test/render-with-query'
 
+import { makeSession } from '../test/make-session'
 import { MoveSessionDialog } from './move-session-dialog'
 
 vi.mock('@/lib/commands', () => ({
@@ -18,22 +19,10 @@ vi.mock('@/lib/commands', () => ({
 }))
 
 /**
- * A session with every optional field empty, overridden per case.
+ * The desktop session each case acts on, overridden per case.
  */
-function makeSession(overrides: Partial<Session> = {}): Session {
-  return {
-    id: 's1',
-    kind: 'desktop',
-    title: 'Fix the login bug',
-    cwd: null,
-    lastPrompt: null,
-    lastUsedAt: '2026-09-01T10:00:00Z',
-    archived: false,
-    state: 'idle',
-    needsRepair: false,
-    unmovableReason: null,
-    ...overrides,
-  }
+function loginBugSession(overrides: Partial<Session> = {}): Session {
+  return makeSession({ kind: 'desktop', title: 'Fix the login bug', ...overrides })
 }
 
 /**
@@ -62,7 +51,7 @@ async function renderDialog(client?: QueryClient) {
     <ToastProvider>
       <MoveSessionDialog
         profileId="work"
-        session={makeSession()}
+        session={loginBugSession()}
         destination={{ id: 'personal', label: 'Personal' }}
         onClose={onClose}
       />

@@ -9,6 +9,7 @@ import { useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
 import { archiveSession, checkSessionAction, listSessions, moveSession, planSessionMove } from '@/lib/commands'
 import { makeRetryingClient, renderWithQuery } from '@/test/render-with-query'
 
+import { makeSession } from '../test/make-session'
 import { SessionsPanel } from './sessions-panel'
 
 vi.mock('@/lib/commands', () => ({
@@ -65,25 +66,6 @@ const sidebarEntries: Array<SidebarEntry> = [
   managedEntry('p2', 'Personal', 'claude'),
   managedEntry('p3', 'Chat', 'codex'),
 ]
-
-/**
- * A session with every optional field empty, overridden per case.
- */
-function makeSession(overrides: Partial<Session> = {}): Session {
-  return {
-    id: 's1',
-    kind: 'cli',
-    title: null,
-    cwd: null,
-    lastPrompt: null,
-    lastUsedAt: '2026-09-01T10:00:00Z',
-    archived: false,
-    state: 'idle',
-    needsRepair: false,
-    unmovableReason: null,
-    ...overrides,
-  }
-}
 
 /**
  * Makes the next listing resolve with `sessions`.
