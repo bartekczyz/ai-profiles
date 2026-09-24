@@ -230,6 +230,10 @@ pub async fn plan_move(
     destination_id: &str,
 ) -> AppResult<MovePlan> {
     let (source, destination, homes) = move_homes(profile_id, destination_id)?;
+    if source.app == AppKind::Codex {
+        let prepared = codex::transfer::plan(&source, &destination, session_id).await?;
+        return Ok(prepared.plan);
+    }
     let session_id = session_id.to_string();
     let prepared = blocking(move || {
         transfer::plan(&source, &destination, &homes, &session_id, &process_list()?)
@@ -275,14 +279,9 @@ struct MoveRequest {
 }
 
 /// The homes of a move from profile `profile_id` to `destination_id`, with
-/// every home of the app. Only Claude sessions move so far.
+/// every home of the app.
 fn move_homes(profile_id: &str, destination_id: &str) -> AppResult<(Home, Home, Vec<Home>)> {
     let source = home_for(profile_id)?;
-    if source.app != AppKind::Claude {
-        return Err(AppError::Validation(
-            "Only Claude sessions can be moved".to_string(),
-        ));
-    }
     let destination = home_for(destination_id)?;
     let homes = homes_of(source.app)?;
     Ok((source, destination, homes))
@@ -295,6 +294,9 @@ async fn run_move(
     quit_apps: bool,
     quit_timeout: Duration,
 ) -> AppResult<MoveReport> {
+    if request.source.app == AppKind::Codex {
+        return run_codex_move(request, quit_apps, quit_timeout).await;
+    }
     let homes = request.homes.clone();
     run_checked(
         quit_apps,
@@ -318,6 +320,32 @@ async fn run_move(
         },
         |apps| quit_all(apps, homes, quit_timeout),
         |prepared: Prepared| blocking(move || transfer::execute(prepared, Utc::now())),
+    )
+    .await
+}
+
+/// [`run_move`] for a Codex session. The plan keeps both homes' app-servers
+/// up, so the move goes through the ones the last plan checked with.
+async fn run_codex_move(
+    request: MoveRequest,
+    quit_apps: bool,
+    quit_timeout: Duration,
+) -> AppResult<MoveReport> {
+    let homes = request.homes.clone();
+    run_checked(
+        quit_apps,
+        || async {
+            let prepared =
+                codex::transfer::plan(&request.source, &request.destination, &request.session_id)
+                    .await?;
+            let check = MoveGate::of(&prepared.plan, &request.destination, request.replace_newer);
+            Ok(Checked {
+                check,
+                target: prepared,
+            })
+        },
+        |apps| quit_all(apps, homes, quit_timeout),
+        codex::transfer::execute,
     )
     .await
 }

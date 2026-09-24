@@ -20,7 +20,7 @@ use super::ownership::owned_by;
 use super::transcript::bundle_paths;
 use crate::error::{AppError, AppResult};
 use crate::sessions::actions::{ActionCheck, AppToQuit, Checked, SessionAction};
-use crate::sessions::instance::{desktop_label, desktop_pid, running_desktop_pid};
+use crate::sessions::instance::{desktop_pid, running_again, running_desktop_pid};
 use crate::sessions::list::{home_scans, live_anywhere, transcript_title, OPEN_IN_TERMINAL};
 use crate::sessions::Home;
 
@@ -143,10 +143,7 @@ pub fn apply(home: &Home, target: Target, action: SessionAction) -> AppResult<()
     match target {
         Target::Record(record) => {
             if running_desktop_pid(home)?.is_some() {
-                return Err(AppError::Validation(format!(
-                    "{} is running again — quit it and try again",
-                    desktop_label(home)
-                )));
+                return Err(running_again(home));
             }
             set_archived(&record, action == SessionAction::Archive)
         }

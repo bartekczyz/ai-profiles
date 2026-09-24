@@ -326,7 +326,7 @@ pub(super) fn move_all(
 }
 
 /// Something is at `path`: a file, a folder or a link, even a dangling one.
-pub(super) fn occupied(path: &Path) -> bool {
+pub(in crate::sessions) fn occupied(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
 }
 

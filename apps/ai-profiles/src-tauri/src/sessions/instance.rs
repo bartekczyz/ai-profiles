@@ -91,6 +91,15 @@ pub fn quit_desktop(home: &Home, timeout: Duration) -> AppResult<()> {
     }
 }
 
+/// The error an action is refused with when `home`'s desktop app runs again
+/// after it was quit, or checked for, and before anything was written.
+pub fn running_again(home: &Home) -> AppError {
+    AppError::Validation(format!(
+        "{} is running again — quit it and try again",
+        desktop_label(home)
+    ))
+}
+
 /// How `home`'s desktop app instance is named to the user: `Claude (Work)`.
 pub fn desktop_label(home: &Home) -> String {
     format!("{} ({})", home.app.spec().display_name, home.label)

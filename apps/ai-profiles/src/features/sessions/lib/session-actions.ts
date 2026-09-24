@@ -1,4 +1,3 @@
-import type { AppId } from '@/lib/app-registry'
 import type { Session, SessionAction } from '@/lib/types'
 
 /**
@@ -47,13 +46,13 @@ export type MoveAvailability = {
 }
 
 /**
- * Whether `session`'s row, in a profile of `app` with `targetCount` other
- * profiles of the app to move to, offers Move: only active Claude sessions,
- * when there is somewhere to go. A session that can't move keeps the action,
- * held back with the reason. `null` when the row offers no Move at all.
+ * Whether `session`'s row, with `targetCount` other profiles of its app to
+ * move to, offers Move: active sessions of either app, when there is somewhere
+ * to go. A session that can't move keeps the action, held back with the
+ * reason. `null` when the row offers no Move at all.
  */
-export function moveAvailability(session: Session, app: AppId, targetCount: number): MoveAvailability | null {
-  if (session.archived || app !== 'claude' || targetCount === 0) {
+export function moveAvailability(session: Session, targetCount: number): MoveAvailability | null {
+  if (session.archived || targetCount === 0) {
     return null
   }
   if (session.unmovableReason !== null) {

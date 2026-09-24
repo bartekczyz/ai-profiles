@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import type { AppId } from '@/lib/app-registry'
 import type { Session, SessionAction } from '@/lib/types'
 import type { MoveTarget } from './move-session-dialog'
 import type { SessionRowAction } from './session-row-actions'
@@ -32,10 +31,6 @@ type Props = {
    * The rows to show, filtered and ordered.
    */
   sessions: Array<Session>
-  /**
-   * The app the profile runs.
-   */
-  app: AppId
   /**
    * The other profiles of the app a session can be moved to.
    */
@@ -74,10 +69,6 @@ type RowActionsInput = {
    * The session the row shows.
    */
   session: Session
-  /**
-   * The app the profile runs.
-   */
-  app: AppId
   /**
    * The other profiles of the app a session can be moved to.
    */
@@ -135,7 +126,6 @@ export function SessionsList({
   errorMessage,
   tabTotal,
   sessions,
-  app,
   moveTargets,
   emptyTitle,
   emptyHint,
@@ -174,7 +164,7 @@ export function SessionsList({
         <SessionRow
           key={session.id}
           session={session}
-          actions={sessionRowActions({ session, app, moveTargets, onAction, onMove })}
+          actions={sessionRowActions({ session, moveTargets, onAction, onMove })}
         />
       ))}
     </ul>
@@ -185,14 +175,14 @@ export function SessionsList({
  * The actions `session`'s row offers: Move, when the session can go to
  * another profile, then Archive or Restore.
  */
-function sessionRowActions({ session, app, moveTargets, onAction, onMove }: RowActionsInput): Array<SessionRowAction> {
+function sessionRowActions({ session, moveTargets, onAction, onMove }: RowActionsInput): Array<SessionRowAction> {
   const actions: Array<SessionRowAction> = rowActions(session).map((item) => ({
     id: item.action,
     label: actionLabels[item.action],
     disabledReason: item.disabledReason,
     onSelect: () => onAction(session, item.action),
   }))
-  const move = moveAvailability(session, app, moveTargets.length)
+  const move = moveAvailability(session, moveTargets.length)
   if (move === null) {
     return actions
   }

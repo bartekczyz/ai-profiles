@@ -45,19 +45,18 @@ describe('rowActions', () => {
 })
 
 describe('moveAvailability', () => {
-  it('offers moving an active Claude session when there is another profile to move it to', () => {
-    expect(moveAvailability(makeSession(), 'claude', 1)).toEqual({})
+  it('offers moving an active session when there is another profile to move it to', () => {
+    expect(moveAvailability(makeSession(), 1)).toEqual({})
   })
 
   it('holds moving back with the reason the session can’t move', () => {
-    expect(moveAvailability(makeSession({ unmovableReason: 'Transcript deleted' }), 'claude', 2)).toEqual({
+    expect(moveAvailability(makeSession({ unmovableReason: 'Transcript deleted' }), 2)).toEqual({
       disabledReason: 'Transcript deleted',
     })
   })
 
-  it('offers no move for an archived session, a Codex session, or with nowhere to go', () => {
-    expect(moveAvailability(makeSession({ archived: true }), 'claude', 1)).toBeNull()
-    expect(moveAvailability(makeSession(), 'codex', 1)).toBeNull()
-    expect(moveAvailability(makeSession(), 'claude', 0)).toBeNull()
+  it('offers no move for an archived session, or with nowhere to go', () => {
+    expect(moveAvailability(makeSession({ archived: true }), 1)).toBeNull()
+    expect(moveAvailability(makeSession(), 0)).toBeNull()
   })
 })

@@ -48,6 +48,38 @@ pub fn place(from: &Path, destination: &Path, relative: &Path, backup: &Path) ->
     finish(&temp, destination, relative, backup)
 }
 
+/// Put a copy of the file `from` at `target`, which must be free: nothing
+/// there is ever replaced, even something that shows up while copying. The
+/// copy is built under a temporary name beside `target` and moved into place
+/// with [`move_new`], keeping its modification time; the temporary copy is
+/// removed again when that fails.
+pub fn place_new(from: &Path, target: &Path) -> AppResult<()> {
+    let taken = || AppError::Validation(format!("{} is taken", target.display()));
+    // Refusing up front saves copying a file only to throw it away.
+    if occupied(target) {
+        return Err(taken());
+    }
+    let temp = stage(target, |temp| copy_tree(from, temp))?;
+    if let Err(error) = move_new(&temp, target) {
+        remove_temp(&temp);
+        if error.kind() == io::ErrorKind::AlreadyExists {
+            return Err(taken());
+        }
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+/// Move the file at `from` to `to`, in the same folder tree, only if `to` is
+/// free. A rename would replace whatever is at `to`, so the file is linked
+/// there instead, which fails with [`io::ErrorKind::AlreadyExists`] when
+/// something is; only then is `from` unlinked. The file itself, its contents
+/// and modification time included, is the same one throughout.
+pub fn move_new(from: &Path, to: &Path) -> io::Result<()> {
+    fs::hard_link(from, to)?;
+    fs::remove_file(from)
+}
+
 /// Replace the file at `relative` under `destination` with `contents`, moving
 /// the one there to `relative` under `backup` first.
 pub fn write_replacing(
@@ -285,6 +317,57 @@ mod tests {
         assert_eq!(names(&projects), ["s.jsonl"]);
         assert_eq!(fs::read_to_string(projects.join("s.jsonl")).unwrap(), "old");
         assert!(!backup.exists());
+    }
+
+    #[test]
+    fn a_new_copy_keeps_its_date_and_never_replaces_what_is_there() {
+        let root = tempdir().unwrap();
+        let from = root.path().join("from.jsonl");
+        let target = root.path().join("to/archived/s.jsonl");
+        let written = SystemTime::UNIX_EPOCH + Duration::from_secs(1_780_000_000);
+        write(&from, "new");
+        File::options()
+            .write(true)
+            .open(&from)
+            .unwrap()
+            .set_modified(written)
+            .unwrap();
+
+        place_new(&from, &target).unwrap();
+        write(&from, "newer");
+        let again = place_new(&from, &target);
+
+        assert!(again.is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new");
+        assert_eq!(fs::metadata(&target).unwrap().modified().unwrap(), written);
+        assert_eq!(names(&root.path().join("to/archived")), ["s.jsonl"]);
+    }
+
+    #[test]
+    fn moving_a_file_onto_one_that_appeared_meanwhile_replaces_nothing() {
+        let root = tempdir().unwrap();
+        let from = root.path().join(".s.jsonl.ai-profiles-tmp");
+        let to = root.path().join("s.jsonl");
+        write(&from, "new");
+        write(&to, "theirs");
+
+        let moved = move_new(&from, &to);
+
+        assert_eq!(moved.unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&to).unwrap(), "theirs");
+        assert_eq!(fs::read_to_string(&from).unwrap(), "new");
+    }
+
+    #[test]
+    fn a_moved_file_is_only_at_its_new_place() {
+        let root = tempdir().unwrap();
+        let from = root.path().join("a/s.jsonl");
+        let to = root.path().join("a/s.jsonl.failed");
+        write(&from, "new");
+
+        move_new(&from, &to).unwrap();
+
+        assert_eq!(names(&root.path().join("a")), ["s.jsonl.failed"]);
     }
 
     #[test]

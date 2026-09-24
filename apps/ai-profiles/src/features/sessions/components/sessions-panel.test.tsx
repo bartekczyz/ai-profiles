@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ToastProvider } from '@/design'
 import { useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
-import { archiveSession, checkSessionAction, listSessions, planSessionMove } from '@/lib/commands'
+import { archiveSession, checkSessionAction, listSessions, moveSession, planSessionMove } from '@/lib/commands'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import { SessionsPanel } from './sessions-panel'
@@ -242,7 +242,6 @@ describe('SessionsPanel', () => {
       </ToastProvider>,
     )
     await screen.findByRole('list', { name: 'Sessions' })
-    expect(within(row('Fix the flaky test')).queryByRole('button', { name: 'Move' })).toBeNull()
 
     await user.click(within(row('Fix the flaky test')).getByRole('button', { name: 'Archive' }))
 
@@ -277,6 +276,38 @@ describe('SessionsPanel', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Personal' }))
     await screen.findByRole('dialog', { name: /Plan the launch/ })
     expect(planSessionMove).toHaveBeenCalledWith('p1', 'b', 'p2')
+  })
+
+  it('moves a Codex session to another Codex profile picked from its row', async () => {
+    mockSessions([makeSession({ id: 'c1', title: 'Fix the flaky test' })])
+    vi.mocked(planSessionMove).mockResolvedValue({
+      summary: 'Moves 1 file from Codex to Chat',
+      items: [{ path: 'sessions/2026/09/01/rollout-c1.jsonl', action: 'copy' }],
+      destinationNewer: false,
+      desktop: 'noDesktop',
+      blockers: [],
+      appsToQuit: [],
+      notes: [],
+    })
+    vi.mocked(moveSession).mockReset().mockResolvedValue({ memoryConflicts: [] })
+    const user = userEvent.setup()
+    renderWithQuery(
+      <ToastProvider>
+        <SessionsPanel profileId="default:codex" app="codex" />
+      </ToastProvider>,
+    )
+    await screen.findByRole('list', { name: 'Sessions' })
+
+    await user.click(within(row('Fix the flaky test')).getByRole('button', { name: 'Move' }))
+    const targets = (await screen.findAllByRole('menuitem')).map((item) => item.textContent)
+    expect(targets).toEqual(['Chat'])
+    await user.click(screen.getByRole('menuitem', { name: 'Chat' }))
+    const dialog = await screen.findByRole('dialog', { name: /Fix the flaky test/ })
+    expect(planSessionMove).toHaveBeenCalledWith('default:codex', 'c1', 'p3')
+    await user.click(await within(dialog).findByRole('button', { name: /^Move/ }))
+
+    expect(moveSession).toHaveBeenCalledWith('default:codex', 'c1', 'p3', false, false)
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
   it('holds moving back with the reason the session can’t move', async () => {

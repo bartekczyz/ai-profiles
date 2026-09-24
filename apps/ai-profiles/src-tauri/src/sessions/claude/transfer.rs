@@ -30,7 +30,7 @@ use super::transcript::{bundle_paths, summarize, TranscriptSummary};
 use crate::app_kind::AppKind;
 use crate::error::{AppError, AppResult};
 use crate::sessions::actions::{AppToQuit, SessionAction};
-use crate::sessions::instance::{desktop_label, desktop_pid, running_desktop_pid};
+use crate::sessions::instance::{desktop_pid, running_again, running_desktop_pid};
 use crate::sessions::list::{home_scans, live_anywhere, unmovable_reason, SessionState};
 use crate::sessions::Home;
 
@@ -337,10 +337,7 @@ fn carry_out(prepared: Prepared, backup: &Path) -> AppResult<MoveReport> {
 /// Refuse to write `destination`'s files while its desktop app runs.
 fn refuse_running(destination: &Home) -> AppResult<()> {
     if running_desktop_pid(destination)?.is_some() {
-        return Err(AppError::Validation(format!(
-            "{} is running again — quit it and try again",
-            desktop_label(destination)
-        )));
+        return Err(running_again(destination));
     }
     Ok(())
 }

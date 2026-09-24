@@ -83,7 +83,7 @@ const tabTriggerClasses = 'flex-none px-0.5 pb-1 text-[13px] tracking-[-0.005em]
  * and only the rows scroll; stacked, it grows with its rows and the pane
  * scrolls as a whole.
  *
- * A Claude session's row offers Move, a menu of the app's other profiles
+ * An active session's row offers Move, a menu of the app's other profiles
  * (Default included); picking one asks to confirm the move.
  *
  * The kind filter only exists while the open tab mixes both kinds. When it
@@ -123,7 +123,6 @@ export function SessionsPanel({ profileId, app }: Props) {
       errorMessage={errorMessage}
       tabTotal={inTab.length}
       sessions={visible}
-      app={app}
       moveTargets={moveTargets}
       emptyTitle={tab === 'active' ? 'No sessions yet' : 'No archived sessions'}
       emptyHint={
