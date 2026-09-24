@@ -154,6 +154,12 @@ export type AppState = {
   dockIconAcknowledgedAt: string | null
   /** Names the user gave the stock-install entries. Absent key → stock label. */
   defaultProfileNames: Partial<Record<AppId, string>>
+  /**
+   * The sessions the user said not now to repairing, by profile id: the ones
+   * that needed repair when the offer was dismissed. It stays away until a
+   * session not among them needs repair.
+   */
+  dismissedRepairSessions: Record<string, Array<string>>
 }
 
 export type AppStatePatch = {
@@ -173,6 +179,11 @@ export type AppStatePatch = {
    * Renames one app's stock-install entry. An empty name restores the stock label.
    */
   defaultProfileName?: { app: AppId; name: string }
+  /**
+   * Sets the sessions a profile's repair offer was dismissed for. An empty
+   * list forgets the dismissal.
+   */
+  dismissedRepair?: { profileId: string; sessionIds: Array<string> }
 }
 
 /**

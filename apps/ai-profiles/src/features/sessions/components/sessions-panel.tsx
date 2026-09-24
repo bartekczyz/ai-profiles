@@ -3,7 +3,7 @@ import type { Session, SessionAction } from '@/lib/types'
 import type { KindFilter, SessionsTab, SortDirection } from '../lib/session-filters'
 import type { MoveTarget } from './move-session-dialog'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/design/ui/tabs'
 import { appFromEntry, entryId, useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
@@ -194,12 +194,16 @@ export function SessionsPanel({ profileId, app }: Props) {
           controls are the same list either way, filtered by the tab. Keyed
           by the tab, so switching starts it afresh as separate tabs would. */}
       <TabsContent key={tab} value={tab} className={tabContentClasses}>
+        {/* Its own boundary: the banner waits on the app state for what was
+            dismissed, and the rows shouldn't wait with it. */}
         {tab === 'active' ? (
-          <RepairBanner
-            profileId={profileId}
-            profileLabel={profileLabel}
-            repairCount={sessionsQuery.data?.repairCount ?? 0}
-          />
+          <Suspense fallback={null}>
+            <RepairBanner
+              profileId={profileId}
+              profileLabel={profileLabel}
+              repairSessionIds={sessions.filter((session) => session.needsRepair).map((session) => session.id)}
+            />
+          </Suspense>
         ) : null}
         {refreshFailed ? <RefreshFailedNote retrying={sessionsQuery.isFetching} onRetry={retry} /> : null}
         <SessionsList

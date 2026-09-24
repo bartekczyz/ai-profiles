@@ -6,7 +6,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ToastProvider } from '@/design'
 import { useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
-import { archiveSession, checkSessionAction, listSessions, moveSession, planSessionMove } from '@/lib/commands'
+import {
+  archiveSession,
+  checkSessionAction,
+  listSessions,
+  loadAppState,
+  moveSession,
+  planSessionMove,
+} from '@/lib/commands'
 import { makeRetryingClient, renderWithQuery } from '@/test/render-with-query'
 
 import { makeSession } from '../test/make-session'
@@ -17,10 +24,12 @@ vi.mock('@/lib/commands', () => ({
   checkSessionAction: vi.fn(),
   checkSessionRepair: vi.fn(),
   listSessions: vi.fn(),
+  loadAppState: vi.fn(),
   moveSession: vi.fn(),
   planSessionMove: vi.fn(),
   repairSessions: vi.fn(),
   restoreSession: vi.fn(),
+  updateAppState: vi.fn(),
 }))
 
 vi.mock('@/features/profiles/api/use-sidebar-entries', async (importOriginal) => ({
@@ -113,6 +122,16 @@ const mixed = [
 ]
 
 beforeEach(() => {
+  vi.mocked(loadAppState).mockResolvedValue({
+    welcomeShown: true,
+    migrationDismissedAt: null,
+    pathBannerDismissedAt: null,
+    themeMode: 'system',
+    selectedEntryId: null,
+    dockIconAcknowledgedAt: null,
+    defaultProfileNames: {},
+    dismissedRepairSessions: {},
+  })
   vi.mocked(listSessions).mockReset()
   vi.mocked(archiveSession).mockReset().mockResolvedValue(undefined)
   vi.mocked(checkSessionAction).mockReset().mockResolvedValue({ blocker: null, appToQuit: null })
@@ -146,7 +165,7 @@ describe('SessionsPanel', () => {
       repairCount: 1,
     })
     const { user } = await renderPanel()
-    expect(screen.getByText(/1 session needs fixing/)).toBeInTheDocument()
+    expect(await screen.findByText(/1 session needs fixing/)).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: /Archived/ }))
     expect(screen.queryByText(/needs fixing/)).toBeNull()
   })

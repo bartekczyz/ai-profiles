@@ -81,7 +81,11 @@ pub fn update_profile(id: String, patch: ProfilePatch) -> AppResult<Profile> {
 
 #[tauri::command]
 pub fn delete_profile(id: String, move_to_trash: bool) -> AppResult<()> {
-    profiles::delete(&id, move_to_trash)
+    profiles::delete(&id, move_to_trash)?;
+    // The profile is gone either way: a dismissal left behind for it is only
+    // a stale key, not worth failing the delete over.
+    let _ = app_state::forget_profile(&id);
+    Ok(())
 }
 
 /// Refuse to replace or remove a profile's wrapper while the profile is running
