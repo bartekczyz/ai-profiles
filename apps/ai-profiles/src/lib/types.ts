@@ -484,4 +484,9 @@ export type RepairReport = {
    * kept.
    */
   memoryConflicts: Array<string>
+  /**
+   * What the repair did that it didn't mean to, such as a copy it left
+   * behind, for the user to tidy.
+   */
+  warnings: Array<string>
 }

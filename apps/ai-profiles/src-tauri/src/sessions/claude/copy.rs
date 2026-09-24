@@ -63,14 +63,22 @@ pub fn place_new(from: &Path, target: &Path) -> AppResult<()> {
         return Err(taken());
     }
     let temp = stage(target, |temp| copy_tree(from, temp))?;
-    if let Err(error) = move_new(&temp, target) {
-        remove_temp(&temp);
-        if error.kind() == io::ErrorKind::AlreadyExists {
-            return Err(taken());
+    match move_new(&temp, target) {
+        Ok(None) => Ok(()),
+        // The copy is in place; the temporary name left beside it is ours,
+        // and is cleared by the next copy there if not now.
+        Ok(Some(left)) => {
+            remove_temp(&left);
+            Ok(())
         }
-        return Err(error.into());
+        Err(error) => {
+            remove_temp(&temp);
+            if error.kind() == io::ErrorKind::AlreadyExists {
+                return Err(taken());
+            }
+            Err(error.into())
+        }
     }
-    Ok(())
 }
 
 /// Move the file at `from` to `to`, in the same folder tree, only if `to` is
@@ -78,9 +86,25 @@ pub fn place_new(from: &Path, target: &Path) -> AppResult<()> {
 /// there instead, which fails with [`io::ErrorKind::AlreadyExists`] when
 /// something is; only then is `from` unlinked. The file itself, its contents
 /// and modification time included, is the same one throughout.
-pub fn move_new(from: &Path, to: &Path) -> io::Result<()> {
+///
+/// Once linked, the file is at `to` whatever happens next, so a `from` that
+/// can't be unlinked is no failure: it is returned instead, for the caller to
+/// say a copy was left there.
+pub fn move_new(from: &Path, to: &Path) -> io::Result<Option<PathBuf>> {
+    move_new_with(from, to, |from| fs::remove_file(from))
+}
+
+/// [`move_new`], unlinking `from` with `unlink`.
+fn move_new_with(
+    from: &Path,
+    to: &Path,
+    unlink: impl FnOnce(&Path) -> io::Result<()>,
+) -> io::Result<Option<PathBuf>> {
     fs::hard_link(from, to)?;
-    fs::remove_file(from)
+    match unlink(from) {
+        Ok(()) => Ok(None),
+        Err(_) => Ok(Some(from.to_path_buf())),
+    }
 }
 
 /// Replace the file at `relative` under `destination` with `contents`, moving
@@ -449,6 +473,20 @@ mod tests {
         assert_eq!(moved.unwrap_err().kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(fs::read_to_string(&to).unwrap(), "theirs");
         assert_eq!(fs::read_to_string(&from).unwrap(), "new");
+    }
+
+    #[test]
+    fn a_moved_file_that_cant_be_unlinked_is_placed_and_its_copy_named() {
+        let root = tempdir().unwrap();
+        let from = root.path().join("a/s.jsonl");
+        let to = root.path().join("a/s.jsonl.failed");
+        write(&from, "new");
+
+        let moved = move_new_with(&from, &to, |_| Err(io::ErrorKind::PermissionDenied.into()));
+
+        assert_eq!(moved.unwrap(), Some(from.clone()));
+        assert_eq!(fs::read_to_string(&to).unwrap(), "new");
+        assert!(from.exists());
     }
 
     #[test]

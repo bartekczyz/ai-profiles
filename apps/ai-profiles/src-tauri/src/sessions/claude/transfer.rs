@@ -811,27 +811,12 @@ mod tests {
     use crate::sessions::claude::desktop::read_records;
     use crate::sessions::claude::ownership::owned_by;
     use crate::sessions::list::home_scans;
-    use crate::test_support::{fake_wrapper_process, tree};
+    use crate::test_support::{fake_wrapper_process, opened_claude_home as home, read_value, tree};
 
     const WORK_ACCOUNT: &str = "1a19a582-d7b1-4f72-acef-cbe78c1a68e4";
     const WORK_ORG: &str = "18d53058-434e-4c78-9624-e290f7a80ccb";
     const PERSONAL_ACCOUNT: &str = "a99c6b36-dd42-44d7-b3ae-9496265549fd";
     const PERSONAL_ORG: &str = "527aadd2-01c3-49a6-a770-e65e047242c3";
-
-    /// A managed Claude home named `name`, under `root`, whose desktop app
-    /// has been opened.
-    fn home(root: &Path, name: &str) -> Home {
-        let home = Home {
-            id: name.to_lowercase(),
-            app: AppKind::Claude,
-            label: name.to_string(),
-            config_dir: root.join(name).join("cli-config"),
-            gui_data_dir: root.join(name).join("gui-data"),
-            stock: false,
-        };
-        fs::create_dir_all(&home.gui_data_dir).unwrap();
-        home
-    }
 
     /// Write `contents` to `path`, making its folder.
     fn write(path: &Path, contents: &str) {
@@ -852,11 +837,6 @@ mod tests {
     /// When the file at `path` was last written.
     fn modified(path: &Path) -> SystemTime {
         fs::metadata(path).unwrap().modified().unwrap()
-    }
-
-    /// The JSON file at `path`.
-    fn read_value(path: &Path) -> Value {
-        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
     }
 
     /// When a transcript's last record was written, in the tests.
@@ -1508,7 +1488,7 @@ mod tests {
             .iter()
             .map(|held| (held.summary.session_id.as_str(), held.home_id.as_str()))
             .collect();
-        assert_eq!(lineage, [("s", "work"), ("earlier", "work")]);
+        assert_eq!(lineage, [("s", "Work"), ("earlier", "Work")]);
         assert!(restored.record.is_some_and(|record| !record.archived));
     }
 

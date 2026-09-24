@@ -7,11 +7,17 @@ import { repairToast } from './repair-toast'
 /**
  * A report of `repaired` sessions and the reasons others were skipped for.
  */
-function report(repaired: number, reasons: Array<string> = [], memoryConflicts: Array<string> = []): RepairReport {
+function report(
+  repaired: number,
+  reasons: Array<string> = [],
+  memoryConflicts: Array<string> = [],
+  warnings: Array<string> = [],
+): RepairReport {
   return {
     repaired,
     skipped: reasons.map((reason, index) => ({ id: `s${index}`, reason })),
     memoryConflicts,
+    warnings,
   }
 }
 
@@ -42,6 +48,12 @@ describe('repairToast', () => {
   it('names the memory the profile kept its own of', () => {
     expect(repairToast(report(2, [], ['deploy.md', 'style.md']), 'Personal').description).toBe(
       '2 repaired · 0 skipped. Personal kept its own memory of deploy.md, style.md',
+    )
+  })
+
+  it('names what a repair left behind', () => {
+    expect(repairToast(report(1, [], [], ['Left a copy at /Users/me/.claude/a.jsonl']), 'Personal').description).toBe(
+      '1 repaired · 0 skipped. Left a copy at /Users/me/.claude/a.jsonl',
     )
   })
 

@@ -58,6 +58,9 @@ pub struct RepairReport {
     /// The memory files both folders have, differently; the profile's own
     /// were kept.
     pub memory_conflicts: Vec<String>,
+    /// What the repair did that it didn't mean to, such as a copy it left
+    /// behind, for the user to tidy.
+    pub warnings: Vec<String>,
 }
 
 /// One transcript to move into the repaired home's config dir.
@@ -197,7 +200,21 @@ pub fn check(home: &Home, homes: &[Home], ps_output: &str) -> AppResult<Checked<
 /// each session moves: a process that has a session open registers it, so
 /// only a session something registered has the running processes listed.
 pub fn apply(prepared: PreparedRepair, at: DateTime<Utc>) -> AppResult<RepairReport> {
-    apply_with(prepared, at, &mut move_exclusive, &mut process_list)
+    let mut left = Vec::new();
+    let mut report = apply_with(
+        prepared,
+        at,
+        &mut |from, to| {
+            left.extend(move_exclusive(from, to)?);
+            Ok(())
+        },
+        &mut process_list,
+    )?;
+    report.warnings.extend(
+        left.iter()
+            .map(|copy| format!("Left a copy at {}", copy.display())),
+    );
+    Ok(report)
 }
 
 /// [`apply`], moving each file or folder with `rename` and listing the
@@ -245,6 +262,7 @@ fn apply_with(
         repaired,
         skipped,
         memory_conflicts,
+        warnings: Vec::new(),
     })
 }
 
@@ -744,12 +762,13 @@ fn stays(item: &Path, error: &AppError, config_dir: &Path) -> String {
 
 /// Move `from` to `to`, which must be free: a file with [`move_new`], which
 /// never replaces one that showed up since, anything else with a rename. Both
-/// fail across volumes.
-fn move_exclusive(from: &Path, to: &Path) -> io::Result<()> {
+/// fail across volumes. Returns where a copy of a file was left too, if its
+/// old place couldn't be unlinked.
+fn move_exclusive(from: &Path, to: &Path) -> io::Result<Option<PathBuf>> {
     if fs::symlink_metadata(from)?.is_file() {
         return move_new(from, to);
     }
-    fs::rename(from, to)
+    fs::rename(from, to).map(|()| None)
 }
 
 /// Why a session's repair failed with `error`, saying where what it set
@@ -767,7 +786,7 @@ fn failure(error: &AppError, backup: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+
     use std::fs::{self, File};
     use std::time::{Duration, SystemTime};
 
@@ -775,13 +794,13 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::app_kind::AppKind;
+
     use crate::error::AppError;
     use crate::sessions::actions::{AppToQuit, SessionAction};
     use crate::sessions::claude::archive_store::archived_bundles;
     use crate::sessions::claude::{archive, transfer};
     use crate::sessions::list::claude_sessions;
-    use crate::test_support::fake_wrapper_process;
+    use crate::test_support::{fake_wrapper_process, opened_claude_home as home, tree};
 
     const ACCOUNT: &str = "a99c6b36-dd42-44d7-b3ae-9496265549fd";
     const ORG: &str = "527aadd2-01c3-49a6-a770-e65e047242c3";
@@ -791,21 +810,6 @@ mod tests {
 
     /// When the tests repair.
     const AT: &str = "2026-09-24T08:15:00Z";
-
-    /// A Claude home named `name`, under `root`, whose desktop app has been
-    /// opened.
-    fn home(root: &Path, name: &str) -> Home {
-        let home = Home {
-            id: name.to_lowercase(),
-            app: AppKind::Claude,
-            label: name.to_string(),
-            config_dir: root.join(name).join("cli-config"),
-            gui_data_dir: root.join(name).join("gui-data"),
-            stock: false,
-        };
-        fs::create_dir_all(&home.gui_data_dir).unwrap();
-        home
-    }
 
     /// Write `contents` to `path`, making its folder, dated [`WRITTEN`].
     fn write(path: &Path, contents: &str) {
@@ -871,23 +875,6 @@ mod tests {
     /// Writes `home`'s desktop record `local_<uuid>` of `fields`.
     fn record(home: &Home, uuid: &str, fields: Value) {
         write(&record_path(home, uuid), &fields.to_string());
-    }
-
-    /// Every file under `root`, with its contents.
-    fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
-        let mut files = BTreeMap::new();
-        let mut pending = vec![root.to_path_buf()];
-        while let Some(dir) = pending.pop() {
-            for entry in fs::read_dir(&dir).unwrap().flatten() {
-                let path = entry.path();
-                if entry.file_type().unwrap().is_dir() {
-                    pending.push(path);
-                } else {
-                    files.insert(path.clone(), fs::read(&path).unwrap());
-                }
-            }
-        }
-        files
     }
 
     /// Checks the repair of `home`'s sessions, then carries it out.
@@ -1083,7 +1070,7 @@ mod tests {
                 if from.ends_with("now.jsonl") || back {
                     return Err(io::ErrorKind::PermissionDenied.into());
                 }
-                move_exclusive(from, to)
+                move_exclusive(from, to).map(drop)
             },
             &mut || Ok(String::new()),
         )
@@ -1123,7 +1110,7 @@ mod tests {
         let report = apply_with(
             checked.target,
             AT.parse().unwrap(),
-            &mut move_exclusive,
+            &mut |from, to| move_exclusive(from, to).map(drop),
             &mut || {
                 listed += 1;
                 Ok(String::new())
@@ -1467,7 +1454,7 @@ mod tests {
                 if from.ends_with("now.jsonl") {
                     return Err(io::ErrorKind::PermissionDenied.into());
                 }
-                move_exclusive(from, to)
+                move_exclusive(from, to).map(drop)
             },
             &mut || Ok(String::new()),
         )
@@ -1527,7 +1514,7 @@ mod tests {
         let report = apply_with(
             checked.target,
             AT.parse().unwrap(),
-            &mut move_exclusive,
+            &mut |from, to| move_exclusive(from, to).map(drop),
             &mut || Ok("  4100 claude\n".to_string()),
         )
         .unwrap();
@@ -1578,6 +1565,7 @@ mod tests {
                 reason: "Close it in the terminal first".to_string(),
             }],
             memory_conflicts: vec!["deploy.md".to_string()],
+            warnings: vec!["Left a copy at /a.jsonl".to_string()],
         };
 
         assert_eq!(
@@ -1586,6 +1574,7 @@ mod tests {
                 "repaired": 2,
                 "skipped": [{ "id": "s", "reason": "Close it in the terminal first" }],
                 "memoryConflicts": ["deploy.md"],
+                "warnings": ["Left a copy at /a.jsonl"],
             })
         );
     }

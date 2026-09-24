@@ -28,7 +28,13 @@ function mockCheck(check: Partial<ActionCheck>) {
  * Makes the next repair resolve with `report`.
  */
 function mockRepair(report: Partial<RepairReport>) {
-  vi.mocked(repairSessions).mockResolvedValue({ repaired: 0, skipped: [], memoryConflicts: [], ...report })
+  vi.mocked(repairSessions).mockResolvedValue({
+    repaired: 0,
+    skipped: [],
+    memoryConflicts: [],
+    warnings: [],
+    ...report,
+  })
 }
 
 /**

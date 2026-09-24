@@ -496,6 +496,7 @@ mod tests {
 
     use super::*;
     use crate::app_kind::AppKind;
+    use crate::test_support::read_value;
 
     const ACCOUNT: &str = "1a19a582-d7b1-4f72-acef-cbe78c1a68e4";
     const ORG: &str = "18d53058-434e-4c78-9624-e290f7a80ccb";
@@ -787,11 +788,6 @@ mod tests {
         );
     }
 
-    /// The record at `path`, as JSON.
-    fn read_value(path: &Path) -> Value {
-        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
-    }
-
     /// The names of the files in `dir`, sorted.
     fn file_names(dir: &Path) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(dir)
@@ -843,6 +839,26 @@ mod tests {
         assert_eq!(
             file_names(&dir),
             [ARCHIVED_INDEX.to_string(), "local_aaa.json".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_rewritten_record_keeps_the_order_of_its_fields() {
+        let root = tempdir().unwrap();
+        let dir = org_dir(root.path(), ACCOUNT, ORG);
+        let path = dir.join("local_aaa.json");
+        fs::write(
+            &path,
+            r#"{"sessionId":"local_aaa","model":"m","cliSessionId":"s","isArchived":false}"#,
+        )
+        .unwrap();
+        let record = read_records(root.path()).remove(0);
+
+        set_archived(&record, true).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            r#"{"sessionId":"local_aaa","model":"m","cliSessionId":"s","isArchived":true}"#
         );
     }
 

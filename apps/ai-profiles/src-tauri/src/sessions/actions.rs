@@ -503,16 +503,15 @@ fn refuse_blocked(check: &impl Gate) -> AppResult<()> {
 mod tests {
     use std::cell::RefCell;
     use std::fs;
-    use std::path::Path;
-    use std::process::{Child, ChildStdin};
-    use std::thread::{self, JoinHandle};
 
-    use serde_json::{json, Value};
+    use serde_json::json;
     use tempfile::tempdir;
 
     use super::*;
     use crate::sessions::instance::running_desktop_pid;
-    use crate::test_support::{fake_wrapper_process, stubborn_wrapper_process};
+    use crate::test_support::{
+        claude_home, fake_wrapper_process, read_value, reaped, stubborn_wrapper_process,
+    };
 
     /// A check that finds `target`, blocked by `blocker`, with `app` in the
     /// way.
@@ -681,18 +680,6 @@ mod tests {
         );
     }
 
-    /// A managed Claude home named `name`, under `root`.
-    fn claude_home(root: &Path, name: &str) -> Home {
-        Home {
-            id: name.to_string(),
-            app: AppKind::Claude,
-            label: name.to_string(),
-            config_dir: root.join(name).join("cli-config"),
-            gui_data_dir: root.join(name).join("gui-data"),
-            stock: false,
-        }
-    }
-
     /// Gives `home` a desktop session `s`: a transcript and a record of it.
     /// Returns the record's path.
     fn desktop_session(home: &Home) -> std::path::PathBuf {
@@ -719,18 +706,6 @@ mod tests {
         )
         .unwrap();
         record
-    }
-
-    /// The record at `path`, as JSON.
-    fn read_value(path: &Path) -> Value {
-        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
-    }
-
-    /// Reap `child` on another thread once it exits, as launchd reaps a real
-    /// app, keeping its stdin open, as the stand-in exits when that closes.
-    fn reaped(mut child: Child) -> (JoinHandle<bool>, Option<ChildStdin>) {
-        let stdin = child.stdin.take();
-        (thread::spawn(move || child.wait().is_ok()), stdin)
     }
 
     #[tokio::test]

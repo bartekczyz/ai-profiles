@@ -107,14 +107,15 @@ pub fn desktop_label(home: &Home) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
-    use std::process::Child;
+    use std::path::PathBuf;
 
     use tempfile::tempdir;
 
     use super::*;
     use crate::app_kind::AppKind;
-    use crate::test_support::{fake_wrapper_process, stubborn_wrapper_process};
+    use crate::test_support::{
+        claude_home, fake_wrapper_process, reaped, stubborn_wrapper_process,
+    };
 
     const STOCK_DIR: &str = "/Users/me/Library/Application Support/Codex";
     const PROFILE_DIR: &str =
@@ -186,28 +187,6 @@ mod tests {
         );
 
         assert_eq!(desktop_pid(&home(STOCK_DIR, true), &ps_output), None);
-    }
-
-    /// A managed Claude home whose desktop app keeps its data in
-    /// `<root>/<name>/gui-data`.
-    fn claude_home(root: &Path, name: &str) -> Home {
-        Home {
-            id: name.to_string(),
-            app: AppKind::Claude,
-            label: name.to_string(),
-            config_dir: root.join(name).join("cli-config"),
-            gui_data_dir: root.join(name).join("gui-data"),
-            stock: false,
-        }
-    }
-
-    /// Reap `child` on another thread once it exits, as launchd reaps a real
-    /// app, so it leaves the process list. Its stdin is kept open, as the
-    /// stand-in exits when that closes.
-    fn reaped(mut child: Child) -> (thread::JoinHandle<bool>, Option<std::process::ChildStdin>) {
-        let stdin = child.stdin.take();
-        let reaper = thread::spawn(move || child.wait().is_ok());
-        (reaper, stdin)
     }
 
     #[test]

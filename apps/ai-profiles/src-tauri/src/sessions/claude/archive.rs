@@ -184,26 +184,13 @@ fn not_found(session_id: &str, home: &Home) -> AppError {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::Path;
 
     use serde_json::{json, Value};
     use tempfile::tempdir;
 
     use super::*;
-    use crate::app_kind::AppKind;
-    use crate::test_support::fake_wrapper_process;
 
-    /// A managed Claude home named `name`, under `root`.
-    fn home(root: &Path, name: &str) -> Home {
-        Home {
-            id: name.to_string(),
-            app: AppKind::Claude,
-            label: name.to_string(),
-            config_dir: root.join(name).join("cli-config"),
-            gui_data_dir: root.join(name).join("gui-data"),
-            stock: false,
-        }
-    }
+    use crate::test_support::{claude_home as home, fake_wrapper_process, read_value};
 
     /// Writes transcript `session` into `home`'s config dir, with a file
     /// history.
@@ -257,11 +244,6 @@ mod tests {
         let checked = check(home, homes, session_id, action, "").unwrap();
         assert_eq!(checked.check, ActionCheck::default());
         apply(home, checked.target, action).unwrap();
-    }
-
-    /// The record at `path`, as JSON.
-    fn read_value(path: &Path) -> Value {
-        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
     }
 
     #[test]

@@ -13,10 +13,15 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
+
+use serde_json::Value;
+
+use crate::app_kind::AppKind;
+use crate::sessions::Home;
 
 pub(crate) static APP_DIR_TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -147,4 +152,39 @@ pub(crate) fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
         }
     }
     files
+}
+
+/// A managed Claude home named `name` under `root`: its config dir at
+/// `<root>/<name>/cli-config` and its desktop app's data at
+/// `<root>/<name>/gui-data`, neither made.
+pub(crate) fn claude_home(root: &Path, name: &str) -> Home {
+    Home {
+        id: name.to_string(),
+        app: AppKind::Claude,
+        label: name.to_string(),
+        config_dir: root.join(name).join("cli-config"),
+        gui_data_dir: root.join(name).join("gui-data"),
+        stock: false,
+    }
+}
+
+/// [`claude_home`], whose desktop app has been opened, so its data dir is
+/// there.
+pub(crate) fn opened_claude_home(root: &Path, name: &str) -> Home {
+    let home = claude_home(root, name);
+    fs::create_dir_all(&home.gui_data_dir).unwrap();
+    home
+}
+
+/// The JSON file at `path`.
+pub(crate) fn read_value(path: &Path) -> Value {
+    serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// Reap `child` on another thread once it exits, as launchd reaps a real
+/// app, so it leaves the process list. Its stdin is kept open and returned,
+/// as a stand-in exits when that closes.
+pub(crate) fn reaped(mut child: Child) -> (JoinHandle<bool>, Option<ChildStdin>) {
+    let stdin = child.stdin.take();
+    (thread::spawn(move || child.wait().is_ok()), stdin)
 }

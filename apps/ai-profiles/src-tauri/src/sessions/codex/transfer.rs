@@ -365,9 +365,14 @@ fn not_taken(copy: &Path, destination: &Home, error: &CodexRpcError) -> AppError
         return AppError::Validation(refused);
     }
     match set_aside(copy) {
-        Ok(aside) => AppError::Validation(format!(
+        Ok((aside, None)) => AppError::Validation(format!(
             "{refused}. Its copy is set aside in {}",
             aside.display()
+        )),
+        Ok((aside, Some(left))) => AppError::Validation(format!(
+            "{refused}. Its copy is set aside in {}, and left in {} too",
+            aside.display(),
+            left.display()
         )),
         Err(_) if !occupied(copy) => AppError::Validation(refused),
         Err(set_aside_error) => AppError::Validation(format!(
@@ -378,9 +383,10 @@ fn not_taken(copy: &Path, destination: &Home, error: &CodexRpcError) -> AppError
 }
 
 /// Move `copy` into [`FAILED_DIR`] beside it, under a name app-server doesn't
-/// read as the thread's. Returns where it went. Nothing is replaced: a name
-/// taken by an earlier failure gets a number.
-fn set_aside(copy: &Path) -> std::io::Result<PathBuf> {
+/// read as the thread's. Returns where it went, and where it was left too if
+/// its old place couldn't be unlinked. Nothing is replaced: a name taken by
+/// an earlier failure gets a number.
+fn set_aside(copy: &Path) -> std::io::Result<(PathBuf, Option<PathBuf>)> {
     let (Some(folder), Some(name)) = (copy.parent(), copy.file_name()) else {
         return Err(std::io::Error::other("it has no name"));
     };
@@ -393,7 +399,7 @@ fn set_aside(copy: &Path) -> std::io::Result<PathBuf> {
             _ => failed.join(format!("{name}.{count}.{FAILED_SUFFIX}")),
         };
         match move_new(copy, &aside) {
-            Ok(()) => return Ok(aside),
+            Ok(left) => return Ok((aside, left)),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error),
         }

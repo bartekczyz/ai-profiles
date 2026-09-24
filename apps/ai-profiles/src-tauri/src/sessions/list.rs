@@ -294,21 +294,18 @@ mod tests {
 
     use super::*;
     use crate::sessions::claude::desktop::DesktopRecord;
-
-    const ACCOUNT: &str = "1a19a582-d7b1-4f72-acef-cbe78c1a68e4";
-    const ORG: &str = "18d53058-434e-4c78-9624-e290f7a80ccb";
+    use crate::test_support::claude_home;
 
     /// A Claude home `id`, under `root`, `stock` or a profile's.
     fn home(root: &Path, id: &str, stock: bool) -> Home {
         Home {
-            id: id.to_string(),
-            app: AppKind::Claude,
-            label: id.to_string(),
-            config_dir: root.join(id).join("cli-config"),
-            gui_data_dir: root.join(id).join("gui-data"),
             stock,
+            ..claude_home(root, id)
         }
     }
+
+    const ACCOUNT: &str = "1a19a582-d7b1-4f72-acef-cbe78c1a68e4";
+    const ORG: &str = "18d53058-434e-4c78-9624-e290f7a80ccb";
 
     /// Gives `home` transcript `session` of `lines`.
     fn write_transcript(home: &Home, session: &str, lines: &[Value]) {

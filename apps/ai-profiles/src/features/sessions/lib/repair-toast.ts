@@ -14,8 +14,8 @@ export type RepairToast = {
    */
   title: string
   /**
-   * The counts, the reasons sessions were skipped for, and the memory the
-   * profile kept its own of.
+   * The counts, the reasons sessions were skipped for, the memory the profile
+   * kept its own of, and what the repair left behind.
    */
   description: string
 }
@@ -28,8 +28,8 @@ const shownReasons = 3
 /**
  * What the toast after repairing `profileLabel`'s sessions says of `report`:
  * how many were repaired and skipped, each distinct reason for skipping once,
- * the first few of them with a count of the rest, and the memory files the
- * profile kept its own of.
+ * the first few of them with a count of the rest, the memory files the
+ * profile kept its own of, and what the repair left behind.
  */
 export function repairToast(report: RepairReport, profileLabel: string): RepairToast {
   const parts = [`${report.repaired} repaired · ${report.skipped.length} skipped`]
@@ -41,6 +41,7 @@ export function repairToast(report: RepairReport, profileLabel: string): RepairT
   if (report.memoryConflicts.length > 0) {
     parts.push(`${profileLabel} kept its own memory of ${report.memoryConflicts.join(', ')}`)
   }
+  parts.push(...report.warnings)
   const description = parts.join('. ')
   if (report.repaired > 0) {
     return { tone: 'success', title: 'Sessions repaired', description }

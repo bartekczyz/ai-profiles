@@ -50,10 +50,13 @@ pub struct ArchivedBundle {
     pub last_used_at: DateTime<Utc>,
 }
 
-/// The fields of a bundle's `manifest.json` read here.
-#[derive(Deserialize)]
+/// What an archived bundle's `manifest.json` holds. Every field is read
+/// leniently, as missing, from a manifest that lacks it.
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Manifest {
+    /// The session's id.
+    session_id: Option<String>,
     /// The session's title.
     title: Option<String>,
     /// The folder the session worked in.
@@ -62,24 +65,8 @@ struct Manifest {
     last_prompt: Option<String>,
     /// When the session was last used.
     last_used_at: Option<DateTime<Utc>>,
-}
-
-/// What an archived bundle's `manifest.json` holds.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ManifestFile<'a> {
-    /// The session's id.
-    session_id: &'a str,
-    /// The session's title.
-    title: Option<&'a str>,
-    /// The folder the session worked in.
-    cwd: Option<&'a str>,
-    /// The last thing typed into the session.
-    last_prompt: Option<&'a str>,
-    /// When the session was last used.
-    last_used_at: DateTime<Utc>,
     /// When the session was archived.
-    archived_at: DateTime<Utc>,
+    archived_at: Option<DateTime<Utc>>,
 }
 
 /// Archive the session `bundle` describes: move `paths`, its files and
@@ -132,13 +119,13 @@ fn archive_bundle_with(
     let bundle_dir = session_dir.join(archived_at.format(STAMP_FORMAT).to_string());
     fs::create_dir_all(&session_dir)?;
     fs::create_dir(&bundle_dir)?;
-    let manifest = ManifestFile {
-        session_id,
-        title: bundle.title.as_deref(),
-        cwd: bundle.cwd.as_deref(),
-        last_prompt: bundle.last_prompt.as_deref(),
-        last_used_at: bundle.last_used_at,
-        archived_at,
+    let manifest = Manifest {
+        session_id: Some(session_id.to_string()),
+        title: bundle.title.clone(),
+        cwd: bundle.cwd.clone(),
+        last_prompt: bundle.last_prompt.clone(),
+        last_used_at: Some(bundle.last_used_at),
+        archived_at: Some(archived_at),
     };
     let written = fs::write(bundle_dir.join(MANIFEST), serde_json::to_string(&manifest)?);
     let moved = match written {
