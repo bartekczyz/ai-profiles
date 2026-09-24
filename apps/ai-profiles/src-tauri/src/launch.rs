@@ -224,7 +224,7 @@ where
 /// a profile would open on the stock ones. `None` for the default entry, which
 /// is the stock app on its own home. `open` hands its environment on to the app
 /// it starts, so the config homes ai-profiles itself was started with are taken
-/// out first (see [`without_inherited_config`]).
+/// out first (see [`open_command`]).
 ///
 /// Launches by resolved absolute bundle path rather than a registered app
 /// name, so it keeps working across a bundle rename (as happened when OpenAI
@@ -237,8 +237,8 @@ pub fn open_new_instance(
 ) -> AppResult<()> {
     let resolved = crate::paths::resolve_gui_app(spec)
         .ok_or_else(|| AppError::Validation(format!("{} isn't installed", spec.display_name)))?;
-    let mut command = Command::new("open");
-    without_inherited_config(&mut command)
+    let mut command = open_command();
+    command
         .arg("-n")
         .arg("-a")
         .arg(&resolved.bundle_path)
@@ -257,13 +257,17 @@ pub fn open_new_instance(
     Ok(())
 }
 
-/// Every app's config-home variable (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`),
-/// taken out of what `command` passes on. `open` hands the app it starts
-/// ai-profiles' own environment, and ai-profiles may have been started with
-/// one of these set (from a shell running under some profile, say). The app
-/// would then run on that profile's config: the stock app, which is given
-/// none of its own, always, and a launcher that sets none of its own too.
-fn without_inherited_config(command: &mut Command) -> &mut Command {
+/// `open`, without every app's config-home variable (`CLAUDE_CONFIG_DIR`,
+/// `CODEX_HOME`) in what it passes on. Every app ai-profiles starts is started
+/// through this, so no launch can leave them in.
+///
+/// `open` hands the app it starts ai-profiles' own environment, and ai-profiles
+/// may have been started with one of these set (from a shell running under some
+/// profile, say). The app would then run on that profile's config: the stock
+/// app, which is given none of its own, always, and a launcher that sets none of
+/// its own too. A profile's own is set on the command afterwards, and wins.
+fn open_command() -> Command {
+    let mut command = Command::new("open");
     for kind in [AppKind::Claude, AppKind::Codex] {
         command.env_remove(kind.spec().cli_config_env);
     }
@@ -273,10 +277,7 @@ fn without_inherited_config(command: &mut Command) -> &mut Command {
 /// Open the app at `bundle` the way a click on its Dock tile does: no `-n`, no
 /// arguments. That a wrapper starts right this way is the point of it.
 fn open_bundle(bundle: &Path) -> AppResult<()> {
-    let output = without_inherited_config(&mut Command::new("open"))
-        .arg(bundle)
-        .output()
-        .map_err(AppError::Io)?;
+    let output = open_command().arg(bundle).output().map_err(AppError::Io)?;
     if !output.status.success() {
         return Err(AppError::Validation(format!(
             "`open {}` exited with status {}: {}",
@@ -688,14 +689,14 @@ mod tests {
                 .get_envs()
                 .any(|(key, value)| key == name && value.is_none())
         };
-        let mut stock = Command::new("open");
-        without_inherited_config(&mut stock);
+        let stock = open_command();
+        assert_eq!(stock.get_program(), "open");
         assert!(removed(&stock, "CLAUDE_CONFIG_DIR"));
         assert!(removed(&stock, "CODEX_HOME"));
 
         // A profile's own is set after, and wins.
-        let mut profile = Command::new("open");
-        without_inherited_config(&mut profile).env("CLAUDE_CONFIG_DIR", "/p/work/cli-config");
+        let mut profile = open_command();
+        profile.env("CLAUDE_CONFIG_DIR", "/p/work/cli-config");
         assert!(profile
             .get_envs()
             .any(|(key, value)| key == "CLAUDE_CONFIG_DIR"
