@@ -10,7 +10,8 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-use super::copy::{compare, place, write_replacing, ItemAction};
+use super::archive_store::occupied;
+use super::copy::{place, same_bytes, write_replacing};
 use crate::error::AppResult;
 
 /// The index of a memory folder.
@@ -35,31 +36,35 @@ pub fn merge_memory(from: &Path, to: &Path, backup: &Path) -> AppResult<Vec<Stri
     let mut copied = HashSet::new();
     let mut conflicts = Vec::new();
     for name in names {
-        let relative = Path::new(&name);
-        match compare(&from.join(&name), &to.join(&name))? {
-            ItemAction::Copy => {
-                place(&from.join(&name), to, relative, backup)?;
-                copied.insert(name);
-            }
-            ItemAction::Same => {}
-            ItemAction::Replace => conflicts.push(name),
+        let (theirs, ours) = (from.join(&name), to.join(&name));
+        if !occupied(&ours) {
+            place(&theirs, to, Path::new(&name), backup)?;
+            copied.insert(name);
+        } else if !same_bytes(&theirs, &ours)? {
+            // Memories are small and often written apart with the same
+            // words, so they are told apart by their bytes alone.
+            conflicts.push(name);
         }
     }
     merge_index(from, to, backup, &copied)?;
     Ok(conflicts)
 }
 
-/// Whether [`merge_memory`] of `from` into `to` would write anything: `to`
-/// lacks one of `from`'s files, its index included.
-pub fn merge_writes(from: &Path, to: &Path) -> bool {
+/// The files [`merge_memory`] of `from` into `to` would copy: those of
+/// `from`'s that `to` lacks, its index included, by name, sorted. It writes
+/// nothing when there are none.
+pub fn merge_copies(from: &Path, to: &Path) -> Vec<String> {
     let Ok(entries) = fs::read_dir(from) else {
-        return false;
+        return Vec::new();
     };
-    entries
+    let mut names: Vec<String> = entries
         .flatten()
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
-        .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
-        .any(|entry| fs::symlink_metadata(to.join(entry.file_name())).is_err())
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+        .filter(|name| !name.starts_with('.') && !occupied(&to.join(name)))
+        .collect();
+    names.sort();
+    names
 }
 
 /// Bring `from`'s index into `to`: whole when `to` has none, else only the
@@ -69,7 +74,7 @@ fn merge_index(from: &Path, to: &Path, backup: &Path, copied: &HashSet<String>) 
         return Ok(());
     };
     let Ok(ours) = fs::read_to_string(to.join(INDEX)) else {
-        return place(&from.join(INDEX), to, Path::new(INDEX), backup);
+        return place(&from.join(INDEX), to, Path::new(INDEX), backup).map(drop);
     };
     let have: HashSet<&str> = ours.lines().map(str::trim_end).collect();
     let added: Vec<&str> = theirs
@@ -189,19 +194,24 @@ mod tests {
     }
 
     #[test]
-    fn a_merge_writes_only_when_the_destination_lacks_a_memory() {
+    fn a_merge_copies_only_what_the_destination_lacks() {
         let root = tempdir().unwrap();
         let from = root.path().join("from/memory");
         let to = root.path().join("to/memory");
         write(&from.join("MEMORY.md"), "- [Stack](stack.md) — rust\n");
         write(&from.join("stack.md"), "Rust");
+        write(&from.join("style.md"), "Tabs");
         write(&to.join("stack.md"), "Go");
 
-        assert!(merge_writes(&from, &to));
+        assert_eq!(merge_copies(&from, &to), ["MEMORY.md", "style.md"]);
 
         write(&to.join("MEMORY.md"), "");
+        write(&to.join("style.md"), "Spaces");
 
-        assert!(!merge_writes(&from, &to));
-        assert!(!merge_writes(&root.path().join("nowhere"), &to));
+        assert_eq!(merge_copies(&from, &to), Vec::<String>::new());
+        assert_eq!(
+            merge_copies(&root.path().join("nowhere"), &to),
+            Vec::<String>::new()
+        );
     }
 }

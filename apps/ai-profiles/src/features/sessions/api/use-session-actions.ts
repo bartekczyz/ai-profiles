@@ -1,4 +1,4 @@
-import type { SessionAction } from '@/lib/types'
+import type { MovePlan, SessionAction } from '@/lib/types'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -90,8 +90,10 @@ export function useSessionAction(profileId: string) {
 
 /**
  * What moving one of a profile's sessions to `destinationId` would do.
- * Looked up whenever it is asked for and again on every window focus, as the
- * user may close a terminal or quit a desktop app while the question is open.
+ * Looked up whenever it is asked for. Planning reads every profile's
+ * sessions, so it is looked up again on window focus only while something
+ * the user may clear meanwhile stands in the way: a terminal to close, or a
+ * desktop app to quit. The move itself plans again before it starts.
  */
 export function useSessionMovePlan(profileId: string, sessionId: string, destinationId: string) {
   return useQuery({
@@ -99,8 +101,16 @@ export function useSessionMovePlan(profileId: string, sessionId: string, destina
     queryFn: () => planSessionMove(profileId, sessionId, destinationId),
     staleTime: 0,
     gcTime: 0,
-    refetchOnWindowFocus: 'always',
+    refetchOnWindowFocus: (query) => (waitsOnUser(query.state.data) ? 'always' : false),
   })
+}
+
+/**
+ * Whether `plan` waits on something the user can clear outside the app: a
+ * blocker, or a desktop app to quit.
+ */
+function waitsOnUser(plan: MovePlan | undefined): boolean {
+  return plan !== undefined && (plan.blockers.length > 0 || plan.appsToQuit.length > 0)
 }
 
 /**

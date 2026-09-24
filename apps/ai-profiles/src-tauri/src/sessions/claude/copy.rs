@@ -2,11 +2,11 @@
 //!
 //! A copy is built under a temporary name beside where it goes and renamed
 //! into place, so Claude Code never reads half a file. Whatever it replaces is
-//! first moved aside into a backup folder, never removed. Files keep their
-//! modification time, which Claude Code sorts sessions by.
+//! first moved aside into a backup folder, never removed. Files and folders
+//! keep their modification time, which Claude Code sorts sessions by.
 
 use std::fs::{self, File};
-use std::io;
+use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -27,7 +27,9 @@ pub enum ItemAction {
     Replace,
 }
 
-/// What a move would do with `from` to put it at `to`.
+/// What a move would do with `from` to put it at `to`. Files are taken to be
+/// the same only with the same length, modification time and bytes; see
+/// [`identical`].
 pub fn compare(from: &Path, to: &Path) -> AppResult<ItemAction> {
     if !occupied(to) {
         return Ok(ItemAction::Copy);
@@ -41,8 +43,9 @@ pub fn compare(from: &Path, to: &Path) -> AppResult<ItemAction> {
 /// Put a copy of `from`, a file or folder, at `relative` under `destination`.
 /// What is there already is moved to `relative` under `backup` first, and put
 /// back if the copy can't be renamed into place. The copy is built under a
-/// temporary name, removed again when that fails.
-pub fn place(from: &Path, destination: &Path, relative: &Path, backup: &Path) -> AppResult<()> {
+/// temporary name, removed again when that fails. Returns whether something
+/// was there, and so is in `backup` now.
+pub fn place(from: &Path, destination: &Path, relative: &Path, backup: &Path) -> AppResult<bool> {
     let target = destination.join(relative);
     let temp = stage(&target, |temp| copy_tree(from, temp))?;
     finish(&temp, destination, relative, backup)
@@ -90,7 +93,7 @@ pub fn write_replacing(
 ) -> AppResult<()> {
     let target = destination.join(relative);
     let temp = stage(&target, |temp| fs::write(temp, contents))?;
-    finish(&temp, destination, relative, backup)
+    finish(&temp, destination, relative, backup).map(drop)
 }
 
 /// Build what goes to `target` with `build`, under a temporary name beside
@@ -114,7 +117,8 @@ fn stage(target: &Path, build: impl FnOnce(&Path) -> io::Result<()>) -> AppResul
 
 /// Rename the staged `temp` into `relative` under `destination`, moving what
 /// is there to `relative` under `backup` first and back if the rename fails.
-fn finish(temp: &Path, destination: &Path, relative: &Path, backup: &Path) -> AppResult<()> {
+/// Returns whether something was there.
+fn finish(temp: &Path, destination: &Path, relative: &Path, backup: &Path) -> AppResult<bool> {
     let target = destination.join(relative);
     let items = [relative.to_path_buf()];
     let backed_up = occupied(&target);
@@ -135,7 +139,7 @@ fn finish(temp: &Path, destination: &Path, relative: &Path, backup: &Path) -> Ap
         }
         return Err(error.into());
     }
-    Ok(())
+    Ok(backed_up)
 }
 
 /// Remove a temporary copy of ours at `temp`, if there is one.
@@ -152,7 +156,8 @@ fn remove_temp(temp: &Path) {
 }
 
 /// Copy `from`, a file, folder or link, to `to`, which must not exist. Files
-/// keep their modification time.
+/// and folders keep their modification time, a folder's set once what it
+/// holds is copied, as copying into it changes it.
 fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
     let metadata = fs::symlink_metadata(from)?;
     let kind = metadata.file_type();
@@ -165,7 +170,7 @@ fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
             let entry = entry?;
             copy_tree(&entry.path(), &to.join(entry.file_name()))?;
         }
-        return Ok(());
+        return File::open(to)?.set_modified(metadata.modified()?);
     }
     fs::copy(from, to)?;
     File::options()
@@ -174,8 +179,11 @@ fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
         .set_modified(metadata.modified()?)
 }
 
-/// Whether `left` and `right` hold the same: files with the same bytes, links
-/// to the same place, or folders whose entries are all the same.
+/// Whether `left` and `right` hold the same: files of the same length and
+/// modification time, then the same bytes, links to the same place, or
+/// folders whose entries are all the same. A copy keeps its file's date, so
+/// files dated apart are taken to differ without reading either, which
+/// spares reading two copies of a long transcript whole.
 fn identical(left: &Path, right: &Path) -> AppResult<bool> {
     let (left_metadata, right_metadata) =
         (fs::symlink_metadata(left)?, fs::symlink_metadata(right)?);
@@ -186,9 +194,9 @@ fn identical(left: &Path, right: &Path) -> AppResult<bool> {
             && fs::read_link(left)? == fs::read_link(right)?);
     }
     if left_kind.is_file() && right_kind.is_file() {
-        return Ok(
-            left_metadata.len() == right_metadata.len() && fs::read(left)? == fs::read(right)?
-        );
+        return Ok(left_metadata.len() == right_metadata.len()
+            && left_metadata.modified()? == right_metadata.modified()?
+            && same_bytes(left, right)?);
     }
     if !(left_kind.is_dir() && right_kind.is_dir()) {
         return Ok(false);
@@ -203,6 +211,33 @@ fn identical(left: &Path, right: &Path) -> AppResult<bool> {
         }
     }
     Ok(true)
+}
+
+/// Whether the files `left` and `right` hold the same bytes, read side by
+/// side a block at a time.
+pub fn same_bytes(left: &Path, right: &Path) -> io::Result<bool> {
+    let (mut left, mut right) = (
+        BufReader::new(File::open(left)?),
+        BufReader::new(File::open(right)?),
+    );
+    let (mut left_block, mut right_block) = (vec![0_u8; 64 * 1024], vec![0_u8; 64 * 1024]);
+    loop {
+        let read = left.read(&mut left_block)?;
+        if read == 0 {
+            return Ok(right.read(&mut right_block)? == 0);
+        }
+        let mut filled = 0;
+        while filled < read {
+            let more = right.read(&mut right_block[filled..read])?;
+            if more == 0 {
+                return Ok(false);
+            }
+            filled += more;
+        }
+        if left_block[..read] != right_block[..read] {
+            return Ok(false);
+        }
+    }
 }
 
 /// The names of the entries in `dir`, sorted.
@@ -240,18 +275,35 @@ mod tests {
         names
     }
 
+    /// Date the file at `path` `modified`.
+    fn date(path: &Path, modified: SystemTime) {
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+    }
+
+    /// Write `contents` to `path`, making its folder, dated `modified`.
+    fn write_dated(path: &Path, contents: &str, modified: SystemTime) {
+        write(path, contents);
+        date(path, modified);
+    }
+
     #[test]
     fn an_item_is_copied_when_missing_left_when_the_same_and_replaced_when_not() {
         let root = tempdir().unwrap();
         let from = root.path().join("from");
         let to = root.path().join("to");
+        let written = SystemTime::UNIX_EPOCH + Duration::from_secs(1_780_000_000);
         write(&from.join("a/one.txt"), "1");
-        write(&from.join("b/one.txt"), "1");
-        write(&to.join("b/one.txt"), "1");
-        write(&from.join("c/one.txt"), "1");
-        write(&to.join("c/one.txt"), "2");
-        write(&from.join("d/one.txt"), "1");
-        write(&to.join("d/one.txt"), "1");
+        write_dated(&from.join("b/one.txt"), "1", written);
+        write_dated(&to.join("b/one.txt"), "1", written);
+        write_dated(&from.join("c/one.txt"), "1", written);
+        write_dated(&to.join("c/one.txt"), "2", written);
+        write_dated(&from.join("d/one.txt"), "1", written);
+        write_dated(&to.join("d/one.txt"), "1", written);
         write(&to.join("d/two.txt"), "2");
 
         let actions: Vec<ItemAction> = ["a", "b", "c", "d"]
@@ -268,6 +320,47 @@ mod tests {
                 ItemAction::Replace
             ]
         );
+    }
+
+    #[test]
+    fn a_file_dated_differently_is_different_without_reading_it() {
+        let root = tempdir().unwrap();
+        let from = root.path().join("from.jsonl");
+        let to = root.path().join("to.jsonl");
+        let written = SystemTime::UNIX_EPOCH + Duration::from_secs(1_780_000_000);
+        write_dated(&from, "same", written);
+        write_dated(&to, "same", written + Duration::from_secs(1));
+
+        assert_eq!(compare(&from, &to).unwrap(), ItemAction::Replace);
+
+        date(&to, written);
+
+        assert_eq!(compare(&from, &to).unwrap(), ItemAction::Same);
+    }
+
+    #[test]
+    fn a_placed_folder_keeps_its_date() {
+        let root = tempdir().unwrap();
+        let from = root.path().join("from/s");
+        let destination = root.path().join("to");
+        let written = SystemTime::UNIX_EPOCH + Duration::from_secs(1_780_000_000);
+        write_dated(&from.join("subagents/agent-1.jsonl"), "new", written);
+        for folder in [from.join("subagents"), from.clone()] {
+            File::open(&folder).unwrap().set_modified(written).unwrap();
+        }
+
+        place(
+            &from,
+            &destination,
+            Path::new("projects/s"),
+            &root.path().join("backup"),
+        )
+        .unwrap();
+
+        let placed = destination.join("projects/s");
+        for folder in [placed.join("subagents"), placed] {
+            assert_eq!(fs::metadata(&folder).unwrap().modified().unwrap(), written);
+        }
     }
 
     #[test]

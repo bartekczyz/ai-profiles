@@ -98,8 +98,9 @@ impl MoveGate {
     /// The gate of `plan` of a move to `destination`, the user having agreed
     /// to replace a newer copy there if `replace_newer`.
     fn of(plan: &MovePlan, destination: &Home, replace_newer: bool) -> Self {
+        // Joined as the move dialog joins them.
         let blocker = if !plan.blockers.is_empty() {
-            Some(plan.blockers.join("; "))
+            Some(plan.blockers.join(". "))
         } else if plan.destination_newer && !replace_newer {
             Some(format!(
                 "{} has a newer copy of this session",
@@ -437,8 +438,9 @@ async fn quit_all(apps: Vec<AppToQuit>, homes: Vec<Home>, timeout: Duration) -> 
 
 /// Do an action once `check` allows it: refuse a blocked one; when desktop
 /// apps are in the way, refuse unless `quit_apps`, else `quit` them and check
-/// again, refusing if any still runs; then `apply` the action to what the
-/// last check found.
+/// again, refusing if any still runs, or saying they were quit when something
+/// else stands in the way now; then `apply` the action to what the last check
+/// found.
 async fn run_checked<T, G, R, CheckFut, QuitFut, ApplyFut>(
     quit_apps: bool,
     mut check: impl FnMut() -> CheckFut,
@@ -461,9 +463,14 @@ where
                 labels(&apps)
             )));
         }
+        let quit_labels = labels(&apps);
         quit(apps).await?;
         checked = check().await?;
-        refuse_blocked(&checked.check)?;
+        if let Some(blocker) = checked.check.blocker() {
+            return Err(AppError::Validation(format!(
+                "Quit {quit_labels}, but it still can't be done: {blocker}"
+            )));
+        }
         let running = checked.check.apps_to_quit();
         if !running.is_empty() {
             let verb = if running.len() == 1 { "is" } else { "are" };
@@ -610,6 +617,49 @@ mod tests {
             matches!(&result, Err(AppError::Validation(message)) if message == "Claude (Work) is still running")
         );
         assert_eq!(log, ["check", "quit", "check"]);
+    }
+
+    #[tokio::test]
+    async fn a_blocker_found_once_the_app_quit_says_it_quit() {
+        let (result, log) = run_logged(
+            true,
+            vec![
+                checked(None, Some("Claude (Work)"), 1),
+                checked(Some("Close it in the terminal first"), None, 1),
+            ],
+        )
+        .await;
+
+        assert!(
+            matches!(&result, Err(AppError::Validation(message)) if message == "Quit Claude (Work), but it still can't be done: Close it in the terminal first"),
+            "{result:?}"
+        );
+        assert_eq!(log, ["check", "quit", "check"]);
+    }
+
+    #[test]
+    fn a_moves_blockers_read_as_the_dialog_shows_them() {
+        let root = tempdir().unwrap();
+        let personal = claude_home(root.path(), "Personal");
+        let plan = MovePlan {
+            summary: String::new(),
+            items: Vec::new(),
+            destination_newer: false,
+            desktop: transfer::DesktopAction::NoDesktop,
+            blockers: vec![
+                "Lives in the desktop app's scratch folder".to_string(),
+                "Close it in the terminal first".to_string(),
+            ],
+            apps_to_quit: Vec::new(),
+            notes: Vec::new(),
+        };
+
+        let gate = MoveGate::of(&plan, &personal, false);
+
+        assert_eq!(
+            gate.blocker.as_deref(),
+            Some("Lives in the desktop app's scratch folder. Close it in the terminal first")
+        );
     }
 
     #[test]

@@ -5,28 +5,28 @@
 //! destination's config dir, backing up whatever it replaces, merges the
 //! project's memory, copies the transcripts last, adds the session to the
 //! destination's desktop app when it is signed in, and finally archives the
-//! session at the source, so Restore there undoes it.
+//! session at the source, so Restore there undoes it. A move that fails part
+//! way takes back what it put at the destination.
 
-use std::collections::{BTreeSet, HashSet};
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader};
+use std::collections::HashSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 
 use super::archive::{self, Target};
 use super::archive_store::{move_all, occupied, replaced_dir};
 use super::copy::{compare, place, ItemAction};
 use super::desktop::{
-    build_destination_record, current_account_dir, deleted_in, read_records, record_account,
-    write_destination_record, DesktopRecord,
+    build_destination_record, current_account_dir, deleted_in, list_as_active, read_records,
+    record_account, write_destination_record, DesktopRecord, ARCHIVED_INDEX,
 };
 use super::live::LiveHolder;
-use super::memory::{merge_memory, merge_writes};
+use super::memory::{merge_copies, merge_memory};
 use super::ownership::{owned_by, HeldTranscript, Owned};
-use super::transcript::{bundle_paths, summarize, TranscriptSummary};
+use super::transcript::{bundle_paths, TranscriptSummary};
 use crate::app_kind::AppKind;
 use crate::error::{AppError, AppResult};
 use crate::sessions::actions::{AppToQuit, SessionAction};
@@ -40,8 +40,13 @@ const MEMORY_DIR: &str = "memory";
 /// The folder under a config dir holding the plans sessions wrote.
 pub(super) const PLANS_DIR: &str = "plans";
 
-/// Where, in a move's backup folder, a desktop record it replaced goes.
+/// Where, in a move's backup folder, a desktop record it replaced goes, with
+/// the archived index it rewrote.
 const RECORDS_BACKUP: &str = "desktop-records";
+
+/// Where, in a move's backup folder, what a move that failed had put at the
+/// destination is set aside, laid out like the backup folder.
+const UNDONE_DIR: &str = "undone";
 
 /// The note for a desktop session moving to another account.
 const REMOTE_CONTROL_NOTE: &str =
@@ -75,9 +80,11 @@ pub struct PlannedItem {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MovePlan {
-    /// One line saying what moves where: `Moves 3 files from Work to Personal`.
+    /// One line saying what moves where: `Moves 3 files from Work to
+    /// Personal, and 2 memory files`.
     pub summary: String,
-    /// The files and folders the move copies, transcripts last.
+    /// The files and folders the move copies, then the project memory files
+    /// it copies, then the transcripts.
     pub items: Vec<PlannedItem>,
     /// The destination has a copy of a transcript that differs and was used
     /// more recently: moving would roll it back, so it takes the user's
@@ -114,13 +121,6 @@ struct Item {
     action: ItemAction,
     /// For a transcript, copied after everything else: when it was last used.
     used_at: Option<DateTime<Utc>>,
-}
-
-/// The field of a transcript record naming the plan it wrote.
-#[derive(Deserialize)]
-struct SlugRecord {
-    /// The plan's name: `<config>/plans/<slug>.md`.
-    slug: Option<String>,
 }
 
 /// A project memory folder to merge.
@@ -169,6 +169,21 @@ pub struct Prepared {
     archive: Target,
 }
 
+/// Something a move put at the destination, to take back should a later step
+/// fail.
+#[derive(Debug)]
+struct Change {
+    /// The folder it is in.
+    dir: PathBuf,
+    /// It, relative to `dir`.
+    relative: PathBuf,
+    /// The folder holding what it replaced, at `relative`, if it replaced
+    /// anything.
+    backup_dir: Option<PathBuf>,
+    /// The folder it is set aside into, at `relative`, when taken back.
+    undone_dir: PathBuf,
+}
+
 /// What moving session `session_id` of `source` to `destination`, both of
 /// `homes`, would do, given the output of `ps -ax -o pid=,command=`.
 ///
@@ -176,7 +191,8 @@ pub struct Prepared {
 /// gone, it works in the desktop app's scratch folder, a terminal has one of
 /// its transcripts open, or archiving it at the source is blocked. The source's
 /// desktop app has to quit when archiving there writes its record; the
-/// destination's when the move writes its record or files it lists.
+/// destination's when the move writes its record or files it lists. What
+/// every home holds is read once, for all of it.
 pub fn plan(
     source: &Home,
     destination: &Home,
@@ -196,7 +212,9 @@ pub fn plan(
             source.label
         )));
     }
-    let owned = owned_by(&source.id, &home_scans(homes))
+    let scans = home_scans(homes);
+    let live = live_anywhere(homes, ps_output);
+    let owned = owned_by(&source.id, &scans)
         .into_iter()
         .find(|owned| owned.session_id == session_id)
         .ok_or_else(|| {
@@ -205,14 +223,22 @@ pub fn plan(
                 source.label
             ))
         })?;
-    let archive = archive::check(source, homes, session_id, SessionAction::Archive, ps_output)?;
+    let archive = archive::check_scanned(
+        source,
+        &scans,
+        &live,
+        session_id,
+        SessionAction::Archive,
+        ps_output,
+    )?;
+    let at_destination = scans.iter().find(|scan| scan.home_id == destination.id);
     let displayed = owned.transcript.as_ref().map(|held| held.summary.clone());
     let cwd = owned
         .record
         .as_ref()
         .and_then(|record| record.cwd.clone())
         .or_else(|| displayed.as_ref().and_then(|summary| summary.cwd.clone()));
-    let state = match (&displayed, live_anywhere(homes, ps_output).get(session_id)) {
+    let state = match (&displayed, live.get(session_id)) {
         (None, _) => SessionState::TranscriptMissing,
         (Some(_), Some(LiveHolder::Terminal)) => SessionState::OpenInTerminal,
         _ => SessionState::Idle,
@@ -229,34 +255,71 @@ pub fn plan(
             blockers.push(reason);
         }
     }
-    let (desktop, record) = desktop_step(&owned, destination, displayed.as_ref(), cwd.as_deref());
+    let destination_records = match at_destination {
+        Some(scan) => scan.records.clone(),
+        None => read_records(&destination.gui_data_dir),
+    };
+    let (desktop, record) = desktop_step(
+        &owned,
+        destination,
+        &destination_records,
+        displayed.as_ref(),
+        cwd.as_deref(),
+    );
     let carried = carried_transcripts(&owned, desktop);
     let items = session_items(&carried, homes, destination)?;
+    // The destination's copies were read with every home's, so a replaced
+    // transcript's last use there is known without reading it again.
+    let used_there = |relative: &Path| {
+        let path = destination.config_dir.join(relative);
+        at_destination?
+            .transcripts
+            .iter()
+            .find(|transcript| transcript.path == path)
+            .map(|transcript| transcript.last_used_at)
+    };
     let destination_newer = items.iter().any(|item| {
         item.action == ItemAction::Replace
             && item.used_at.is_some_and(|used_at| {
-                summarize(&destination.config_dir.join(&item.relative))
-                    .is_some_and(|there| there.last_used_at > used_at)
+                used_there(&item.relative).is_some_and(|there| there > used_at)
             })
     });
     let memory = memory_merges(carried.iter().copied(), homes);
+    let memory_items: Vec<PlannedItem> = memory
+        .iter()
+        .flat_map(|merge| {
+            merge_copies(&merge.from, &destination.config_dir.join(&merge.relative))
+                .into_iter()
+                .map(|name| PlannedItem {
+                    path: merge.relative.join(name).display().to_string(),
+                    action: ItemAction::Copy,
+                })
+        })
+        .collect();
     let writes_destination = record.is_some()
         || items.iter().any(|item| item.action != ItemAction::Same)
-        || memory
-            .iter()
-            .any(|merge| merge_writes(&merge.from, &destination.config_dir.join(&merge.relative)));
+        || !memory_items.is_empty();
     let mut apps_to_quit: Vec<AppToQuit> = archive.check.app_to_quit.clone().into_iter().collect();
     if writes_destination && desktop_pid(destination, ps_output).is_some() {
         apps_to_quit.push(AppToQuit::of(destination));
     }
+    let moving = items
+        .iter()
+        .filter(|item| item.action != ItemAction::Same)
+        .count();
+    let (transcripts, others): (Vec<&Item>, Vec<&Item>) =
+        items.iter().partition(|item| item.used_at.is_some());
+    let planned = |item: &Item| PlannedItem {
+        path: item.relative.display().to_string(),
+        action: item.action,
+    };
     let plan = MovePlan {
-        summary: summary(&items, source, destination),
-        items: items
-            .iter()
-            .map(|item| PlannedItem {
-                path: item.relative.display().to_string(),
-                action: item.action,
-            })
+        summary: summary(moving, memory_items.len(), source, destination),
+        items: others
+            .into_iter()
+            .map(planned)
+            .chain(memory_items)
+            .chain(transcripts.into_iter().map(planned))
             .collect(),
         destination_newer,
         desktop,
@@ -281,9 +344,14 @@ pub fn plan(
 /// files, merge the memory, copy the transcripts, write the destination's
 /// desktop record, then archive the session at the source. What is replaced
 /// is backed up in the destination's config dir first (see
-/// [`replaced_dir`]), and a failure after that says where. A step that fails
-/// stops the move there; as the transcripts are copied last, the destination
-/// then has no session yet, and the source is untouched.
+/// [`replaced_dir`]).
+///
+/// A step that fails stops the move there, and what it copied and wrote at
+/// the destination is taken back: set aside into the backup folder, with
+/// what it had replaced put back, never replacing anything. The memory it
+/// merged stays, as that only adds what the destination lacked. The source is
+/// untouched until the last step. The error says what became of it all, and
+/// keeps the kind of the failure.
 ///
 /// The destination's desktop app must not run while anything of its home is
 /// written, so one that started again since the check is looked for right
@@ -293,20 +361,78 @@ pub fn execute(prepared: Prepared, at: DateTime<Utc>) -> AppResult<MoveReport> {
     if prepared.writes_destination {
         refuse_running(&prepared.destination)?;
     }
-    carry_out(prepared, &backup).map_err(|error| {
+    let mut changes = Vec::new();
+    carry_out(prepared, &backup, &mut changes).map_err(|error| take_back(error, changes, &backup))
+}
+
+/// `error`, which stopped a move part way, once the `changes` the move made at
+/// the destination are taken back, saying so and where what it set aside is
+/// kept: `backup`.
+fn take_back(error: AppError, changes: Vec<Change>, backup: &Path) -> AppError {
+    let kept = backup.display().to_string();
+    if changes.is_empty() {
         if !backup.exists() {
             return error;
         }
-        AppError::Validation(format!(
-            "{}. What the move replaced is backed up in {}",
-            error.message(),
-            backup.display()
-        ))
+        return error.map_message(|message| {
+            format!("{message}. What the move replaced is backed up in {kept}")
+        });
+    }
+    let failures = undo(changes);
+    error.map_message(|message| {
+        if failures.is_empty() {
+            return format!(
+                "{message}. The move was taken back; what it set aside is kept in {kept}"
+            );
+        }
+        format!(
+            "{message}. Taking the move back failed too: {}. What it set aside is kept in {kept}",
+            failures.join("; ")
+        )
     })
 }
 
-/// [`execute`] `prepared`, backing up what it replaces into `backup`.
-fn carry_out(prepared: Prepared, backup: &Path) -> AppResult<MoveReport> {
+/// Take back `changes`, the last first: set each aside into its undone
+/// folder, then put what it replaced back. Nothing is ever replaced on the
+/// way. Returns what couldn't be taken back, naming what stays where.
+fn undo(changes: Vec<Change>) -> Vec<String> {
+    let rename = &mut |from: &Path, to: &Path| fs::rename(from, to);
+    let mut failures = Vec::new();
+    for change in changes.into_iter().rev() {
+        let items = std::slice::from_ref(&change.relative);
+        // A record that failed to be written is not there to set aside.
+        if occupied(&change.dir.join(&change.relative)) {
+            if let Err(failed) = move_all(items, &change.dir, &change.undone_dir, rename) {
+                failures.push(format!(
+                    "{} couldn't be set aside ({}), so it stays",
+                    change.dir.join(&change.relative).display(),
+                    failed.error.message()
+                ));
+                continue;
+            }
+        }
+        let Some(backup_dir) = &change.backup_dir else {
+            continue;
+        };
+        if let Err(failed) = move_all(items, backup_dir, &change.dir, rename) {
+            failures.push(format!(
+                "{} couldn't be put back ({}), so it stays in {}",
+                change.relative.display(),
+                failed.error.message(),
+                backup_dir.display()
+            ));
+        }
+    }
+    failures
+}
+
+/// [`execute`] `prepared`, backing up what it replaces into `backup` and
+/// logging what it puts at the destination in `changes`.
+fn carry_out(
+    prepared: Prepared,
+    backup: &Path,
+    changes: &mut Vec<Change>,
+) -> AppResult<MoveReport> {
     let Prepared {
         source,
         destination,
@@ -319,7 +445,7 @@ fn carry_out(prepared: Prepared, backup: &Path) -> AppResult<MoveReport> {
     let (transcripts, others): (Vec<&Item>, Vec<&Item>) =
         items.iter().partition(|item| item.used_at.is_some());
     for item in others {
-        copy_item(item, &destination, backup)?;
+        copy_item(item, &destination, backup, changes)?;
     }
     let mut memory_conflicts = Vec::new();
     for merge in &memory {
@@ -330,10 +456,10 @@ fn carry_out(prepared: Prepared, backup: &Path) -> AppResult<MoveReport> {
         )?);
     }
     for item in transcripts {
-        copy_item(item, &destination, backup)?;
+        copy_item(item, &destination, backup, changes)?;
     }
     if let Some(write) = record {
-        write_record(&destination, write, backup)?;
+        write_record(&destination, write, backup, changes)?;
     }
     archive::apply(&source, archive, SessionAction::Archive)?;
     Ok(MoveReport { memory_conflicts })
@@ -348,21 +474,41 @@ pub(super) fn refuse_running(destination: &Home) -> AppResult<()> {
 }
 
 /// Copy `item` into `destination`'s config dir, backing up what it replaces
-/// into `backup`. One the destination has the same of is left alone.
-fn copy_item(item: &Item, destination: &Home, backup: &Path) -> AppResult<()> {
+/// into `backup`, and log it in `changes`. One the destination has the same
+/// of is left alone.
+fn copy_item(
+    item: &Item,
+    destination: &Home,
+    backup: &Path,
+    changes: &mut Vec<Change>,
+) -> AppResult<()> {
     if item.action == ItemAction::Same {
         return Ok(());
     }
-    place(&item.from, &destination.config_dir, &item.relative, backup)
+    let replaced = place(&item.from, &destination.config_dir, &item.relative, backup)?;
+    changes.push(Change {
+        dir: destination.config_dir.clone(),
+        relative: item.relative.clone(),
+        backup_dir: replaced.then(|| backup.to_path_buf()),
+        undone_dir: backup.join(UNDONE_DIR),
+    });
+    Ok(())
 }
 
-/// Write `destination`'s desktop record of the moved session. Its desktop app
-/// writes its records back from memory, so one that started again since the
-/// check is looked for right before, and the write refused if it runs. A
+/// Write `destination`'s desktop record of the moved session, and take it
+/// out of the archived index there, logging both in `changes`. Its desktop
+/// app writes its records back from memory, so one that started again since
+/// the check is looked for right before, and the write refused if it runs. A
 /// record already there under the same id (archived there) is backed up into
-/// `backup` first; an id the app marks deleted there is swapped for a new
-/// one, as the app would never show it.
-fn write_record(destination: &Home, write: RecordWrite, backup: &Path) -> AppResult<()> {
+/// `backup` first, as is the index before it is rewritten; an id the app
+/// marks deleted there is swapped for a new one, as the app would never show
+/// it.
+fn write_record(
+    destination: &Home,
+    write: RecordWrite,
+    backup: &Path,
+    changes: &mut Vec<Change>,
+) -> AppResult<()> {
     refuse_running(destination)?;
     let mut record =
         build_destination_record(write.source.as_ref(), &write.displayed, &write.priors)?;
@@ -374,16 +520,40 @@ fn write_record(destination: &Home, write: RecordWrite, backup: &Path) -> AppRes
         "{}.json",
         record["sessionId"].as_str().unwrap_or_default()
     ));
-    if occupied(&write.account_dir.join(&name)) {
+    let records_backup = backup.join(RECORDS_BACKUP);
+    let undone_dir = backup.join(UNDONE_DIR).join(RECORDS_BACKUP);
+    let replaced = occupied(&write.account_dir.join(&name));
+    if replaced {
         move_all(
             std::slice::from_ref(&name),
             &write.account_dir,
-            &backup.join(RECORDS_BACKUP),
+            &records_backup,
             &mut |from, to| fs::rename(from, to),
         )
         .map_err(|failed| failed.error)?;
     }
-    write_destination_record(&write.account_dir, &record).map(drop)
+    // Logged before the write, so a record set aside is put back even when
+    // the new one can't be written.
+    changes.push(Change {
+        dir: write.account_dir.clone(),
+        relative: name,
+        backup_dir: replaced.then(|| records_backup.clone()),
+        undone_dir: undone_dir.clone(),
+    });
+    let path = write_destination_record(&write.account_dir, &record)?;
+    let local_id = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default();
+    if list_as_active(&write.account_dir, local_id, &records_backup)? {
+        changes.push(Change {
+            dir: write.account_dir,
+            relative: PathBuf::from(ARCHIVED_INDEX),
+            backup_dir: Some(records_backup),
+            undone_dir,
+        });
+    }
+    Ok(())
 }
 
 /// The transcripts a move of `owned` carries, the one shown last. All it
@@ -425,8 +595,10 @@ fn session_items(
             continue;
         };
         let config_dir = &holder.config_dir;
-        let plans = plan_slugs(&each.summary.path)
-            .into_iter()
+        let plans = each
+            .summary
+            .plan_slugs
+            .iter()
             .map(|slug| config_dir.join(PLANS_DIR).join(format!("{slug}.md")))
             .filter(|path| path.is_file());
         for path in bundle_paths(config_dir, &each.summary)
@@ -507,56 +679,44 @@ pub(super) fn memory_merges<'a>(
     merges
 }
 
-/// The plans the transcript at `path` wrote: the `slug` of its records, each
-/// the name of a `<config>/plans/<slug>.md`. Only names that stay in that
-/// folder count.
-pub(super) fn plan_slugs(path: &Path) -> BTreeSet<String> {
-    let Ok(file) = File::open(path) else {
-        return BTreeSet::new();
-    };
-    BufReader::new(file)
-        .lines()
-        .map_while(Result::ok)
-        .filter(|line| line.contains("\"slug\""))
-        .filter_map(|line| serde_json::from_str::<SlugRecord>(&line).ok()?.slug)
-        .filter(|slug| !slug.is_empty() && !slug.starts_with('.') && !slug.contains('/'))
-        .collect()
-}
-
-/// What the destination's desktop app does about `owned`, shown by
-/// `displayed` and working in `cwd`, with the record to write if one is. Only
-/// the records of the account the app is signed in to count as listing it:
-/// the app shows no other.
+/// What the destination's desktop app, with `records`, does about `owned`,
+/// shown by `displayed` and working in `cwd`, with the record to write if one
+/// is. Only the records of the account the app is signed in to count as
+/// listing it: the app shows no other. A session without a transcript or a
+/// folder to show can't have a record, so signing in wouldn't list it.
 fn desktop_step(
     owned: &Owned,
     destination: &Home,
+    records: &[DesktopRecord],
     displayed: Option<&TranscriptSummary>,
     cwd: Option<&str>,
 ) -> (DesktopAction, Option<RecordWrite>) {
     if !destination.gui_data_dir.is_dir() {
         return (DesktopAction::NoDesktop, None);
     }
+    let recordable = displayed.filter(|_| cwd.is_some());
     let Some(account_dir) = current_account_dir(destination) else {
+        if recordable.is_none() {
+            return (DesktopAction::NoDesktop, None);
+        }
         return (DesktopAction::SignInNeeded, None);
     };
     let source_local = owned.record.as_ref().map(|record| record.local_id.as_str());
     let session_id = owned.session_id.as_str();
-    let listed = read_records(&destination.gui_data_dir)
-        .iter()
-        .any(|record| {
-            !record.archived
-                && record.path.parent() == Some(account_dir.as_path())
-                && (Some(record.local_id.as_str()) == source_local
-                    || record.cli_session_id.as_deref() == Some(session_id)
-                    || record
-                        .prior_cli_session_ids
-                        .iter()
-                        .any(|id| id == session_id))
-        });
+    let listed = records.iter().any(|record| {
+        !record.archived
+            && record.path.parent() == Some(account_dir.as_path())
+            && (Some(record.local_id.as_str()) == source_local
+                || record.cli_session_id.as_deref() == Some(session_id)
+                || record
+                    .prior_cli_session_ids
+                    .iter()
+                    .any(|id| id == session_id))
+    });
     if listed {
         return (DesktopAction::AlreadyListed, None);
     }
-    let Some(displayed) = displayed.filter(|_| cwd.is_some()) else {
+    let Some(displayed) = recordable else {
         return (DesktopAction::NoDesktop, None);
     };
     let priors = owned
@@ -574,26 +734,28 @@ fn desktop_step(
     (DesktopAction::Add, Some(write))
 }
 
-/// The plan's one line: how many files move from `source` to `destination`.
-fn summary(items: &[Item], source: &Home, destination: &Home) -> String {
-    let moving = items
-        .iter()
-        .filter(|item| item.action != ItemAction::Same)
-        .count();
-    match moving {
-        0 => format!(
-            "{} has every file already; the session is archived in {}",
-            destination.label, source.label
-        ),
-        1 => format!(
-            "Moves 1 file from {} to {}",
-            source.label, destination.label
-        ),
-        count => format!(
-            "Moves {count} files from {} to {}",
-            source.label, destination.label
+/// The plan's one line: how many files, `moving`, and memory files,
+/// `memory`, move from `source` to `destination`.
+fn summary(moving: usize, memory: usize, source: &Home, destination: &Home) -> String {
+    let (from, to) = (&source.label, &destination.label);
+    match (moving, memory) {
+        (0, 0) => format!("{to} has every file already; the session is archived in {from}"),
+        (0, memory) => format!("Moves {} from {from} to {to}", files(memory, "memory file")),
+        (moving, 0) => format!("Moves {} from {from} to {to}", files(moving, "file")),
+        (moving, memory) => format!(
+            "Moves {} from {from} to {to}, and {}",
+            files(moving, "file"),
+            files(memory, "memory file")
         ),
     }
+}
+
+/// `count` of `noun`, pluralized: `1 file`, `2 files`.
+fn files(count: usize, noun: &str) -> String {
+    if count == 1 {
+        return format!("1 {noun}");
+    }
+    format!("{count} {noun}s")
 }
 
 /// What the user should know about the move that doesn't stop it: the
@@ -632,6 +794,7 @@ fn notes(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::fs::{self, File};
     use std::os::unix::fs::PermissionsExt;
     use std::time::{Duration, SystemTime};
@@ -648,7 +811,7 @@ mod tests {
     use crate::sessions::claude::desktop::read_records;
     use crate::sessions::claude::ownership::owned_by;
     use crate::sessions::list::home_scans;
-    use crate::test_support::fake_wrapper_process;
+    use crate::test_support::{fake_wrapper_process, tree};
 
     const WORK_ACCOUNT: &str = "1a19a582-d7b1-4f72-acef-cbe78c1a68e4";
     const WORK_ORG: &str = "18d53058-434e-4c78-9624-e290f7a80ccb";
@@ -801,7 +964,10 @@ mod tests {
         let work = home(root.path(), "Work");
         let personal = home(root.path(), "Personal");
         transcript(&work, "s", "2026-09-01T10:00:00Z", "/work/app");
-        write(&personal.config_dir.join("file-history/s/abc@v1"), "old");
+        // A copy of an earlier move, which kept its date.
+        let same = personal.config_dir.join("file-history/s/abc@v1");
+        write(&same, "old");
+        date(&same, SystemTime::UNIX_EPOCH + Duration::from_secs(WRITTEN));
         write(
             &personal
                 .config_dir
@@ -1060,7 +1226,16 @@ mod tests {
         );
         let homes = [work.clone(), personal.clone()];
 
-        let report = move_session(&work, &personal, &homes, "s").unwrap();
+        let prepared = plan(&work, &personal, &homes, "s", "").unwrap();
+
+        assert_eq!(
+            prepared.plan.summary,
+            "Moves 3 files from Work to Personal, and 1 memory file"
+        );
+        assert!(planned(&prepared.plan)
+            .contains(&("projects/-work-app/memory/style.md", ItemAction::Copy)));
+
+        let report = execute(prepared, "2026-09-23T08:15:00Z".parse().unwrap()).unwrap();
 
         assert_eq!(report.memory_conflicts, ["deploy.md"]);
         assert!(personal.config_dir.join(memory).join("style.md").exists());
@@ -1423,8 +1598,10 @@ mod tests {
         let moved = move_session(&work, &personal, &homes, "s");
 
         fs::set_permissions(&project, fs::Permissions::from_mode(0o755)).unwrap();
-        let message = match &moved {
-            Err(AppError::Validation(message)) => message.clone(),
+        let message = match moved {
+            Err(AppError::Io(error)) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                error.to_string()
+            }
             other => panic!("{other:?}"),
         };
         assert!(
@@ -1433,5 +1610,112 @@ mod tests {
         );
         assert!(message.starts_with("Permission denied"), "{message}");
         assert!(!project.join("s.jsonl").exists());
+        assert_eq!(
+            fs::read_to_string(personal.config_dir.join("file-history/s/abc@v1")).unwrap(),
+            "other"
+        );
+    }
+
+    /// Every file under `root`, with its contents, leaving out what the
+    /// move keeps in the archive folder.
+    fn outside_archive(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        let mut files = tree(root);
+        files.retain(|path, _| !path.starts_with(root.join("ai-profiles-archive")));
+        files
+    }
+
+    #[test]
+    fn a_move_that_fails_at_the_last_step_is_taken_back_at_the_destination() {
+        let root = tempdir().unwrap();
+        let work = home(root.path(), "Work");
+        let personal = home(root.path(), "Personal");
+        sign_in(&personal, PERSONAL_ACCOUNT, PERSONAL_ORG);
+        transcript(&work, "s", "2026-09-01T10:00:00Z", "/work/app");
+        record(&work, "r1", desktop_fields());
+        // Archiving at the source can't read its index, so fails last.
+        write(
+            &records_dir(&work, WORK_ACCOUNT, WORK_ORG).join("archived-sessions.idx"),
+            "not json",
+        );
+        write(&personal.config_dir.join("file-history/s/abc@v1"), "other");
+        let there = records_dir(&personal, PERSONAL_ACCOUNT, PERSONAL_ORG);
+        write(
+            &there.join("local_r1.json"),
+            &json!({ "cliSessionId": "s", "isArchived": true }).to_string(),
+        );
+        write(
+            &there.join("archived-sessions.idx"),
+            &json!({ "v": 1, "archived": ["local_r1"] }).to_string(),
+        );
+        let homes = [work.clone(), personal.clone()];
+        let (at_work, at_personal) = (
+            tree(&work.config_dir),
+            outside_archive(&personal.config_dir),
+        );
+        let records_before = tree(&personal.gui_data_dir);
+
+        let moved = move_session(&work, &personal, &homes, "s");
+
+        let message = moved.unwrap_err().message();
+        assert!(message.contains("The move was taken back"), "{message}");
+        assert!(
+            message.contains("ai-profiles-archive/.replaced/s/2026-09-23T08-15-00.000Z"),
+            "{message}"
+        );
+        assert_eq!(tree(&work.config_dir), at_work);
+        assert_eq!(outside_archive(&personal.config_dir), at_personal);
+        assert_eq!(tree(&personal.gui_data_dir), records_before);
+    }
+
+    #[test]
+    fn a_move_backs_up_the_index_it_rewrites() {
+        let root = tempdir().unwrap();
+        let work = home(root.path(), "Work");
+        let personal = home(root.path(), "Personal");
+        sign_in(&personal, PERSONAL_ACCOUNT, PERSONAL_ORG);
+        transcript(&work, "s", "2026-09-01T10:00:00Z", "/work/app");
+        record(&work, "r1", desktop_fields());
+        let index =
+            records_dir(&personal, PERSONAL_ACCOUNT, PERSONAL_ORG).join("archived-sessions.idx");
+        let listed = json!({ "v": 1, "archived": ["local_r1", "local_other"] }).to_string();
+        write(&index, &listed);
+        let homes = [work.clone(), personal.clone()];
+
+        move_session(&work, &personal, &homes, "s").unwrap();
+
+        let backup = personal
+            .config_dir
+            .join("ai-profiles-archive/.replaced/s/2026-09-23T08-15-00.000Z");
+        assert_eq!(
+            fs::read_to_string(backup.join("desktop-records/archived-sessions.idx")).unwrap(),
+            listed
+        );
+        assert_eq!(
+            read_value(&index),
+            json!({ "v": 1, "archived": ["local_other"] })
+        );
+    }
+
+    #[test]
+    fn a_session_that_cant_have_a_record_needs_no_sign_in() {
+        let root = tempdir().unwrap();
+        let work = home(root.path(), "Work");
+        let personal = home(root.path(), "Personal");
+        let line = json!({
+            "type": "user",
+            "sessionId": "s",
+            "timestamp": "2026-09-01T10:00:00Z",
+            "message": { "role": "user", "content": "Fix the login bug" },
+        });
+        write(
+            &work.config_dir.join("projects/-work-app/s.jsonl"),
+            &format!("{line}\n"),
+        );
+        let homes = [work.clone(), personal.clone()];
+
+        let plan = plan(&work, &personal, &homes, "s", "").unwrap().plan;
+
+        assert_eq!(plan.desktop, DesktopAction::NoDesktop);
+        assert_eq!(plan.notes, Vec::<String>::new());
     }
 }

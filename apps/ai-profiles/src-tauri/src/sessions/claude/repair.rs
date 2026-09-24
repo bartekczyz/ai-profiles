@@ -29,9 +29,7 @@ use super::ownership::{
     claimed_copy, claimed_ids, copies, owned_by, HeldTranscript, HomeScan, Owned,
 };
 use super::transcript::bundle_paths;
-use super::transfer::{
-    memory_merges, plan_slugs, refuse_running, relative_to, MemoryMerge, PLANS_DIR,
-};
+use super::transfer::{memory_merges, refuse_running, relative_to, MemoryMerge, PLANS_DIR};
 use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
 use crate::sessions::actions::{ActionCheck, AppToQuit, Checked};
@@ -428,7 +426,7 @@ fn session_repair(context: &Context, owned: &Owned) -> Result<SessionRepair, Str
             title.as_deref(),
             shown,
         )?);
-        for slug in plan_slugs(&held.summary.path) {
+        for slug in &held.summary.plan_slugs {
             let relative = Path::new(PLANS_DIR).join(format!("{slug}.md"));
             let from = holder.config_dir.join(&relative);
             let listed = plans.iter().any(|plan| plan.relative == relative);

@@ -409,11 +409,13 @@ export type PlannedItem = {
  */
 export type MovePlan = {
   /**
-   * One line saying what moves where: `Moves 3 files from Work to Personal`.
+   * One line saying what moves where: `Moves 3 files from Work to Personal,
+   * and 2 memory files`.
    */
   summary: string
   /**
-   * The files and folders the move copies, transcripts last.
+   * The files and folders the move copies, then the project memory files it
+   * copies, then the transcripts.
    */
   items: Array<PlannedItem>
   /**

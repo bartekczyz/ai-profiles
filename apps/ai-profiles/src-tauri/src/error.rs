@@ -36,6 +36,21 @@ impl AppError {
     }
 }
 
+impl AppError {
+    /// The error with its message rewritten by `rewrite`, of the same kind:
+    /// an I/O error keeps its [`std::io::ErrorKind`].
+    pub fn map_message(self, rewrite: impl FnOnce(String) -> String) -> AppError {
+        let message = rewrite(self.message());
+        match self {
+            AppError::Io(error) => AppError::Io(std::io::Error::new(error.kind(), message)),
+            AppError::Json(_) => AppError::Json(serde::de::Error::custom(message)),
+            AppError::Validation(_) => AppError::Validation(message),
+            AppError::NotFound(_) => AppError::NotFound(message),
+            AppError::NotInstalled(_) => AppError::NotInstalled(message),
+        }
+    }
+}
+
 impl Serialize for AppError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -67,6 +82,23 @@ mod tests {
         let json = serde_json::to_string(&error).unwrap();
         assert!(json.contains(r#""kind":"Validation""#));
         assert!(json.contains(r#""message":"bad name""#));
+    }
+
+    #[test]
+    fn an_error_says_more_and_keeps_its_kind() {
+        let io = AppError::Io(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "denied",
+        ))
+        .map_message(|message| format!("{message}. See /backup"));
+        let not_found = AppError::NotFound("gone".to_string()).map_message(|message| message + "!");
+
+        assert!(
+            matches!(&io, AppError::Io(error) if error.kind() == std::io::ErrorKind::PermissionDenied),
+            "{io:?}"
+        );
+        assert_eq!(io.message(), "denied. See /backup");
+        assert!(matches!(&not_found, AppError::NotFound(message) if message == "gone!"));
     }
 
     #[test]

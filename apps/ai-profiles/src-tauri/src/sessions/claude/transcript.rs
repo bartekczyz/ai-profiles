@@ -10,7 +10,7 @@
 //! transcript that grew since is read on from where reading stopped, and only
 //! lines that can hold a field read here are decoded at all.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::os::unix::fs::MetadataExt;
@@ -44,6 +44,10 @@ pub struct TranscriptSummary {
     pub last_prompt: Option<String>,
     /// The last record's `timestamp`, else when the file was last written.
     pub last_used_at: DateTime<Utc>,
+    /// The plans the session wrote: the `slug` of its records, each the name
+    /// of a `<config>/plans/<slug>.md`. Only names that stay in that folder
+    /// count.
+    pub plan_slugs: BTreeSet<String>,
 }
 
 /// How much of the first prompt a summary keeps.
@@ -52,8 +56,9 @@ const FIRST_PROMPT_MAX_CHARS: usize = 200;
 /// A line is only decoded if it contains one of these: every record read here
 /// carries one, and decoding the rest (tool output, file snapshots) is most of
 /// the cost of reading a transcript.
-const MARKERS: [&str; 6] = [
+const MARKERS: [&str; 7] = [
     "\"timestamp\"",
+    "\"slug\"",
     "\"custom-title\"",
     "\"ai-title\"",
     "\"last-prompt\"",
@@ -108,6 +113,8 @@ struct Scan {
     sidechain_seen: bool,
     /// A record of the session's own conversation was read.
     main_seen: bool,
+    /// The plans the session wrote.
+    plan_slugs: BTreeSet<String>,
 }
 
 /// The fields of a transcript record read here. Everything else is skipped
@@ -135,6 +142,8 @@ struct Record<'a> {
     last_prompt: Option<String>,
     /// Of a `relocated` record: the folder the session moved to.
     relocated_cwd: Option<String>,
+    /// The plan the record wrote: `<config>/plans/<slug>.md`.
+    slug: Option<String>,
     /// Of a message: the message, as it is written, read only when it may
     /// hold the first prompt.
     #[serde(borrow)]
@@ -214,16 +223,6 @@ pub fn scan_projects(config_dir: &Path) -> Vec<TranscriptSummary> {
     // the size of what is on disk.
     lock_cache().retain(|path, _| !path.starts_with(&projects) || scanned.contains(path));
     summaries
-}
-
-/// Read the summary of the transcript at `path`, all of it. `None` when it
-/// can't be read, or holds a subagent's records only.
-pub fn summarize(path: &Path) -> Option<TranscriptSummary> {
-    let file = File::open(path).ok()?;
-    let modified = file.metadata().ok()?.modified().ok()?;
-    let mut scan = Scan::default();
-    let (_, tail) = read_lines(BufReader::new(file), &mut scan);
-    finish(&scan, tail.as_deref(), path, modified).map(with_title_file)
 }
 
 /// The files and folders that make up `summary`'s session in `config_dir`,
@@ -356,6 +355,12 @@ impl Scan {
         if record.timestamp.is_some() {
             self.last_timestamp = record.timestamp;
         }
+        if let Some(slug) = record
+            .slug
+            .filter(|slug| !slug.is_empty() && !slug.starts_with('.') && !slug.contains('/'))
+        {
+            self.plan_slugs.insert(slug);
+        }
         match record.kind.as_deref() {
             Some(kind @ ("user" | "assistant")) => {
                 if record.cwd.is_some() {
@@ -404,6 +409,7 @@ impl Scan {
             first_prompt: self.first_prompt.clone(),
             last_prompt: self.last_prompt.clone(),
             last_used_at,
+            plan_slugs: self.plan_slugs.clone(),
         })
     }
 }
@@ -457,6 +463,17 @@ mod tests {
     use super::*;
 
     const SESSION: &str = "0b7c5a1e-4f7a-4c55-9d1e-3a2b1c0d9e8f";
+
+    /// Read the summary of the transcript at `path`, all of it, past the
+    /// cache. `None` when it can't be read, or holds a subagent's records
+    /// only.
+    fn summarize(path: &Path) -> Option<TranscriptSummary> {
+        let file = File::open(path).ok()?;
+        let modified = file.metadata().ok()?.modified().ok()?;
+        let mut scan = Scan::default();
+        let (_, tail) = read_lines(BufReader::new(file), &mut scan);
+        finish(&scan, tail.as_deref(), path, modified).map(with_title_file)
+    }
 
     /// Writes `lines` to `path`, one JSON record per line, making its folder.
     fn write_lines(path: &Path, lines: &[Value]) {
@@ -578,6 +595,32 @@ mod tests {
         let first_prompt = summarize(&path).unwrap().first_prompt.unwrap();
 
         assert_eq!(first_prompt, "é".repeat(200));
+    }
+
+    #[test]
+    fn the_plans_a_transcript_wrote_are_the_slugs_that_stay_in_the_plans_folder() {
+        let root = tempdir().unwrap();
+        let path = transcript_path(root.path(), SESSION);
+        let slug = |slug: &str| {
+            let mut record = assistant("2026-09-01T10:01:00Z", "/work");
+            record["slug"] = json!(slug);
+            record
+        };
+        write_lines(
+            &path,
+            &[
+                user("2026-09-01T10:00:00Z", "/work", json!("Plan it")),
+                slug("bold-plan"),
+                slug("../escape"),
+                slug(".hidden"),
+                slug("bold-plan"),
+                slug("second"),
+            ],
+        );
+
+        let plans: Vec<String> = summarize(&path).unwrap().plan_slugs.into_iter().collect();
+
+        assert_eq!(plans, ["bold-plan", "second"]);
     }
 
     #[test]

@@ -206,6 +206,7 @@ fn record_session(record: &DesktopRecord, home_id: &str, copies: &Copies) -> Opt
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::path::PathBuf;
 
     use chrono::DateTime;
@@ -232,6 +233,7 @@ mod tests {
             first_prompt: None,
             last_prompt: None,
             last_used_at: DateTime::from_timestamp(used_at, 0).unwrap(),
+            plan_slugs: BTreeSet::new(),
         }
     }
 

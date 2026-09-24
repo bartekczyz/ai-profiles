@@ -8,6 +8,7 @@
 
 #![cfg(test)]
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
@@ -127,3 +128,23 @@ fn write_executable(path: &Path, body: &str) {
 /// What `spawn` reports when the file being run has only just been written and
 /// another test thread was forking at the time.
 const TEXT_FILE_BUSY: i32 = 26;
+
+/// Every file under `root`, with its contents. Empty folders don't show.
+pub(crate) fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    let mut files = BTreeMap::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if entry.file_type().unwrap().is_dir() {
+                pending.push(path);
+            } else {
+                files.insert(path.clone(), fs::read(&path).unwrap());
+            }
+        }
+    }
+    files
+}

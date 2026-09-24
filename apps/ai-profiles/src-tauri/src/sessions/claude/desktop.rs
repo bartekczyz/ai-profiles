@@ -16,6 +16,8 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
+use super::archive_store::occupied;
+use super::copy::place_new;
 use super::non_blank;
 use super::transcript::TranscriptSummary;
 use crate::error::{AppError, AppResult};
@@ -26,7 +28,7 @@ use crate::sessions::Home;
 const RECORDS_DIR: &str = "claude-code-sessions";
 
 /// The file in each `<account>/<org>` folder listing its archived records.
-const ARCHIVED_INDEX: &str = "archived-sessions.idx";
+pub(super) const ARCHIVED_INDEX: &str = "archived-sessions.idx";
 
 /// Record fields that belong to the account a session last ran under, not to
 /// the session: its connectors, the folders and tools approved in that app,
@@ -212,28 +214,54 @@ pub fn set_archived(record: &DesktopRecord, archived: bool) -> AppResult<()> {
         .parent()
         .ok_or_else(|| unexpected(&record.path))?
         .join(ARCHIVED_INDEX);
-    let mut index = match fs::read_to_string(&index_path) {
+    let index = index_update(&index_path, &record.local_id, archived)?;
+    replace_file(&record.path, &fields.to_string())?;
+    match index {
+        Some(index) => write_index(&index_path, &index, None),
+        None => Ok(()),
+    }
+}
+
+/// The archived index at `index_path` changed to list record `local_id` as
+/// archived or not, as `archived` says, or `None` when it does already. A
+/// missing index is made only to list one; one that can't be read, or isn't
+/// shaped as expected, is an error.
+fn index_update(index_path: &Path, local_id: &str, archived: bool) -> AppResult<Option<Value>> {
+    let mut index = match fs::read_to_string(index_path) {
         Ok(text) => serde_json::from_str(&text)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && archived => {
             json!({ "v": 1, "archived": [] })
         }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
     let ids = index
         .as_object_mut()
-        .ok_or_else(|| unexpected(&index_path))?
+        .ok_or_else(|| unexpected(index_path))?
         .entry("archived")
         .or_insert_with(|| Value::Array(Vec::new()))
         .as_array_mut()
-        .ok_or_else(|| unexpected(&index_path))?;
-    let local_id = Value::String(record.local_id.clone());
-    if !archived {
-        ids.retain(|id| *id != local_id);
-    } else if !ids.contains(&local_id) {
-        ids.push(local_id);
+        .ok_or_else(|| unexpected(index_path))?;
+    let id = Value::String(local_id.to_string());
+    if ids.contains(&id) == archived {
+        return Ok(None);
     }
-    replace_file(&record.path, &fields.to_string())?;
-    replace_file(&index_path, &index.to_string())
+    if archived {
+        ids.push(id);
+    } else {
+        ids.retain(|each| *each != id);
+    }
+    Ok(Some(index))
+}
+
+/// Replace the archived index at `index_path` with `index`, an
+/// [`index_update`] of it. The one there is copied into `backup` first, when
+/// given, under the same name.
+fn write_index(index_path: &Path, index: &Value, backup: Option<&Path>) -> AppResult<()> {
+    if let Some(backup) = backup.filter(|_| occupied(index_path)) {
+        place_new(index_path, &backup.join(ARCHIVED_INDEX))?;
+    }
+    replace_file(index_path, &index.to_string())
 }
 
 /// The record another home's desktop app gets of a session moved to it,
@@ -295,9 +323,9 @@ pub fn build_destination_record(
 }
 
 /// Write `record`, built by [`build_destination_record`], into `account_dir`
-/// as `<sessionId>.json`, replacing it whole, and take its id out of the
-/// folder's `archived-sessions.idx` if listed there, so it shows as active.
-/// Returns its path.
+/// as `<sessionId>.json`, replacing it whole. Returns its path. Take its id
+/// out of the folder's archived index with [`list_as_active`] for it to show
+/// as active.
 ///
 /// The desktop app keeps its records in memory and writes them back, so it
 /// must not be running.
@@ -310,19 +338,23 @@ pub fn write_destination_record(account_dir: &Path, record: &Value) -> AppResult
     fs::create_dir_all(account_dir)?;
     let path = account_dir.join(format!("{local_id}.json"));
     replace_file(&path, &record.to_string())?;
-    let index_path = account_dir.join(ARCHIVED_INDEX);
-    let Some(mut index) = read_json(&index_path) else {
-        return Ok(path);
-    };
-    let Some(ids) = index.get_mut("archived").and_then(Value::as_array_mut) else {
-        return Ok(path);
-    };
-    let listed = ids.len();
-    ids.retain(|id| id.as_str() != Some(local_id));
-    if ids.len() != listed {
-        replace_file(&index_path, &index.to_string())?;
-    }
     Ok(path)
+}
+
+/// Take record `local_id` out of `account_dir`'s archived index if it lists
+/// it, so the record shows as active, copying the index into `backup` before
+/// it is rewritten. An index that can't be read is left as it is, as the app
+/// would read it no better. Returns whether the index was rewritten.
+///
+/// The desktop app keeps its records in memory and writes them back, so it
+/// must not be running.
+pub fn list_as_active(account_dir: &Path, local_id: &str, backup: &Path) -> AppResult<bool> {
+    let index_path = account_dir.join(ARCHIVED_INDEX);
+    let Ok(Some(index)) = index_update(&index_path, local_id, false) else {
+        return Ok(false);
+    };
+    write_index(&index_path, &index, Some(backup))?;
+    Ok(true)
 }
 
 /// The account a record at `path` belongs to: its `<account>` folder.
@@ -858,6 +890,7 @@ mod tests {
             first_prompt: Some("fix it".to_string()),
             last_prompt: None,
             last_used_at: DateTime::from_timestamp_millis(1_790_113_004_345).unwrap(),
+            plan_slugs: Default::default(),
         }
     }
 
@@ -942,8 +975,14 @@ mod tests {
         let record = json!({ "sessionId": "local_aaa", "cliSessionId": "s", "isArchived": false });
 
         let path = write_destination_record(&dir, &record).unwrap();
+        let rewritten = list_as_active(&dir, "local_aaa", &root.path().join("backup")).unwrap();
 
         assert_eq!(path, dir.join("local_aaa.json"));
+        assert!(rewritten);
+        assert_eq!(
+            read_value(&root.path().join("backup").join(ARCHIVED_INDEX)),
+            json!({ "v": 1, "archived": ["local_other", "local_aaa"] })
+        );
         assert_eq!(read_value(&path), record);
         assert_eq!(
             read_value(&dir.join(ARCHIVED_INDEX)),

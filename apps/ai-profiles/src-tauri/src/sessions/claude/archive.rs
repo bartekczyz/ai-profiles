@@ -7,6 +7,7 @@
 //! The session is looked up afresh from disk for every check, so nothing the
 //! frontend holds decides what is written.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use chrono::Utc;
@@ -16,7 +17,7 @@ use super::archive_store::{
 };
 use super::desktop::{set_archived, DesktopRecord};
 use super::live::LiveHolder;
-use super::ownership::owned_by;
+use super::ownership::{owned_by, HomeScan};
 use super::transcript::bundle_paths;
 use crate::error::{AppError, AppResult};
 use crate::sessions::actions::{ActionCheck, AppToQuit, Checked, SessionAction};
@@ -63,7 +64,29 @@ pub fn check(
     action: SessionAction,
     ps_output: &str,
 ) -> AppResult<Checked<Target>> {
-    let owned = owned_by(&home.id, &home_scans(homes))
+    let live = live_anywhere(homes, ps_output);
+    check_scanned(
+        home,
+        &home_scans(homes),
+        &live,
+        session_id,
+        action,
+        ps_output,
+    )
+}
+
+/// [`check`], given what every home of the app holds, `scans`, and the
+/// sessions `live` in any of them, as a move that archives the session read
+/// them already.
+pub(super) fn check_scanned(
+    home: &Home,
+    scans: &[HomeScan],
+    live: &HashMap<String, LiveHolder>,
+    session_id: &str,
+    action: SessionAction,
+    ps_output: &str,
+) -> AppResult<Checked<Target>> {
+    let owned = owned_by(&home.id, scans)
         .into_iter()
         .find(|owned| owned.session_id == session_id);
     let (target, transcript_ids) = match owned {
@@ -103,7 +126,6 @@ pub fn check(
         }
         None => return Err(not_found(session_id, home)),
     };
-    let live = live_anywhere(homes, ps_output);
     let open_in_terminal = transcript_ids
         .iter()
         .any(|id| live.get(id) == Some(&LiveHolder::Terminal));
