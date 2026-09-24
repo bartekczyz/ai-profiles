@@ -7,10 +7,15 @@
 //! place, and the transcript is copied last, so a move cut short leaves the
 //! destination without a session rather than with half of one.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::process::Command;
+use std::time::{Duration, SystemTime};
 
+use ai_profiles_core::api::TransferMemoryFile;
+use ai_profiles_core::child::run_within;
+use ai_profiles_core::memory::{self, Decision, MemoryAction, Side};
 use serde::{Deserialize, Serialize};
 
 use super::archive::{archive_files, move_into};
@@ -46,6 +51,10 @@ pub struct TransferRequest {
     /// Quit the apps the plan lists in `apps_to_quit` first.
     #[serde(default)]
     pub quit_apps: bool,
+    /// What to keep of each memory note both profiles changed, by its path in
+    /// the memory folder: every conflict the plan lists needs one.
+    #[serde(default)]
+    pub memory: HashMap<String, Decision>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -104,6 +113,13 @@ pub struct TransferPlan {
     /// What deleting the source's copy afterwards (`delete_source`) frees,
     /// in bytes.
     pub source_bytes: u64,
+    /// What archiving the source's copy afterwards takes, in bytes, before
+    /// compression: the transcript and the desktop app's records, which are
+    /// all an archive holds.
+    pub archive_bytes: u64,
+    /// The project's memory, file by file: what the move does with each, and
+    /// the notes both profiles changed, for the user to decide.
+    pub memory: Vec<TransferMemoryFile>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -121,10 +137,8 @@ pub struct TransferReport {
     /// Why the source's copy was kept although deleting it was asked for:
     /// the move itself is done.
     pub delete_error: Option<String>,
-    /// Memory files the destination did not have, now copied.
-    pub memory_copied: Vec<String>,
-    /// Memory files both sides changed differently. The destination's are kept.
-    pub memory_conflicts: Vec<String>,
+    /// What merging the project's memory did, one line per file.
+    pub memory: Vec<String>,
 }
 
 struct Item {
@@ -142,9 +156,11 @@ struct Prepared {
     items: Vec<Item>,
     source_transcript: PathBuf,
     source_project: String,
-    destination_project: String,
     source_records: Vec<DesktopRecord>,
     destination_records_dir: Option<PathBuf>,
+    source_memory: PathBuf,
+    destination_memory: PathBuf,
+    memory_base: PathBuf,
 }
 
 /// What moving the session would do, without doing any of it.
@@ -194,7 +210,15 @@ pub fn transfer(
             plan.destination_label
         )));
     }
-    execute(&prepared, afterwards, &steps)
+    // Before anything is copied: an undecided note would stop the move half
+    // way.
+    if let Some(undecided) = first_undecided(plan, &request.memory) {
+        return Err(AppError::Validation(format!(
+            "memory/{} differs, and both profiles changed it: say which to keep.",
+            undecided.path
+        )));
+    }
+    execute(&prepared, &request.memory, afterwards, &steps)
 }
 
 /// How far a move has got, as the dialog shows it while it runs: its steps,
@@ -447,7 +471,39 @@ fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
         }
     }
 
+    let source_memory = source
+        .config_dir
+        .join("projects")
+        .join(&source_project)
+        .join("memory");
+    let destination_memory = destination
+        .config_dir
+        .join("projects")
+        .join(&destination_project)
+        .join("memory");
+    let memory_base = memory_base(&source_project)?;
+    let memory_plan = if source_memory.is_dir() {
+        memory::plan_memory(&source_memory, &destination_memory, &memory_base)
+    } else {
+        Vec::new()
+    };
+
     let plan = TransferPlan {
+        memory: memory_plan
+            .into_iter()
+            .map(|file| {
+                let conflict = file.action == MemoryAction::Conflict;
+                TransferMemoryFile {
+                    source_text: conflict
+                        .then(|| memory::read_lossy(&source_memory.join(&file.rel))),
+                    destination_text: conflict
+                        .then(|| memory::read_lossy(&destination_memory.join(&file.rel))),
+                    path: file.rel,
+                    action: file.action,
+                    newer: file.newer,
+                }
+            })
+            .collect(),
         session_id: id.to_string(),
         title: source_records
             .iter()
@@ -469,6 +525,11 @@ fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
         blockers,
         apps_to_quit,
         notes,
+        archive_bytes: size_of(&source_transcript)
+            + source_records
+                .iter()
+                .map(|record| size_of(&record.path))
+                .sum::<u64>(),
         source_bytes: items
             .iter()
             .filter(|item| session_own(item))
@@ -484,10 +545,110 @@ fn prepare(request: &TransferRequest) -> AppResult<Prepared> {
         items,
         source_transcript,
         source_project,
-        destination_project,
         source_records,
         destination_records_dir,
+        source_memory,
+        destination_memory,
+        memory_base,
     })
+}
+
+/// How long Claude gets to merge a note.
+const MERGE_TIMEOUT: Duration = Duration::from_secs(170);
+
+/// Ask Claude, as the destination profile, to merge the two versions of
+/// memory note `path` that the move `request` would otherwise have the user
+/// choose between, the way claudemulti does: no tools, no saved session, and
+/// in safe mode, so no CLAUDE.md, hooks, plugins or MCP servers, from an
+/// empty folder of ai-profiles' own. Returns the merge, for the user to
+/// accept or not.
+pub fn merge_with_claude(request: &TransferRequest, path: &str) -> AppResult<String> {
+    let prepared = prepare(request)?;
+    let plan = &prepared.plan;
+    let file = plan
+        .memory
+        .iter()
+        .find(|file| file.path == path && file.action == MemoryAction::Conflict)
+        .ok_or_else(|| {
+            AppError::Validation("That memory file isn't one the move needs merged.".into())
+        })?;
+    let claude = crate::deps::resolve_cli_binary_path("claude").ok_or_else(|| {
+        AppError::NotFound("Claude Code (claude) isn't installed on this Mac.".into())
+    })?;
+    let (source, destination) = (&plan.source_label, &plan.destination_label);
+    let newer = match file.newer {
+        Side::Source => source,
+        Side::Destination => destination,
+    };
+    let prompt = memory::claude_merge_prompt(
+        newer,
+        destination,
+        file.destination_text.as_deref().unwrap_or_default(),
+        source,
+        file.source_text.as_deref().unwrap_or_default(),
+    );
+    let scratch = crate::paths::app_data_dir()?.join(format!("merge-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&scratch)?;
+    let mut command = Command::new(&claude);
+    command
+        .args([
+            "-p",
+            "--safe-mode",
+            "--no-session-persistence",
+            "--tools",
+            "",
+            "--strict-mcp-config",
+        ])
+        .current_dir(&scratch)
+        .env("PATH", crate::deps::shell_path());
+    if prepared.destination.stock {
+        command.env_remove("CLAUDE_CONFIG_DIR");
+    } else {
+        command.env("CLAUDE_CONFIG_DIR", &prepared.destination.config_dir);
+    }
+    let finished = run_within(&mut command, prompt.into_bytes(), MERGE_TIMEOUT);
+    let _ = fs::remove_dir_all(&scratch);
+    let finished = finished?.ok_or_else(|| {
+        AppError::Validation(format!(
+            "Claude took more than {} seconds to merge it.",
+            MERGE_TIMEOUT.as_secs()
+        ))
+    })?;
+    finished
+        .status
+        .success()
+        .then(|| memory::clean_claude_merge(&String::from_utf8_lossy(&finished.stdout)))
+        .flatten()
+        .ok_or_else(|| {
+            AppError::Validation(format!(
+                "Claude couldn't merge it: {}",
+                String::from_utf8_lossy(&finished.stderr)
+                    .lines()
+                    .next()
+                    .unwrap_or("no answer")
+            ))
+        })
+}
+
+/// The first memory note the plan needs decided that `decisions` doesn't
+/// settle.
+fn first_undecided<'a>(
+    plan: &'a TransferPlan,
+    decisions: &HashMap<String, Decision>,
+) -> Option<&'a TransferMemoryFile> {
+    plan.memory
+        .iter()
+        .find(|file| file.action == MemoryAction::Conflict && !decisions.contains_key(&file.path))
+}
+
+/// Where the version of a project's memory both profiles last had in common
+/// is kept, as claudemulti keeps it beside its accounts: in ai-profiles' own
+/// folder, where no Claude loads it. Named after the source's project, and
+/// updated from it on every move.
+fn memory_base(project: &str) -> AppResult<PathBuf> {
+    Ok(crate::paths::app_data_dir()?
+        .join("memory-base")
+        .join(project))
 }
 
 /// The one transcript of session `id` in `home`, as (project, path).
@@ -591,6 +752,7 @@ fn item(from: PathBuf, destination: &Home, rel: PathBuf) -> AppResult<Item> {
 
 fn execute(
     prepared: &Prepared,
+    decisions: &HashMap<String, Decision>,
     afterwards: Afterwards,
     steps: &Steps,
 ) -> AppResult<TransferReport> {
@@ -617,24 +779,19 @@ fn execute(
         copy_into_place(&item.from, &item.to)?;
     }
 
-    let memory = merge_memory(
-        &prepared
-            .source
-            .config_dir
-            .join("projects")
-            .join(&prepared.source_project)
-            .join("memory"),
-        &prepared
-            .destination
-            .config_dir
-            .join("projects")
-            .join(&prepared.destination_project)
-            .join("memory"),
-        &backup_root
-            .join("projects")
-            .join(&prepared.destination_project)
-            .join("memory"),
-    )?;
+    let memory = if prepared.source_memory.is_dir() {
+        memory::apply_memory(
+            &prepared.source_memory,
+            &prepared.destination_memory,
+            &prepared.memory_base,
+            &prepared.destination.config_dir,
+            &backup_root,
+            decisions,
+            (&prepared.source.label, &prepared.destination.label),
+        )?
+    } else {
+        memory::MemoryReport::default()
+    };
     backed_up |= memory.backed_up;
 
     steps.at(Step::Desktop);
@@ -711,95 +868,8 @@ fn execute(
         backup_dir: backed_up.then(|| backup_root.display().to_string()),
         desktop_record,
         archived_to,
-        memory_copied: memory.copied,
-        memory_conflicts: memory.conflicts,
+        memory: memory.lines,
     })
-}
-
-#[derive(Default)]
-struct MemoryMerge {
-    copied: Vec<String>,
-    conflicts: Vec<String>,
-    backed_up: bool,
-}
-
-/// Bring the source project's memory into the destination's without losing
-/// anything the destination has: missing files are copied, identical ones
-/// left, and ones that differ kept as the destination has them and reported.
-/// `MEMORY.md`, the index, gains the source's lines it lacks that point at
-/// files the destination now has.
-fn merge_memory(from: &Path, to: &Path, backup: &Path) -> AppResult<MemoryMerge> {
-    let mut merge = MemoryMerge::default();
-    let Ok(entries) = fs::read_dir(from) else {
-        return Ok(merge);
-    };
-    let mut names: Vec<String> = entries
-        .flatten()
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| name != "MEMORY.md")
-        .collect();
-    names.sort();
-    for name in names {
-        let source = from.join(&name);
-        let target = to.join(&name);
-        if !target.exists() {
-            copy_into_place(&source, &target)?;
-            merge.copied.push(name);
-        } else if !identical(&source, &target)? {
-            merge.conflicts.push(name);
-        }
-    }
-
-    let source_index = from.join("MEMORY.md");
-    let target_index = to.join("MEMORY.md");
-    if source_index.is_file() {
-        if !target_index.exists() {
-            copy_into_place(&source_index, &target_index)?;
-            merge.copied.push("MEMORY.md".to_string());
-        } else {
-            let theirs = fs::read_to_string(&source_index)?;
-            let ours = fs::read_to_string(&target_index)?;
-            let merged = merge_index(&ours, &theirs, |file| to.join(file).exists());
-            if merged != ours {
-                fs::create_dir_all(backup)?;
-                fs::copy(&target_index, backup.join("MEMORY.md"))?;
-                merge.backed_up = true;
-                write_into_place(&target_index, merged.as_bytes())?;
-            }
-        }
-    }
-    Ok(merge)
-}
-
-/// `ours` plus every line of `theirs` it lacks, except index lines pointing at
-/// a file `exists` says is missing.
-fn merge_index(ours: &str, theirs: &str, exists: impl Fn(&str) -> bool) -> String {
-    let have: std::collections::HashSet<&str> = ours.lines().map(str::trim_end).collect();
-    let mut merged = ours.to_string();
-    for line in theirs.lines() {
-        let line = line.trim_end();
-        if line.trim().is_empty() || have.contains(line) {
-            continue;
-        }
-        if linked_file(line).is_some_and(|file| !exists(file)) {
-            continue;
-        }
-        if !merged.is_empty() && !merged.ends_with('\n') {
-            merged.push('\n');
-        }
-        merged.push_str(line);
-        merged.push('\n');
-    }
-    merged
-}
-
-/// The file a `- [Title](file.md) — hook` index line links to.
-fn linked_file(line: &str) -> Option<&str> {
-    let start = line.find("](")? + 2;
-    let end = start + line[start..].find(')')?;
-    let file = &line[start..end];
-    (is_safe_name(file) && file.ends_with(".md")).then_some(file)
 }
 
 fn modified(path: &Path) -> SystemTime {
@@ -861,13 +931,6 @@ fn copy_into_place(from: &Path, to: &Path) -> AppResult<()> {
     let tmp = temp_path(to);
     remove_any(&tmp)?;
     copy_any(from, &tmp)?;
-    fs::rename(&tmp, to)?;
-    Ok(())
-}
-
-fn write_into_place(to: &Path, bytes: &[u8]) -> AppResult<()> {
-    let tmp = temp_path(to);
-    fs::write(&tmp, bytes)?;
     fs::rename(&tmp, to)?;
     Ok(())
 }
@@ -1033,7 +1096,7 @@ mod tests {
         );
 
         let steps = Steps::of(&prepared.plan, false, Afterwards::Keep, &report);
-        execute(&prepared, Afterwards::Keep, &steps).unwrap();
+        execute(&prepared, &HashMap::new(), Afterwards::Keep, &steps).unwrap();
         let said = said.borrow();
         assert_eq!(
             said.iter()
@@ -1077,6 +1140,8 @@ mod tests {
                 apps_to_quit: Vec::new(),
                 notes: Vec::new(),
                 source_bytes: 0,
+                archive_bytes: 0,
+                memory: Vec::new(),
             },
             source,
             destination,
@@ -1084,7 +1149,9 @@ mod tests {
             items: found,
             source_transcript,
             source_project: "-work".into(),
-            destination_project: "-work".into(),
+            source_memory: dir.join("a/cli-config/projects/-work/memory"),
+            destination_memory: dir.join("b/cli-config/projects/-work/memory"),
+            memory_base: dir.join("memory-base/-work"),
             source_records,
             destination_records_dir: Some(records_dir),
         }
@@ -1101,7 +1168,7 @@ mod tests {
             ),
         );
         let prepared = prepared(dir.path());
-        let report = execute(&prepared, Afterwards::Archive, &quiet()).unwrap();
+        let report = execute(&prepared, &HashMap::new(), Afterwards::Archive, &quiet()).unwrap();
 
         let destination = &prepared.destination.config_dir;
         assert_eq!(
@@ -1129,7 +1196,7 @@ mod tests {
         let archived = PathBuf::from(report.archived_to.unwrap());
         assert!(!prepared.source_transcript.exists());
         assert!(archived
-            .join(format!("projects/-work/{ID}.jsonl"))
+            .join(format!("projects/-work/{ID}.jsonl.gz"))
             .is_file());
         assert!(archived
             .join("desktop-records/acct/org/local_old.json")
@@ -1163,7 +1230,7 @@ mod tests {
             "stale copy",
         );
         let prepared = prepared(dir.path());
-        let report = execute(&prepared, Afterwards::Keep, &quiet()).unwrap();
+        let report = execute(&prepared, &HashMap::new(), Afterwards::Keep, &quiet()).unwrap();
         let backup = PathBuf::from(report.backup_dir.unwrap());
         assert_eq!(
             fs::read_to_string(backup.join(format!("projects/-work/{ID}.jsonl"))).unwrap(),
@@ -1182,7 +1249,7 @@ mod tests {
             &format!(r#"{{"sessionId":"local_old","cliSessionId":"{ID}","title":"Audit"}}"#),
         );
         let prepared = prepared(dir.path());
-        let report = execute(&prepared, Afterwards::Delete, &quiet()).unwrap();
+        let report = execute(&prepared, &HashMap::new(), Afterwards::Delete, &quiet()).unwrap();
 
         let source = &prepared.source.config_dir;
         assert_eq!(report.delete_error, None);
@@ -1232,46 +1299,65 @@ mod tests {
     }
 
     #[test]
-    fn memory_merge_keeps_the_destinations_changes() {
+    fn execute_merges_memory_as_decided_and_remembers_the_common_version() {
         let dir = tempfile::tempdir().unwrap();
-        let (from, to, backup) = (
-            dir.path().join("from"),
-            dir.path().join("to"),
-            dir.path().join("backup"),
+        let memory = |side: &str, file: &str| {
+            dir.path()
+                .join(side)
+                .join("cli-config/projects/-work/memory")
+                .join(file)
+        };
+        write(&memory("a", "rules.md"), "a's rule\n");
+        write(&memory("a", "new.md"), "new\n");
+        write(&memory("b", "rules.md"), "b's rule\n");
+        let mut prepared = prepared(dir.path());
+        prepared.plan.memory = memory::plan_memory(
+            &prepared.source_memory,
+            &prepared.destination_memory,
+            &prepared.memory_base,
+        )
+        .into_iter()
+        .map(|file| TransferMemoryFile {
+            path: file.rel,
+            action: file.action,
+            newer: file.newer,
+            source_text: None,
+            destination_text: None,
+        })
+        .collect();
+        // Never moved before: no common version, so both changed it.
+        let rules = prepared
+            .plan
+            .memory
+            .iter()
+            .find(|file| file.path == "rules.md")
+            .unwrap();
+        assert_eq!(rules.action, MemoryAction::Conflict);
+        assert_eq!(
+            first_undecided(&prepared.plan, &HashMap::new()).map(|file| file.path.as_str()),
+            Some("rules.md")
         );
-        write(&from.join("new.md"), "new");
-        write(&from.join("same.md"), "same");
-        write(&from.join("changed.md"), "source");
-        write(
-            &from.join("MEMORY.md"),
-            "- [Same](same.md) — s\n- [New](new.md) — n\n- [Gone](gone.md) — g\n",
-        );
-        write(&to.join("same.md"), "same");
-        write(&to.join("changed.md"), "destination");
-        write(&to.join("MEMORY.md"), "- [Same](same.md) — s\n");
 
-        let merge = merge_memory(&from, &to, &backup).unwrap();
-        assert_eq!(merge.copied, vec!["new.md".to_string()]);
-        assert_eq!(merge.conflicts, vec!["changed.md".to_string()]);
+        let decisions = HashMap::from([("rules.md".to_string(), Decision::Source)]);
+        assert!(first_undecided(&prepared.plan, &decisions).is_none());
+        let report = execute(&prepared, &decisions, Afterwards::Keep, &quiet()).unwrap();
         assert_eq!(
-            fs::read_to_string(to.join("changed.md")).unwrap(),
-            "destination"
+            fs::read_to_string(memory("b", "rules.md")).unwrap(),
+            "a's rule\n"
         );
+        assert_eq!(fs::read_to_string(memory("b", "new.md")).unwrap(), "new\n");
+        let backup = PathBuf::from(report.backup_dir.expect("b's note was backed up"));
         assert_eq!(
-            fs::read_to_string(to.join("MEMORY.md")).unwrap(),
-            "- [Same](same.md) — s\n- [New](new.md) — n\n"
+            fs::read_to_string(backup.join("projects/-work/memory/rules.md")).unwrap(),
+            "b's rule\n"
         );
+        assert!(!report.memory.is_empty());
+        // The common version now: next time, a note only one side changed
+        // merges without asking.
         assert_eq!(
-            fs::read_to_string(backup.join("MEMORY.md")).unwrap(),
-            "- [Same](same.md) — s\n"
+            fs::read_to_string(prepared.memory_base.join("rules.md")).unwrap(),
+            "a's rule\n"
         );
-    }
-
-    #[test]
-    fn linked_file_reads_index_lines() {
-        assert_eq!(linked_file("- [A](a.md) — hook"), Some("a.md"));
-        assert_eq!(linked_file("- [A](../a.md)"), None);
-        assert_eq!(linked_file("plain text"), None);
     }
 
     #[test]

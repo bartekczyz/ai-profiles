@@ -15,30 +15,13 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::Value;
 
+pub use ai_profiles_core::account::ProfileAccount;
+use ai_profiles_core::account::{account_from_claude_json, pretty_plan};
+
 use crate::app_kind::AppKind;
 use crate::error::AppResult;
 use crate::paths::{cli_config_dir, stock_cli_config_dir};
 use crate::profiles;
-
-/// The account a profile is signed in under. Every field is optional: the
-/// files differ per app and per sign-in age, and a missing name is better
-/// than a wrong one.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfileAccount {
-    pub email: Option<String>,
-    /// The person's name, as the app recorded it.
-    pub name: Option<String>,
-    pub organization: Option<String>,
-    /// The subscription, e.g. "Max" or "Pro".
-    pub plan: Option<String>,
-}
-
-impl ProfileAccount {
-    fn is_empty(&self) -> bool {
-        *self == ProfileAccount::default()
-    }
-}
 
 /// Whether a profile is signed in, and as whom, as far as its files say.
 ///
@@ -199,26 +182,6 @@ fn claude_status(config_dir: &Path, gui_data: &Path) -> AccountStatus {
     }
 }
 
-/// Pure: the account in a parsed `.claude.json`, if it names one.
-fn account_from_claude_json(document: &Value) -> Option<ProfileAccount> {
-    let oauth = document.get("oauthAccount")?;
-    let text = |key: &str| {
-        oauth
-            .get(key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-    };
-    let account = ProfileAccount {
-        email: text("emailAddress"),
-        name: text("displayName").or_else(|| text("fullName")),
-        organization: text("organizationName"),
-        plan: text("organizationType").as_deref().map(pretty_plan),
-    };
-    (!account.is_empty()).then_some(account)
-}
-
 /// Codex keeps the account in the ID token in `auth.json`, under `CODEX_HOME`.
 fn codex_account(config_dir: &Path) -> Option<ProfileAccount> {
     let document = read_json(&config_dir.join("auth.json"))?;
@@ -291,20 +254,6 @@ fn base64_url_decode(text: &str) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-/// A plan token from either app as a label: `claude_max` → "Max",
-/// `prolite` → "Prolite", `plus` → "Plus".
-fn pretty_plan(plan: &str) -> String {
-    let trimmed = plan
-        .trim()
-        .trim_start_matches("claude_")
-        .trim_start_matches("chatgpt_");
-    let mut characters = trimmed.chars();
-    match characters.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + characters.as_str(),
-        None => plan.trim().to_owned(),
-    }
-}
-
 fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
 }
@@ -313,38 +262,6 @@ fn read_json(path: &Path) -> Option<Value> {
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn reads_the_claude_account_preferring_the_display_name() {
-        let document = json!({
-            "oauthAccount": {
-                "emailAddress": "ada@example.com",
-                "displayName": "Ada",
-                "fullName": "Ada Lovelace",
-                "organizationName": "Ada's Organization",
-                "organizationType": "claude_max",
-            },
-            "projects": {},
-        });
-        assert_eq!(
-            account_from_claude_json(&document),
-            Some(ProfileAccount {
-                email: Some("ada@example.com".into()),
-                name: Some("Ada".into()),
-                organization: Some("Ada's Organization".into()),
-                plan: Some("Max".into()),
-            })
-        );
-    }
-
-    #[test]
-    fn a_claude_config_without_a_sign_in_names_no_account() {
-        assert_eq!(account_from_claude_json(&json!({ "projects": {} })), None);
-        assert_eq!(
-            account_from_claude_json(&json!({ "oauthAccount": { "emailAddress": "  " } })),
-            None
-        );
-    }
 
     /// `{"alg":"none"}` . claims . (empty signature), base64url, unpadded.
     fn fake_id_token(claims: Value) -> String {
@@ -641,14 +558,5 @@ mod tests {
         assert_eq!(base64_url_decode("aGVsbG8=").unwrap(), b"hello");
         assert_eq!(base64_url_decode("-_8").unwrap(), vec![0xfb, 0xff]);
         assert!(base64_url_decode("not base64!").is_none());
-    }
-
-    #[test]
-    fn plans_read_as_labels() {
-        assert_eq!(pretty_plan("claude_max"), "Max");
-        assert_eq!(pretty_plan("claude_pro"), "Pro");
-        assert_eq!(pretty_plan("plus"), "Plus");
-        assert_eq!(pretty_plan("prolite"), "Prolite");
-        assert_eq!(pretty_plan("  team  "), "Team");
     }
 }

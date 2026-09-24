@@ -1,0 +1,24 @@
+[package]
+name = "ai-profiles-core"
+version = "0.0.0"
+description = "What ai-profiles and ai-profiles-server share: reading Claude Code's transcripts, account and running-session registry, the API between them, pairing, and certificate pinning."
+license = "MIT"
+edition = "2021"
+publish = false
+
+[features]
+# Pinning an ai-profiles-server certificate (rustls). Off for code that only
+# reads Claude Code's files.
+tls = ["dep:rustls", "dep:subtle"]
+
+[dependencies]
+base64 = "0.22"
+flate2 = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+subtle = { version = "2", optional = true }
+
+[dev-dependencies]
+tempfile = "3"

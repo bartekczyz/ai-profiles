@@ -57,6 +57,10 @@ pub fn run() {
                         }
                     }
                 }
+                // Archives made before archives were compressed.
+                for line in sessions::compress_old_archives() {
+                    eprintln!("ai-profiles: {line}");
+                }
             });
 
             // Build the macOS app menu manually so we can swap the default
@@ -137,6 +141,7 @@ pub fn run() {
             commands::open_cli_login,
             commands::list_sessions,
             commands::plan_session_transfer,
+            commands::merge_transfer_memory,
             commands::transfer_session,
             commands::check_session_archive,
             commands::archive_session,

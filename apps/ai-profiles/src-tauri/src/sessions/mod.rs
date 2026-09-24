@@ -19,10 +19,10 @@ mod scan;
 mod transfer;
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use ai_profiles_core::registry::read_registry;
+use serde::Serialize;
 
 use crate::app_kind::{spec, AppKind};
 use crate::error::{AppError, AppResult};
@@ -31,11 +31,13 @@ use crate::profiles;
 
 pub use archive::{archive, check_archive, ArchiveCheck, ArchiveReport};
 pub use restore::{
-    check_restore, delete_archived, list_archived, restore, ArchivedSession, RestoreCheck,
-    RestoreReport,
+    check_restore, compress_old_archives, delete_archived, list_archived, restore, ArchivedSession,
+    RestoreCheck, RestoreReport,
 };
 pub use scan::{list, SessionSummary};
-pub use transfer::{plan, transfer, TransferPlan, TransferReport, TransferRequest};
+pub use transfer::{
+    merge_with_claude, plan, transfer, TransferPlan, TransferReport, TransferRequest,
+};
 
 /// Where one profile (or the stock install) keeps its sessions.
 #[derive(Debug, Clone)]
@@ -125,14 +127,6 @@ pub(crate) fn parse_process_list(ps_output: &str) -> HashMap<i32, String> {
         .collect()
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RunningEntry {
-    pid: i32,
-    session_id: Option<String>,
-    entrypoint: Option<String>,
-}
-
 /// A session a live `claude` process has open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RunningSession {
@@ -149,22 +143,16 @@ pub(crate) fn running_sessions(
     config_dir: &Path,
     processes: &HashMap<i32, String>,
 ) -> Vec<RunningSession> {
-    let Ok(entries) = fs::read_dir(config_dir.join("sessions")) else {
-        return Vec::new();
-    };
-    entries
-        .flatten()
-        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
-        .filter_map(|entry| {
-            let text = fs::read_to_string(entry.path()).ok()?;
-            let running: RunningEntry = serde_json::from_str(&text).ok()?;
-            let command = processes.get(&running.pid)?;
+    read_registry(config_dir)
+        .into_iter()
+        .filter_map(|(_, entry)| {
+            let command = processes.get(&entry.pid)?;
             if !command.to_lowercase().contains("claude") {
                 return None;
             }
             Some(RunningSession {
-                session_id: running.session_id?,
-                desktop: running.entrypoint.as_deref() == Some("claude-desktop"),
+                desktop: entry.entrypoint.as_deref() == Some("claude-desktop"),
+                session_id: entry.session_id?,
             })
         })
         .collect()
@@ -243,6 +231,7 @@ pub(crate) fn apps_blocker(apps: &[AppToQuit]) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn parses_ps_output_into_pid_and_command() {

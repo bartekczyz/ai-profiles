@@ -10,6 +10,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use ai_profiles_core::session_move;
 use serde::Serialize;
 
 use super::desktop::{self, DesktopRecord};
@@ -135,10 +136,11 @@ pub(super) fn archive_files(
     let transcript_rel = Path::new("projects")
         .join(project)
         .join(format!("{id}.jsonl"));
-    move_into(
-        &home.config_dir.join(&transcript_rel),
-        &root.join(&transcript_rel),
-    )?;
+    let archived = root.join(&transcript_rel);
+    move_into(&home.config_dir.join(&transcript_rel), &archived)?;
+    // Moved first, compressed after: should compressing fail, the archive is
+    // still whole, only bigger.
+    let _ = session_move::compress(&archived);
     let records_root = home.gui_data_dir.join("claude-code-sessions");
     for record in records {
         let rel = record
@@ -202,7 +204,8 @@ mod tests {
                 .join("session-transfer-backups/s/20260101-000000-archived")
         );
         assert!(!home.config_dir.join("projects/-w/s.jsonl").exists());
-        assert!(root.join("projects/-w/s.jsonl").is_file());
+        assert!(root.join("projects/-w/s.jsonl.gz").is_file(), "compressed");
+        assert!(!root.join("projects/-w/s.jsonl").exists());
         assert!(root.join("desktop-records/acct/org/local_1.json").is_file());
         assert!(desktop::records(&home.gui_data_dir).is_empty());
         assert!(home

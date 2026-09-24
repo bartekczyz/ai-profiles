@@ -2,13 +2,15 @@
 //!
 //! An archive (see [`super::archive`]) is
 //! `<config>/session-transfer-backups/<id>/<time>-archived/`, holding the
-//! transcript at `projects/<project>/<id>.jsonl` and any desktop records at
+//! transcript at `projects/<project>/<id>.jsonl.gz` (gzipped; plain `.jsonl`
+//! in archives from before they were) and any desktop records at
 //! `desktop-records/<account>/<org>/local_<uuid>.json`, each at the path it
 //! came from. Restoring moves them back and removes the emptied archive.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use ai_profiles_core::session_move;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -130,13 +132,20 @@ fn read_archive(home: &Home, id: &str, archive: &str) -> AppResult<Archive> {
     let mut transcripts: Vec<(String, PathBuf)> = fs::read_dir(root.join("projects"))
         .map_err(|_| AppError::NotFound(format!("archive {archive} of session {id} not found")))?
         .flatten()
-        .map(|project| {
-            (
-                project.file_name().to_string_lossy().into_owned(),
-                project.path().join(&transcript_name),
-            )
+        .filter_map(|project| {
+            // Compressed, or not yet: both only while compressing was cut
+            // short, and then the plain one is whole.
+            let plain = project.path().join(&transcript_name);
+            let compressed = session_move::with_suffix(&plain, ".gz");
+            let path = if plain.is_file() {
+                plain
+            } else if compressed.is_file() {
+                compressed
+            } else {
+                return None;
+            };
+            Some((project.file_name().to_string_lossy().into_owned(), path))
         })
-        .filter(|(_, path)| path.is_file())
         .collect();
     if transcripts.len() != 1 {
         return Err(AppError::Validation(format!(
@@ -266,7 +275,11 @@ fn restore_files(home: &Home, id: &str, archive: &Archive) -> AppResult<RestoreR
     for (from, to) in &archive.records {
         move_into(from, to)?;
     }
-    move_into(&archive.transcript, &transcript)?;
+    if session_move::is_compressed(&archive.transcript) {
+        session_move::decompress(&archive.transcript, &transcript)?;
+    } else {
+        move_into(&archive.transcript, &transcript)?;
+    }
     remove_empty_dirs(&archive.root);
     if let Some(session_dir) = archive.root.parent() {
         let _ = fs::remove_dir(session_dir);
@@ -274,6 +287,45 @@ fn restore_files(home: &Home, id: &str, archive: &Archive) -> AppResult<RestoreR
     Ok(RestoreReport {
         transcript: transcript.display().to_string(),
     })
+}
+
+/// Compress the transcripts of every Claude profile's archives made before
+/// archives were, and say what that freed. Run once, as the app starts.
+pub fn compress_old_archives() -> Vec<String> {
+    use crate::app_kind::{default_id, AppKind};
+    let mut ids = vec![default_id(AppKind::Claude)];
+    ids.extend(
+        crate::profiles::load()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|profile| profile.app == AppKind::Claude)
+            .map(|profile| profile.id),
+    );
+    let mut said = Vec::new();
+    for id in ids {
+        let Ok(home) = home(&id) else {
+            continue;
+        };
+        for archived in list_archived(&home) {
+            let Ok(found) = read_archive(&home, &archived.id, &archived.archive) else {
+                continue;
+            };
+            if session_move::is_compressed(&found.transcript) {
+                continue;
+            }
+            let before = super::transfer::size_of(&found.transcript);
+            said.push(match session_move::compress(&found.transcript) {
+                Ok(now) => format!(
+                    "compressed an archive of {}: {} MB to {} MB",
+                    home.label,
+                    before >> 20,
+                    super::transfer::size_of(&now) >> 20
+                ),
+                Err(err) => format!("could not compress {}: {err}", found.transcript.display()),
+            });
+        }
+    }
+    said
 }
 
 /// Remove `dir` and the folders under it, if no file is left in any of them.
@@ -363,6 +415,31 @@ mod tests {
         assert_eq!(desktop::records(&home.gui_data_dir).len(), 1);
         assert!(!home.config_dir.join(BACKUPS_DIR).join("s").exists());
         assert!(list_archived(&home).is_empty());
+    }
+
+    #[test]
+    fn restores_an_archive_from_before_archives_were_compressed() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = home(dir.path());
+        seed(&home);
+        let before_transcript = fs::read(home.config_dir.join("projects/-w/s.jsonl")).unwrap();
+        let root = home
+            .config_dir
+            .join(BACKUPS_DIR)
+            .join("s/20250101-120000-archived");
+        move_into(
+            &home.config_dir.join("projects/-w/s.jsonl"),
+            &root.join("projects/-w/s.jsonl"),
+        )
+        .unwrap();
+
+        assert_eq!(list_archived(&home)[0].cwd.as_deref(), Some("/w"));
+        let contents = read_archive(&home, "s", "20250101-120000-archived").unwrap();
+        restore_files(&home, "s", &contents).unwrap();
+        assert_eq!(
+            fs::read(home.config_dir.join("projects/-w/s.jsonl")).unwrap(),
+            before_transcript
+        );
     }
 
     #[test]

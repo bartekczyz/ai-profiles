@@ -266,6 +266,13 @@ pub fn transfer_session(
     })
 }
 
+/// Claude's merge of memory note `path`, which the move `request` needs
+/// decided, for the user to accept or not. See [`sessions::merge_with_claude`].
+#[tauri::command(async)]
+pub fn merge_transfer_memory(request: TransferRequest, path: String) -> AppResult<String> {
+    sessions::merge_with_claude(&request, &path)
+}
+
 /// The event a move's progress goes out on.
 const TRANSFER_PROGRESS_EVENT: &str = "session-transfer-progress";
 
