@@ -284,6 +284,116 @@ async fn a_failed_unarchive_sets_the_copy_aside_and_leaves_the_source_unarchived
     assert!(setup.rollout.is_file());
 }
 
+/// Plans the move of [`ID`] from `Work` to `Personal`, whose app-server fails
+/// to unarchive it, and carries it out. Returns the error message.
+async fn move_personal_refuses(setup: &Setup) -> String {
+    let to = setup.free_destination(|| Err(CodexRpcError::Rpc("boom".to_string())));
+    let prepared = plan_with(
+        setup.idle_source(),
+        to,
+        &setup.work,
+        &setup.personal,
+        ID,
+        "",
+    )
+    .await
+    .unwrap();
+    message(execute_with(prepared, nothing_running).await)
+}
+
+#[tokio::test]
+async fn a_copy_set_aside_where_an_earlier_one_is_gets_a_number() {
+    let setup = Setup::new();
+    let failed = setup
+        .personal
+        .config_dir
+        .join("archived_sessions/.ai-profiles-failed");
+    let name = setup.rollout.file_name().unwrap().to_string_lossy();
+    let earlier = failed.join(format!("{name}.failed"));
+    fs::create_dir_all(&failed).unwrap();
+    fs::write(&earlier, "earlier").unwrap();
+
+    let moved = move_personal_refuses(&setup).await;
+
+    let aside = failed.join(format!("{name}.2.failed"));
+    assert_eq!(
+        moved,
+        format!(
+            "Personal couldn't take it (Codex: boom). Its copy is set aside in {}",
+            aside.display()
+        )
+    );
+    assert_eq!(fs::read_to_string(&earlier).unwrap(), "earlier");
+    assert_eq!(fs::read(&aside).unwrap(), fs::read(&setup.rollout).unwrap());
+    assert!(!setup.copy().exists());
+}
+
+#[tokio::test]
+async fn a_copy_that_cant_be_set_aside_is_named_where_it_stays() {
+    let setup = Setup::new();
+    let archived = setup.personal.config_dir.join("archived_sessions");
+    fs::create_dir_all(&archived).unwrap();
+    // A file where the set-aside folder goes keeps the folder from being made.
+    fs::write(archived.join(".ai-profiles-failed"), "in the way").unwrap();
+
+    let moved = move_personal_refuses(&setup).await;
+
+    let prefix = "Personal couldn't take it (Codex: boom). Its copy couldn't be set aside (";
+    let suffix = format!("), so it is still in {}", setup.copy().display());
+    assert!(
+        moved.starts_with(prefix) && moved.ends_with(&suffix),
+        "{moved}"
+    );
+    assert!(setup.copy().is_file());
+    assert!(setup.rollout.is_file());
+}
+
+#[test]
+fn a_compressed_rollout_is_one_of_the_sources_session_files() {
+    let setup = Setup::new();
+    let compressed = setup
+        .rollout
+        .with_file_name(format!("rollout-2026-09-01T10-00-00-{ID}.jsonl.zst"));
+    fs::write(&compressed, "zstd").unwrap();
+
+    assert!(confine(&compressed, &setup.work, ID).is_ok());
+}
+
+#[tokio::test]
+async fn a_rollout_replaced_since_the_plan_is_refused_before_anything_is_written() {
+    let setup = Setup::new();
+    let prepared = plan_with(
+        setup.idle_source(),
+        setup.free_destination(|| unreachable!()),
+        &setup.work,
+        &setup.personal,
+        ID,
+        "",
+    )
+    .await
+    .unwrap();
+    // The rollout is swapped for a link to a file outside the sessions.
+    let outside = setup.work.config_dir.join("auth.json");
+    fs::write(&outside, "secret").unwrap();
+    fs::remove_file(&setup.rollout).unwrap();
+    std::os::unix::fs::symlink(&outside, &setup.rollout).unwrap();
+
+    let moved = message(execute_with(prepared, nothing_running).await);
+
+    assert_eq!(
+        moved,
+        format!(
+            "{} isn't one of Work's session files",
+            setup.rollout.display()
+        )
+    );
+    assert!(!setup.personal.config_dir.exists());
+    assert_eq!(
+        setup.calls(),
+        ["source thread/read", "destination thread/read"]
+    );
+}
+
 #[tokio::test]
 async fn a_thread_the_destination_has_already_is_a_blocker() {
     let setup = Setup::new();
