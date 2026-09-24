@@ -398,3 +398,23 @@ export type RestoreCheck = {
 export type RestoreReport = {
   transcript: string
 }
+
+/** The account a profile is signed in under, from what its CLI keeps on disk. */
+export type ProfileAccount = {
+  email: string | null
+  /** The person's name, as the app recorded it. */
+  name: string | null
+  organization: string | null
+  /** The subscription, e.g. "Max" or "Pro". */
+  plan: string | null
+}
+
+/**
+ * Whether a profile is signed in, and as whom. `unknown` is signed in, or may
+ * be, as an account nothing on disk names: a Claude desktop app signed in as
+ * someone its `.claude.json` doesn't mention.
+ */
+export type AccountStatus =
+  | { status: 'signedIn'; account: ProfileAccount }
+  | { status: 'signedOut' }
+  | { status: 'unknown' }

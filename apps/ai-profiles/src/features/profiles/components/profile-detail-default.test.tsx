@@ -11,6 +11,7 @@ import {
   loadAppState,
   openDefaultGui,
   openInFinder,
+  profileAccount,
   profilePaths,
   updateAppState,
 } from '@/lib/commands'
@@ -25,6 +26,9 @@ vi.mock('@/lib/commands', async () => {
     ...actual,
     profilePaths: vi.fn(),
     listSessions: vi.fn(async () => []),
+    // Unanswered unless a test answers it: the account line isn't what most
+    // of these tests are about, and its answer re-renders the header.
+    profileAccount: vi.fn(() => new Promise(() => {})),
     getProfileUsage: vi.fn(async () => ({
       quota: {
         primary: { utilization: 10, resetsAt: null },
@@ -122,6 +126,34 @@ beforeEach(() => {
   vi.mocked(loadAppState).mockResolvedValue(appState)
   vi.mocked(updateAppState).mockReset()
   vi.mocked(updateAppState).mockResolvedValue(appState)
+  vi.mocked(profileAccount).mockClear()
+})
+
+describe('DefaultProfileDetail — account', () => {
+  it('names the account the stock install is signed in under', async () => {
+    vi.mocked(profileAccount).mockResolvedValueOnce({
+      status: 'signedIn',
+      account: { email: 'ada@example.com', name: 'Ada', organization: null, plan: 'Max' },
+    })
+    renderDefault()
+    expect(await screen.findByText('ada@example.com · Max')).toBeInTheDocument()
+    expect(screen.getByText('stock install')).toBeInTheDocument()
+    expect(profileAccount).toHaveBeenCalledWith('default:claude')
+  })
+
+  it('says so when nothing is signed in', async () => {
+    vi.mocked(profileAccount).mockResolvedValueOnce({ status: 'signedOut' })
+    renderDefault()
+    expect(await screen.findByText('Not signed in')).toBeInTheDocument()
+  })
+
+  it("says only that it's the stock install when who is signed in can't be told", async () => {
+    vi.mocked(profileAccount).mockResolvedValueOnce({ status: 'unknown' })
+    renderDefault()
+    await waitFor(() => expect(profileAccount).toHaveBeenCalled())
+    expect(await screen.findByText('stock install')).toBeInTheDocument()
+    expect(screen.queryByText('Not signed in')).toBeNull()
+  })
 })
 
 describe('DefaultProfileDetail — absent capabilities', () => {

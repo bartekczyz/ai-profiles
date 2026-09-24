@@ -9,6 +9,7 @@ import { useAppState } from '@/lib/app-state/use-app-state'
 import { copyToClipboard, openDefaultGui, profilePaths } from '@/lib/commands'
 
 import { useProfilePaths } from '../api/use-profile-paths'
+import { AccountPart } from './account-line'
 import { BrandSwatch, ProfileDetailHeader } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
 import { ProfileDetailMigrateAction } from './profile-detail-migrate-action'
@@ -55,7 +56,12 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
           name={entry.customName ?? displayName}
           swatch={<BrandSwatch app={entry.app} />}
           action={<ProfileDetailMigrateAction onMigrate={onMigrate} />}
-          subline={entry.customName === null ? 'stock install' : `${displayName} · stock install`}
+          subline={
+            <>
+              <span>{entry.customName === null ? 'stock install' : `${displayName} · stock install`}</span>
+              <AccountPart profileId={entry.id} />
+            </>
+          }
           info={<ProfileDetailInfo app={entry.app} />}
           menu={
             // Its own boundary, as on the managed pane: the identity block and

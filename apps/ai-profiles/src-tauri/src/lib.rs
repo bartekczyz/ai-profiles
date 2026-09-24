@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+mod accounts;
 mod app_kind;
 mod app_state;
 pub mod cli;
@@ -119,6 +120,7 @@ pub fn run() {
             commands::open_in_finder,
             commands::open_default_gui,
             commands::profile_paths,
+            commands::profile_account,
             commands::detect_existing_install,
             commands::detect_existing_sizes,
             commands::import_existing_install,

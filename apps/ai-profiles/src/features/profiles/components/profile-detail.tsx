@@ -10,6 +10,7 @@ import { appSpecs, wrapperCommand } from '@/lib/app-registry'
 
 import { useProfileLastUsed } from '../api/use-profile-last-used'
 import { useProfilePaths } from '../api/use-profile-paths'
+import { AccountPart } from './account-line'
 import { formatLastUsed } from './format-last-used'
 import { ProfileDetailHeader, ProfileSwatch } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
@@ -47,6 +48,7 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
           subline={
             <>
               <span>{appSpecs[profile.app].displayName}</span>
+              <AccountPart profileId={profile.id} />
               <span className="mx-2 text-border">·</span>
               <span className="text-muted-strong">{formatLastUsed(profile.lastUsedAt)}</span>
             </>
