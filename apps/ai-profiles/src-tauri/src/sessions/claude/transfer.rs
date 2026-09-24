@@ -37,6 +37,9 @@ use crate::sessions::Home;
 /// A project's memory folder, beside its transcripts.
 const MEMORY_DIR: &str = "memory";
 
+/// The folder under a config dir holding the plans sessions wrote.
+pub(super) const PLANS_DIR: &str = "plans";
+
 /// Where, in a move's backup folder, a desktop record it replaced goes.
 const RECORDS_BACKUP: &str = "desktop-records";
 
@@ -122,11 +125,11 @@ struct SlugRecord {
 
 /// A project memory folder to merge.
 #[derive(Debug, Clone)]
-struct MemoryMerge {
+pub(super) struct MemoryMerge {
     /// The source's folder.
-    from: PathBuf,
+    pub(super) from: PathBuf,
     /// The folder, relative to the destination's config dir.
-    relative: PathBuf,
+    pub(super) relative: PathBuf,
 }
 
 /// The record to write for the destination's desktop app.
@@ -234,7 +237,7 @@ pub fn plan(
                     .is_some_and(|there| there.last_used_at > used_at)
             })
     });
-    let memory = memory_merges(&owned, homes);
+    let memory = memory_merges(&owned.claimed_transcripts, homes);
     let (desktop, record) = desktop_step(&owned, destination, displayed.as_ref(), cwd.as_deref());
     let writes_destination = record.is_some()
         || items.iter().any(|item| item.action != ItemAction::Same)
@@ -335,7 +338,7 @@ fn carry_out(prepared: Prepared, backup: &Path) -> AppResult<MoveReport> {
 }
 
 /// Refuse to write `destination`'s files while its desktop app runs.
-fn refuse_running(destination: &Home) -> AppResult<()> {
+pub(super) fn refuse_running(destination: &Home) -> AppResult<()> {
     if running_desktop_pid(destination)?.is_some() {
         return Err(running_again(destination));
     }
@@ -405,7 +408,7 @@ fn session_items(owned: &Owned, homes: &[Home], destination: &Home) -> AppResult
         let config_dir = &holder.config_dir;
         let plans = plan_slugs(&each.summary.path)
             .into_iter()
-            .map(|slug| config_dir.join("plans").join(format!("{slug}.md")))
+            .map(|slug| config_dir.join(PLANS_DIR).join(format!("{slug}.md")))
             .filter(|path| path.is_file());
         for path in bundle_paths(config_dir, &each.summary)
             .into_iter()
@@ -446,7 +449,7 @@ fn session_items(owned: &Owned, homes: &[Home], destination: &Home) -> AppResult
 }
 
 /// `path` relative to `config_dir`, which holds it.
-fn relative_to(path: &Path, config_dir: &Path) -> AppResult<PathBuf> {
+pub(super) fn relative_to(path: &Path, config_dir: &Path) -> AppResult<PathBuf> {
     path.strip_prefix(config_dir)
         .map(Path::to_path_buf)
         .map_err(|_| {
@@ -458,11 +461,14 @@ fn relative_to(path: &Path, config_dir: &Path) -> AppResult<PathBuf> {
         })
 }
 
-/// The project memory folders of the projects `owned`'s transcripts are in:
+/// The project memory folders of the projects the `held` transcripts are in:
 /// `projects/<slug>/memory/` beside each, in the home holding it.
-fn memory_merges(owned: &Owned, homes: &[Home]) -> Vec<MemoryMerge> {
+pub(super) fn memory_merges<'a>(
+    held: impl IntoIterator<Item = &'a HeldTranscript>,
+    homes: &[Home],
+) -> Vec<MemoryMerge> {
     let mut merges: Vec<MemoryMerge> = Vec::new();
-    for held in &owned.claimed_transcripts {
+    for held in held {
         let Some(holder) = homes.iter().find(|home| home.id == held.home_id) else {
             continue;
         };
@@ -485,7 +491,7 @@ fn memory_merges(owned: &Owned, homes: &[Home]) -> Vec<MemoryMerge> {
 /// The plans the transcript at `path` wrote: the `slug` of its records, each
 /// the name of a `<config>/plans/<slug>.md`. Only names that stay in that
 /// folder count.
-fn plan_slugs(path: &Path) -> BTreeSet<String> {
+pub(super) fn plan_slugs(path: &Path) -> BTreeSet<String> {
     let Ok(file) = File::open(path) else {
         return BTreeSet::new();
     };

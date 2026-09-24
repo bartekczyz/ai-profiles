@@ -17,6 +17,7 @@ import type {
   ProfilePatch,
   ProfilePaths,
   ProfileUsage,
+  RepairReport,
   SessionAction,
   SessionList,
   Shell,
@@ -192,4 +193,20 @@ export function moveSession(
   quitApps: boolean,
 ): Promise<MoveReport> {
   return invoke<MoveReport>('move_session', { profileId, sessionId, destinationId, replaceNewer, quitApps })
+}
+
+/**
+ * What stands between the sessions of profile `profileId` that need repair and
+ * their repair: the profile's desktop app, when it runs.
+ */
+export function checkSessionRepair(profileId: string): Promise<ActionCheck> {
+  return invoke<ActionCheck>('check_session_repair', { profileId })
+}
+
+/**
+ * Repairs the sessions profile `profileId`'s desktop app started before the
+ * profile had its own folder, quitting that app first if `quitApp`.
+ */
+export function repairSessions(profileId: string, quitApp: boolean): Promise<RepairReport> {
+  return invoke<RepairReport>('repair_sessions', { profileId, quitApp })
 }

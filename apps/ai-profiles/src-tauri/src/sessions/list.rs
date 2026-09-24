@@ -82,8 +82,9 @@ pub struct Session {
     pub archived: bool,
     /// What the session's files are doing right now.
     pub state: SessionState,
-    /// One of the session's transcripts sits in another home's config dir,
-    /// where the desktop app of an older version of ai-profiles left it.
+    /// The session is active and one of its transcripts sits in another
+    /// home's config dir, where the desktop app of an older version of
+    /// ai-profiles left it. An archived session is left as it is.
     pub needs_repair: bool,
     /// Why the session can't be moved to another profile, if it can't.
     pub unmovable_reason: Option<String>,
@@ -123,7 +124,7 @@ pub async fn list_sessions(home: Home) -> AppResult<SessionList> {
 
 /// The Claude sessions `home` owns, of all `homes` of the app, given the
 /// output of `ps -ax -o pid=,command=`.
-fn claude_sessions(home: &Home, homes: &[Home], ps_output: &str) -> SessionList {
+pub(super) fn claude_sessions(home: &Home, homes: &[Home], ps_output: &str) -> SessionList {
     let scans = home_scans(homes);
     let live = live_anywhere(homes, ps_output);
     let mut sessions: Vec<Session> = owned_by(&home.id, &scans)
@@ -237,9 +238,10 @@ fn owned_session(home: &Home, owned: Owned, live: &HashMap<String, LiveHolder>) 
         last_used_at,
         archived,
         state,
-        needs_repair: claimed_transcripts
-            .iter()
-            .any(|held| held.home_id != home.id),
+        needs_repair: !archived
+            && claimed_transcripts
+                .iter()
+                .any(|held| held.home_id != home.id),
         unmovable_reason,
     }
 }
@@ -562,6 +564,39 @@ mod tests {
                 repair_count: 3,
             }
         );
+    }
+
+    #[test]
+    fn an_archived_session_never_needs_repair() {
+        let root = tempdir().unwrap();
+        let (default, personal) = two_homes(root.path());
+        write_transcript(
+            &default,
+            "moved-away",
+            &[user(
+                "moved-away",
+                "2026-08-02T10:00:00Z",
+                "/work/app",
+                "Hi",
+            )],
+        );
+        write_record(
+            &personal,
+            "moved-away",
+            json!({ "cliSessionId": "moved-away", "isArchived": true }),
+        );
+        let homes = [default, personal.clone()];
+
+        let list = claude_sessions(&personal, &homes, PS_OUTPUT);
+
+        let archived = list
+            .sessions
+            .iter()
+            .find(|session| session.id == "moved-away")
+            .unwrap();
+        assert!(archived.archived);
+        assert!(!archived.needs_repair);
+        assert_eq!(list.repair_count, 3);
     }
 
     #[test]

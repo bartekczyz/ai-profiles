@@ -140,6 +140,8 @@ pub fn run() {
             commands::restore_session,
             commands::plan_session_move,
             commands::move_session,
+            commands::check_session_repair,
+            commands::repair_sessions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

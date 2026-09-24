@@ -14,9 +14,11 @@ import { SessionsPanel } from './sessions-panel'
 vi.mock('@/lib/commands', () => ({
   archiveSession: vi.fn(),
   checkSessionAction: vi.fn(),
+  checkSessionRepair: vi.fn(),
   listSessions: vi.fn(),
   moveSession: vi.fn(),
   planSessionMove: vi.fn(),
+  repairSessions: vi.fn(),
   restoreSession: vi.fn(),
 }))
 
@@ -145,6 +147,23 @@ function row(title: string): HTMLElement {
 }
 
 describe('SessionsPanel', () => {
+  it('offers to repair the sessions that need it at the top of the Active tab only', async () => {
+    vi.mocked(listSessions).mockResolvedValue({
+      sessions: [makeSession({ id: 'a', title: 'Plan the launch', kind: 'desktop', needsRepair: true }), ...mixed],
+      repairCount: 1,
+    })
+    const { user } = await renderPanel()
+    expect(screen.getByText(/1 session needs repair/)).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: /Archived/ }))
+    expect(screen.queryByText(/needs repair/)).toBeNull()
+  })
+
+  it('shows no repair offer when no session needs it', async () => {
+    mockSessions(mixed)
+    await renderPanel()
+    expect(screen.queryByText(/repair/)).toBeNull()
+  })
+
   it('lists the profile’s active sessions, most recently used first', async () => {
     mockSessions(mixed)
     await renderPanel()

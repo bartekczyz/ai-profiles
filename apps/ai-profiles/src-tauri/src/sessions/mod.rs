@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use crate::app_kind::AppKind;
 
 pub use actions::{ActionCheck, SessionAction};
+pub use claude::repair::RepairReport;
 pub use claude::transfer::{MovePlan, MoveReport};
 pub use home::home_for;
 pub use list::{list_sessions, SessionList};

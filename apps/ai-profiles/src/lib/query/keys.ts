@@ -38,6 +38,9 @@ export const queryKeys = {
   // that was just done must not refetch and flash what it would do now.
   sessionMovePlan: (profileId: string, sessionId: string, destinationId: string) =>
     ['session-move-plan', profileId, sessionId, destinationId] as const,
+  // Outside the `sessions` subtree for the same reason: a repair that was
+  // just done must not refetch its check.
+  sessionRepairCheck: (profileId: string) => ['session-repair-check', profileId] as const,
   appState: ['app-state'] as const,
   shell: ['shell'] as const,
 } as const

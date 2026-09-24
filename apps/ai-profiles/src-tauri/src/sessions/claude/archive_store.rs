@@ -236,7 +236,7 @@ fn latest_bundle_of(config_dir: &Path, session_id: &str) -> Option<(PathBuf, Arc
 
 /// `session_id` names a session's folder in the archive: one folder, not a
 /// hidden one, which hold other things.
-fn is_session_dir_name(session_id: &str) -> bool {
+pub(super) fn is_session_dir_name(session_id: &str) -> bool {
     !session_id.is_empty() && !session_id.starts_with('.') && !session_id.contains('/')
 }
 

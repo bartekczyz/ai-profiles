@@ -14,6 +14,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use super::claude::archive as claude_archive;
+use super::claude::repair::{self, RepairReport};
 use super::claude::transfer::{self, MovePlan, MoveReport, Prepared};
 use super::codex;
 use super::home::{home_for, homes_of};
@@ -346,6 +347,50 @@ async fn run_codex_move(
         },
         |apps| quit_all(apps, homes, quit_timeout),
         codex::transfer::execute,
+    )
+    .await
+}
+
+/// What stands between the sessions of profile `profile_id` (or
+/// `default:<app>`) that need repair and their repair: the profile's desktop
+/// app, when it runs. Only Claude sessions ever need repair.
+pub async fn check_repair(profile_id: &str) -> AppResult<ActionCheck> {
+    let home = home_for(profile_id)?;
+    if home.app != AppKind::Claude {
+        return Ok(ActionCheck::default());
+    }
+    let homes = homes_of(AppKind::Claude)?;
+    blocking(move || Ok(repair::check(&home, &homes, &process_list()?)?.check)).await
+}
+
+/// Repair the sessions of profile `profile_id` (or `default:<app>`) that need
+/// it, quitting its desktop app first if `quit_app`.
+pub async fn repair_sessions(profile_id: &str, quit_app: bool) -> AppResult<RepairReport> {
+    let home = home_for(profile_id)?;
+    if home.app != AppKind::Claude {
+        return Ok(RepairReport::default());
+    }
+    let homes = homes_of(AppKind::Claude)?;
+    run_repair(&home, &homes, quit_app, QUIT_TIMEOUT).await
+}
+
+/// [`repair_sessions`] for `home`, one of `homes`, giving its desktop app
+/// `quit_timeout` to quit. No other home's app is quit: only `home`'s config
+/// dir is written.
+async fn run_repair(
+    home: &Home,
+    homes: &[Home],
+    quit_app: bool,
+    quit_timeout: Duration,
+) -> AppResult<RepairReport> {
+    run_checked(
+        quit_app,
+        || {
+            let (home, homes) = (home.clone(), homes.to_vec());
+            blocking(move || repair::check(&home, &homes, &process_list()?))
+        },
+        |_| quit_blocking(home.clone(), quit_timeout),
+        |prepared| blocking(move || repair::apply(prepared, Utc::now())),
     )
     .await
 }
@@ -869,6 +914,61 @@ mod tests {
                 "notes": [],
             })
         );
+    }
+
+    #[tokio::test]
+    async fn repairing_quits_only_the_profiles_desktop_app_first() {
+        let root = tempdir().unwrap();
+        let default = claude_home(root.path(), "Default");
+        let personal = claude_home(root.path(), "Personal");
+        cli_session(&default, "2026-09-01T10:00:00Z");
+        let org = personal
+            .gui_data_dir
+            .join("claude-code-sessions")
+            .join("account")
+            .join("org");
+        fs::create_dir_all(&org).unwrap();
+        fs::write(
+            org.join("local_r1.json"),
+            json!({ "cliSessionId": "s" }).to_string(),
+        )
+        .unwrap();
+        let homes = vec![default.clone(), personal.clone()];
+        let mut stock = fake_wrapper_process(&root.path().join("stock-app"), &default.gui_data_dir);
+        let (reaper, stdin) = reaped(fake_wrapper_process(
+            &root.path().join("app"),
+            &personal.gui_data_dir,
+        ));
+
+        let refused = run_repair(&personal, &homes, false, QUIT_TIMEOUT).await;
+        let untouched = default
+            .config_dir
+            .join("projects/-work-app/s.jsonl")
+            .exists();
+        let repaired = run_repair(&personal, &homes, true, QUIT_TIMEOUT).await;
+        let quit = running_desktop_pid(&personal).unwrap().is_none();
+        let stock_running = stock.try_wait().unwrap().is_none();
+        drop(stdin);
+        reaper.join().unwrap();
+        stock.kill().unwrap();
+        stock.wait().unwrap();
+
+        assert!(
+            matches!(&refused, Err(AppError::Validation(message)) if message == "Quit Claude (Personal) first"),
+            "{refused:?}"
+        );
+        assert!(untouched);
+        assert_eq!(repaired.unwrap().repaired, 1);
+        assert!(quit, "the desktop app still runs");
+        assert!(stock_running, "the Default desktop app was quit");
+        assert!(personal
+            .config_dir
+            .join("projects/-work-app/s.jsonl")
+            .exists());
+        assert!(!default
+            .config_dir
+            .join("projects/-work-app/s.jsonl")
+            .exists());
     }
 
     #[tokio::test]

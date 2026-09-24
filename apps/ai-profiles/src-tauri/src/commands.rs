@@ -15,7 +15,9 @@ use crate::paths::{
     stock_gui_support_dir,
 };
 use crate::profiles::{self, Profile, ProfilePatch, ProfilePaths, Surface, Surfaces};
-use crate::sessions::{self, ActionCheck, MovePlan, MoveReport, SessionAction, SessionList};
+use crate::sessions::{
+    self, ActionCheck, MovePlan, MoveReport, RepairReport, SessionAction, SessionList,
+};
 use crate::usage::{
     self,
     codex::CodexQuotaProvider,
@@ -819,6 +821,24 @@ pub async fn move_session(
         quit_apps,
     )
     .await
+}
+
+/// What stands between the sessions of profile `profile_id` (or
+/// `default:<app>`) that need repair and their repair: the profile's desktop
+/// app, when it runs. Async, as it reads every profile's sessions on a
+/// blocking thread.
+#[tauri::command]
+pub async fn check_session_repair(profile_id: String) -> AppResult<ActionCheck> {
+    sessions::actions::check_repair(&profile_id).await
+}
+
+/// Repair the sessions of profile `profile_id` (or `default:<app>`) that its
+/// desktop app started before the profile had its own folder: move their
+/// transcripts into it. The profile's desktop app is quit first if
+/// `quit_app`. Async, as quitting the app is waited for.
+#[tauri::command]
+pub async fn repair_sessions(profile_id: String, quit_app: bool) -> AppResult<RepairReport> {
+    sessions::actions::repair_sessions(&profile_id, quit_app).await
 }
 
 /// Restore archived session `session_id` of profile `profile_id` (or

@@ -15,6 +15,7 @@ pub mod live;
 pub mod markup;
 pub mod memory;
 pub mod ownership;
+pub mod repair;
 pub mod transcript;
 pub mod transfer;
 

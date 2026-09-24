@@ -2,7 +2,15 @@ import type { SessionAction } from '@/lib/types'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { archiveSession, checkSessionAction, moveSession, planSessionMove, restoreSession } from '@/lib/commands'
+import {
+  archiveSession,
+  checkSessionAction,
+  checkSessionRepair,
+  moveSession,
+  planSessionMove,
+  repairSessions,
+  restoreSession,
+} from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 
 /**
@@ -105,6 +113,37 @@ export function useMoveSession(profileId: string) {
   return useMutation({
     mutationFn: ({ sessionId, destinationId, replaceNewer, quitApps }: MoveInput) =>
       moveSession(profileId, sessionId, destinationId, replaceNewer, quitApps),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all })
+    },
+  })
+}
+
+/**
+ * What stands between a profile's sessions that need repair and their
+ * repair: the profile's desktop app, when it runs. Looked up whenever it is
+ * asked for and again on every window focus, as the user may quit the app
+ * themselves while the question is open.
+ */
+export function useSessionRepairCheck(profileId: string) {
+  return useQuery({
+    queryKey: queryKeys.sessionRepairCheck(profileId),
+    queryFn: () => checkSessionRepair(profileId),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: 'always',
+  })
+}
+
+/**
+ * Repairs a profile's sessions that need it, quitting its desktop app first
+ * if `quitApp`. Every profile's list is refetched afterwards, whether it
+ * worked or not, as the transcripts leave another profile's folder.
+ */
+export function useRepairSessions(profileId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (quitApp: boolean) => repairSessions(profileId, quitApp),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all })
     },

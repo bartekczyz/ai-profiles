@@ -156,7 +156,7 @@ fn claimed_from<'a>(home_id: &str, scans: &'a [HomeScan]) -> HashSet<&'a str> {
 
 /// The ids of the transcripts `record` claims: its current one, then its
 /// earlier ones.
-fn claimed_ids(record: &DesktopRecord) -> impl Iterator<Item = &str> {
+pub(super) fn claimed_ids(record: &DesktopRecord) -> impl Iterator<Item = &str> {
     record
         .cli_session_id
         .iter()

@@ -442,3 +442,36 @@ export type MoveReport = {
    */
   memoryConflicts: Array<string>
 }
+
+/**
+ * A session a repair left as it was, and why.
+ */
+export type SkippedSession = {
+  /**
+   * The session's id.
+   */
+  id: string
+  /**
+   * Why it was left as it was.
+   */
+  reason: string
+}
+
+/**
+ * What repairing a profile's sessions did.
+ */
+export type RepairReport = {
+  /**
+   * How many sessions were repaired.
+   */
+  repaired: number
+  /**
+   * The sessions that needed repair but were left as they were.
+   */
+  skipped: Array<SkippedSession>
+  /**
+   * The memory files both folders have, differently; the profile's own were
+   * kept.
+   */
+  memoryConflicts: Array<string>
+}

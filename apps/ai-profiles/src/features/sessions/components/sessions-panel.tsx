@@ -14,6 +14,7 @@ import { useSessions } from '../api/use-sessions'
 import { countByTab, filterSessions, hasBothKinds, sortSessions } from '../lib/session-filters'
 import { ConfirmSessionActionDialog } from './confirm-session-action-dialog'
 import { MoveSessionDialog } from './move-session-dialog'
+import { RepairBanner } from './repair-banner'
 import { SessionsControls } from './sessions-controls'
 import { SessionsList } from './sessions-list'
 import { sessionsPanelClasses } from './sessions-panel-skeleton'
@@ -84,7 +85,8 @@ const tabTriggerClasses = 'flex-none px-0.5 pb-1 text-[13px] tracking-[-0.005em]
  * scrolls as a whole.
  *
  * An active session's row offers Move, a menu of the app's other profiles
- * (Default included); picking one asks to confirm the move.
+ * (Default included); picking one asks to confirm the move. While some
+ * sessions need repair, a banner heads the Active tab offering to repair them.
  *
  * The kind filter only exists while the open tab mixes both kinds. When it
  * goes away, the choice made on it is set aside rather than reset, so the
@@ -98,12 +100,14 @@ export function SessionsPanel({ profileId, app }: Props) {
   const [direction, setDirection] = useState<SortDirection>('desc')
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
-  const moveTargets: Array<MoveTarget> = useSidebarEntries()
-    .filter((entry) => appFromEntry(entry) === app && entryId(entry) !== profileId)
+  const profiles: Array<MoveTarget> = useSidebarEntries()
+    .filter((entry) => appFromEntry(entry) === app)
     .map((entry) => ({
       id: entryId(entry),
       label: entry.kind === 'managed' ? entry.profile.name : entry.entry.name,
     }))
+  const moveTargets = profiles.filter((profile) => profile.id !== profileId)
+  const profileLabel = profiles.find((profile) => profile.id === profileId)?.label ?? appSpecs[app].displayName
 
   const listed = sessionsQuery.data?.sessions
   const sessions = listed ?? []
@@ -161,6 +165,11 @@ export function SessionsPanel({ profileId, app }: Props) {
         onDirectionChange={setDirection}
       />
       <TabsContent value="active" className={tabContentClasses}>
+        <RepairBanner
+          profileId={profileId}
+          profileLabel={profileLabel}
+          repairCount={sessionsQuery.data?.repairCount ?? 0}
+        />
         {list}
       </TabsContent>
       <TabsContent value="archived" className={tabContentClasses}>
