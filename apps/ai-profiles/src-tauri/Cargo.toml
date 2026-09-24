@@ -14,11 +14,11 @@ default-run = "ai-profiles"
 # `profile-shim` is the executable of every generated wrapper bundle. build.rs
 # compiles it for the target being built and the app embeds the bytes; being a
 # default member keeps its tests, clippy and rustfmt inside the usual commands.
-# `ai-profiles-core` is what the app reads Claude Code's files with, kept free
-# of Tauri and macOS so other tools can share it.
+# `ai-profiles-core` is what the app shares with ai-profiles-server, the daemon
+# a Linux machine runs so ai-profiles can manage its Claude sessions (`server`).
 [workspace]
-members = ["shim", "core"]
-default-members = [".", "shim", "core"]
+members = ["shim", "core", "server"]
+default-members = [".", "shim", "core", "server"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
