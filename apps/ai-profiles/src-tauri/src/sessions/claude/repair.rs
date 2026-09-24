@@ -25,7 +25,9 @@ use super::archive_store::{
 use super::copy::{compare, move_new, place, ItemAction};
 use super::live::LiveHolder;
 use super::memory::merge_memory;
-use super::ownership::{claimed_ids, owned_by, HeldTranscript, HomeScan, Owned};
+use super::ownership::{
+    claimed_copy, claimed_ids, holders, owned_by, HeldTranscript, HomeScan, Owned,
+};
 use super::transcript::bundle_paths;
 use super::transfer::{
     memory_merges, plan_slugs, refuse_running, relative_to, MemoryMerge, PLANS_DIR,
@@ -118,8 +120,9 @@ pub struct PreparedRepair {
 /// another home's config dir; archived ones are left as they are. One is
 /// skipped, and said why:
 /// - while a terminal has one of its transcripts open;
-/// - while another home's desktop app lists one of them too, as moving it
-///   would take it from there;
+/// - while another home's active desktop record claims the same copy of one
+///   of them, as moving it would take it from there; a home keeping its own
+///   copy, as one a session was moved to does, claims that one instead;
 /// - when one of them has an id that isn't a single plain folder name, as its
 ///   files are found by it;
 /// - when `home` has different files where one of them goes: a bulk repair
@@ -257,17 +260,28 @@ struct Context<'a> {
     homes: &'a [Home],
     /// The sessions open anywhere, by transcript id.
     live: &'a HashMap<String, LiveHolder>,
-    /// The homes whose desktop records claim each transcript, by its id.
-    listers: &'a HashMap<String, Vec<String>>,
+    /// The homes whose active desktop records claim each copy of a
+    /// transcript, by its id and the home holding the copy.
+    listers: &'a HashMap<(String, String), Vec<String>>,
 }
 
-/// The ids of the homes whose desktop records claim each transcript, by the
-/// transcript's id.
-fn listers(scans: &[HomeScan]) -> HashMap<String, Vec<String>> {
-    let mut listers: HashMap<String, Vec<String>> = HashMap::new();
+/// The ids of the homes whose active desktop records claim each copy of a
+/// transcript, by the transcript's id and the id of the home holding the
+/// copy. A record claims its own home's copy when there is one (see
+/// [`claimed_copy`]), so a home that keeps its own copy of a transcript
+/// doesn't list the one a repair takes.
+fn listers(scans: &[HomeScan]) -> HashMap<(String, String), Vec<String>> {
+    let holders = holders(scans);
+    let mut listers: HashMap<(String, String), Vec<String>> = HashMap::new();
     for scan in scans {
-        for id in scan.records.iter().flat_map(claimed_ids) {
-            let homes = listers.entry(id.to_string()).or_default();
+        let active = scan.records.iter().filter(|record| !record.archived);
+        for id in active.flat_map(claimed_ids) {
+            let Some(copy) = claimed_copy(&scan.home_id, id, &holders) else {
+                continue;
+            };
+            let homes = listers
+                .entry((id.to_string(), copy.to_string()))
+                .or_default();
             if !homes.contains(&scan.home_id) {
                 homes.push(scan.home_id.clone());
             }
@@ -311,7 +325,7 @@ fn session_repair(context: &Context, owned: &Owned) -> Result<SessionRepair, Str
     for held in &orphans {
         let other = context
             .listers
-            .get(&held.summary.session_id)
+            .get(&(held.summary.session_id.clone(), held.home_id.clone()))
             .into_iter()
             .flatten()
             .find(|lister| **lister != home.id);
@@ -612,8 +626,9 @@ mod tests {
     use super::*;
     use crate::app_kind::AppKind;
     use crate::error::AppError;
-    use crate::sessions::actions::AppToQuit;
+    use crate::sessions::actions::{AppToQuit, SessionAction};
     use crate::sessions::claude::archive_store::archived_bundles;
+    use crate::sessions::claude::{archive, transfer};
     use crate::sessions::list::claude_sessions;
     use crate::test_support::fake_wrapper_process;
 
@@ -934,6 +949,72 @@ mod tests {
             }]
         );
         assert!(default.config_dir.join(transcript_path("now")).exists());
+    }
+
+    /// Signs `home`'s desktop app in to the tests' account.
+    fn sign_in(home: &Home) {
+        write(
+            &home.gui_data_dir.join("config.json"),
+            &json!({ "lastKnownAccountUuid": ACCOUNT }).to_string(),
+        );
+        write(
+            &home.config_dir.join(".claude.json"),
+            &json!({ "oauthAccount": { "accountUuid": ACCOUNT, "organizationUuid": ORG } })
+                .to_string(),
+        );
+    }
+
+    #[test]
+    fn a_session_restored_after_moving_it_away_is_repaired_and_the_banner_clears() {
+        let root = tempdir().unwrap();
+        let (default, personal, mut homes) = orphaned(root.path());
+        let work = home(root.path(), "Work");
+        sign_in(&work);
+        homes.push(work.clone());
+        let moving = transfer::plan(&personal, &work, &homes, "now", "").unwrap();
+        transfer::execute(moving, AT.parse().unwrap()).unwrap();
+        let restoring =
+            archive::check(&personal, &homes, "now", SessionAction::Restore, "").unwrap();
+        archive::apply(&personal, restoring.target, SessionAction::Restore).unwrap();
+        assert_eq!(claude_sessions(&personal, &homes, "").repair_count, 1);
+        let at_work = tree(&work.config_dir);
+
+        let report = repair(&personal, &homes, "");
+
+        assert_eq!(
+            report,
+            RepairReport {
+                repaired: 1,
+                ..RepairReport::default()
+            }
+        );
+        assert_eq!(claude_sessions(&personal, &homes, "").repair_count, 0);
+        for session in ["before", "now"] {
+            assert!(personal.config_dir.join(transcript_path(session)).exists());
+            assert!(!default.config_dir.join(transcript_path(session)).exists());
+        }
+        assert_eq!(tree(&work.config_dir), at_work);
+        let listed = claude_sessions(&work, &homes, "");
+        assert_eq!(listed.repair_count, 0);
+        assert!(listed.sessions.iter().any(|session| session.id == "now"));
+    }
+
+    #[test]
+    fn an_archived_record_in_another_profile_doesnt_keep_a_session_from_repair() {
+        let root = tempdir().unwrap();
+        let (default, personal, mut homes) = orphaned(root.path());
+        let work = home(root.path(), "Work");
+        record(
+            &work,
+            "w1",
+            json!({ "cliSessionId": "now", "isArchived": true }),
+        );
+        homes.push(work);
+
+        let report = repair(&personal, &homes, "");
+
+        assert_eq!(report.repaired, 1);
+        assert!(!default.config_dir.join(transcript_path("now")).exists());
     }
 
     #[test]

@@ -123,6 +123,23 @@ fn transcript_index<'a>(
 /// first that has one, as [`transcript_index`] finds it (an orphan). So a
 /// session moved to another home and restored here still lists here.
 fn claimed_from<'a>(home_id: &str, scans: &'a [HomeScan]) -> HashSet<&'a str> {
+    let holders = holders(scans);
+    scans
+        .iter()
+        .flat_map(|scan| {
+            scan.records
+                .iter()
+                .flat_map(claimed_ids)
+                .map(move |id| (scan.home_id.as_str(), id))
+        })
+        .filter(|(claimant, id)| claimed_copy(claimant, id, &holders) == Some(home_id))
+        .map(|(_, id)| id)
+        .collect()
+}
+
+/// The ids of the homes whose config dirs hold each transcript, in the order
+/// of `scans`, by the transcript's id.
+pub(super) fn holders(scans: &[HomeScan]) -> HashMap<&str, Vec<&str>> {
     let mut holders: HashMap<&str, Vec<&str>> = HashMap::new();
     for scan in scans {
         for transcript in &scan.transcripts {
@@ -132,26 +149,23 @@ fn claimed_from<'a>(home_id: &str, scans: &'a [HomeScan]) -> HashSet<&'a str> {
                 .push(scan.home_id.as_str());
         }
     }
-    scans
-        .iter()
-        .flat_map(|scan| {
-            scan.records
-                .iter()
-                .flat_map(claimed_ids)
-                .map(move |id| (scan.home_id.as_str(), id))
-        })
-        .filter(|(claimant, id)| {
-            holders.get(id).is_some_and(|homes| {
-                let claimed_copy = if homes.contains(claimant) {
-                    Some(claimant)
-                } else {
-                    homes.first()
-                };
-                claimed_copy == Some(&home_id)
-            })
-        })
-        .map(|(_, id)| id)
-        .collect()
+    holders
+}
+
+/// The id of the home whose copy of transcript `id` a record of home
+/// `claimant` claims, given the `holders` of each transcript: `claimant`'s
+/// own copy when it has one, else the first other home's. `None` when no
+/// home has it.
+pub(super) fn claimed_copy<'a>(
+    claimant: &'a str,
+    id: &str,
+    holders: &HashMap<&str, Vec<&'a str>>,
+) -> Option<&'a str> {
+    let homes = holders.get(id)?;
+    if homes.contains(&claimant) {
+        return Some(claimant);
+    }
+    homes.first().copied()
 }
 
 /// The ids of the transcripts `record` claims: its current one, then its
