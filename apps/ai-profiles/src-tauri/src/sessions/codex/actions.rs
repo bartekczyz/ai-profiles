@@ -254,14 +254,22 @@ pub(super) async fn held_lock(codex_home: &Path, id: &str) -> AppResult<bool> {
 const LSOF_BINARY: &str = "/usr/sbin/lsof";
 
 /// The pid holding thread `id`'s writer lock in `codex_home`, via `lsof -t`.
-/// No lock file means no holder. `lsof` itself failing to run is an error,
+/// No lock file means no holder. `-w` keeps `lsof`'s warnings, such as about
+/// a network volume it can't look into, off stderr, where they would read as
+/// a failure. `lsof` itself failing to run is an error,
 /// not a clean bill of health — see [`holder_pid_from_lsof`].
 fn lock_holder_pid(codex_home: &Path, id: &str) -> AppResult<Option<i32>> {
+    lock_holder_pid_with(Path::new(LSOF_BINARY), codex_home, id)
+}
+
+/// [`lock_holder_pid`], asking the `lsof` at `lsof`.
+fn lock_holder_pid_with(lsof: &Path, codex_home: &Path, id: &str) -> AppResult<Option<i32>> {
     let lock = lock_path(codex_home, id);
     if !lock.exists() {
         return Ok(None);
     }
-    let output = Command::new(LSOF_BINARY)
+    let output = Command::new(lsof)
+        .arg("-w")
         .arg("-t")
         .arg(&lock)
         .output()
@@ -322,6 +330,7 @@ fn not_found(session_id: &str, home: &Home) -> AppError {
 #[cfg(test)]
 mod tests {
     use std::fs::File;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
 
     use serde_json::{json, Value};
@@ -748,6 +757,36 @@ mod tests {
         );
         assert!(holder_pid_from_lsof(&lsof_output(1, b"1234\n", b"")).is_err());
         assert!(holder_pid_from_lsof(&lsof_output(2, b"", b"")).is_err());
+    }
+
+    /// An `lsof` stand-in at `<root>/lsof` that finds no holder and, unless
+    /// passed `-w`, warns on stderr about a volume it can't look into, as the
+    /// real one does with an unreachable network mount.
+    fn warning_lsof(root: &Path) -> PathBuf {
+        let path = root.join("lsof");
+        fs::write(
+            &path,
+            "#!/bin/sh
+             for arg in \"$@\"; do [ \"$arg\" = -w ] && exit 1; done
+             echo \"lsof: WARNING: can't stat() smbfs file system /Volumes/share\" >&2
+             exit 1
+",
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_harmless_lsof_warning_is_not_read_as_a_holder() {
+        let root = tempdir().unwrap();
+        let codex_home = root.path().join("codex");
+        let lock = lock_path(&codex_home, "t");
+        fs::create_dir_all(lock.parent().unwrap()).unwrap();
+        File::create(&lock).unwrap();
+        let lsof = warning_lsof(root.path());
+
+        assert_eq!(lock_holder_pid_with(&lsof, &codex_home, "t").unwrap(), None);
     }
 
     #[test]

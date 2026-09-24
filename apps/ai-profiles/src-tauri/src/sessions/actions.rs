@@ -145,8 +145,11 @@ pub async fn check(
     match home.app {
         AppKind::Claude => {
             let homes = homes_of(AppKind::Claude)?;
-            let checked =
-                claude_archive::check(&home, &homes, session_id, action, &process_list()?)?;
+            let session_id = session_id.to_string();
+            let checked = blocking(move || {
+                claude_archive::check(&home, &homes, &session_id, action, &process_list()?)
+            })
+            .await?;
             Ok(checked.check)
         }
         AppKind::Codex => Ok(codex::check(&home, session_id, action).await?.check),
@@ -185,9 +188,9 @@ async fn run(
 }
 
 /// [`run`] for a Claude session of `home`, one of `homes`, giving its
-/// desktop app `quit_timeout` to quit. The check and the write are plain
-/// synchronous filesystem work; wrapping them in `async` blocks is only so
-/// [`run_checked`] can drive both apps' actions through the same sequence.
+/// desktop app `quit_timeout` to quit. The check, which reads every home's
+/// transcripts and runs `ps`, and the write are plain synchronous work, so
+/// each runs on a blocking thread.
 async fn run_claude(
     home: &Home,
     homes: &[Home],
@@ -198,9 +201,17 @@ async fn run_claude(
 ) -> AppResult<()> {
     run_checked(
         quit_app,
-        || async { claude_archive::check(home, homes, session_id, action, &process_list()?) },
+        || {
+            let (home, homes, session_id) = (home.clone(), homes.to_vec(), session_id.to_string());
+            blocking(move || {
+                claude_archive::check(&home, &homes, &session_id, action, &process_list()?)
+            })
+        },
         |_| quit_blocking(home.clone(), quit_timeout),
-        |target| async move { claude_archive::apply(home, target, action) },
+        |target| {
+            let home = home.clone();
+            blocking(move || claude_archive::apply(&home, target, action))
+        },
     )
     .await
 }
