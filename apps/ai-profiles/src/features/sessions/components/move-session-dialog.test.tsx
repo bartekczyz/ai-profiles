@@ -108,6 +108,13 @@ describe('MoveSessionDialog', () => {
     expect(moveSession).not.toHaveBeenCalled()
   })
 
+  it('names every obstacle when more than one stands in the way', async () => {
+    mockPlan({ blockers: ['Close it in the terminal first', 'The destination is being updated'] })
+    await renderDialog()
+    const reasons = await screen.findByText(/Close it in the terminal first/)
+    expect(reasons).toHaveTextContent('The destination is being updated')
+  })
+
   it('closes, refreshes the session lists and says where the session went once moved', async () => {
     mockPlan()
     vi.mocked(moveSession).mockResolvedValue({ memoryConflicts: ['deploy.md'] })
