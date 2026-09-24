@@ -6,18 +6,21 @@
 //! `ai-title`, `last-prompt`, `relocated`) that is re-appended whenever it
 //! changes, so the last record of each kind is the current one. Transcripts
 //! reach 100 MB and a config dir holds thousands, and the list is re-read on
-//! every window focus: summaries are cached until the file changes, and only
+//! every window focus: what was read is cached until the file changes, a
+//! transcript that grew since is read on from where reading stopped, and only
 //! lines that can hold a field read here are decoded at all.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use serde_json::value::RawValue;
 
 /// What the Sessions list needs to know about one transcript.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,21 +61,60 @@ const MARKERS: [&str; 6] = [
     "\"type\":\"user\"",
 ];
 
-/// Summaries already read, by transcript, with the length and modification
-/// time the file had when read. A file that still has both is not read again.
-/// The title file fallback is applied after the cache, as that file changes on
-/// its own.
+/// Transcripts already read, by path. One that still has the length and
+/// modification time it had then is not read again, and one that only grew
+/// since is read on from where reading stopped. The title file fallback is
+/// applied after the cache, as that file changes on its own.
 static SUMMARY_CACHE: LazyLock<Mutex<SummaryCache>> = LazyLock::new(Mutex::default);
 
-/// Cached summaries by transcript, each with the file's length and
-/// modification time when read.
-type SummaryCache = HashMap<PathBuf, (u64, SystemTime, TranscriptSummary)>;
+/// What reading each transcript found, by its path.
+type SummaryCache = HashMap<PathBuf, CachedRead>;
+
+/// What reading a transcript found, kept to go on from.
+#[derive(Clone)]
+struct CachedRead {
+    /// The file's inode when read: a file replaced by another is read afresh.
+    inode: u64,
+    /// The file's length when read.
+    len: u64,
+    /// The file's modification time when read.
+    modified: SystemTime,
+    /// How far it was read: the end of its last whole line.
+    offset: u64,
+    /// What its whole lines up to `offset` say.
+    scan: Scan,
+    /// Its summary, `None` for a transcript of subagent records only.
+    summary: Option<TranscriptSummary>,
+}
+
+/// What a transcript's records say so far, read line by line. Later records
+/// win.
+#[derive(Debug, Clone, Default)]
+struct Scan {
+    /// The `cwd` of the last message, or where the session was last
+    /// relocated to.
+    cwd: Option<String>,
+    /// The last `custom-title` record's.
+    custom_title: Option<String>,
+    /// The last `ai-title` record's.
+    ai_title: Option<String>,
+    /// The first text the user typed.
+    first_prompt: Option<String>,
+    /// The last `last-prompt` record's.
+    last_prompt: Option<String>,
+    /// The last `timestamp`, parsed only once reading is done.
+    last_timestamp: Option<String>,
+    /// A record of a subagent's conversation was read.
+    sidechain_seen: bool,
+    /// A record of the session's own conversation was read.
+    main_seen: bool,
+}
 
 /// The fields of a transcript record read here. Everything else is skipped
 /// without being built.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Record {
+struct Record<'a> {
     /// The record's kind: `user`, `assistant`, `custom-title`, …
     #[serde(rename = "type")]
     kind: Option<String>,
@@ -93,17 +135,14 @@ struct Record {
     last_prompt: Option<String>,
     /// Of a `relocated` record: the folder the session moved to.
     relocated_cwd: Option<String>,
+    /// Of a message: the message, as it is written, read only when it may
+    /// hold the first prompt.
+    #[serde(borrow)]
+    message: Option<&'a RawValue>,
 }
 
-/// A `user` record, read again for its message once it is known to be the
-/// first one that can hold the first prompt.
-#[derive(Deserialize)]
-struct UserRecord {
-    /// The message the record carries.
-    message: UserMessage,
-}
-
-/// The message of a [`UserRecord`].
+/// A message of a `user` record, once it is known to be the first one that
+/// can hold the first prompt.
 #[derive(Deserialize)]
 struct UserMessage {
     /// What the message says.
@@ -177,12 +216,14 @@ pub fn scan_projects(config_dir: &Path) -> Vec<TranscriptSummary> {
     summaries
 }
 
-/// Read the summary of the transcript at `path`. `None` when it can't be read,
-/// or holds a subagent's records only.
+/// Read the summary of the transcript at `path`, all of it. `None` when it
+/// can't be read, or holds a subagent's records only.
 pub fn summarize(path: &Path) -> Option<TranscriptSummary> {
     let file = File::open(path).ok()?;
     let modified = file.metadata().ok()?.modified().ok()?;
-    read_summary(path, file, modified).map(with_title_file)
+    let mut scan = Scan::default();
+    let (_, tail) = read_lines(BufReader::new(file), &mut scan);
+    finish(&scan, tail.as_deref(), path, modified).map(with_title_file)
 }
 
 /// The files and folders that make up `summary`'s session in `config_dir`,
@@ -204,104 +245,176 @@ fn lock_cache() -> MutexGuard<'static, SummaryCache> {
 }
 
 /// The summary of the transcript at `path`, without the title file fallback:
-/// from [`SUMMARY_CACHE`] if the file hasn't changed since it was read, else
-/// read now and cached. The lock isn't held while reading, so scans of other
-/// config dirs don't wait on this one.
+/// from [`SUMMARY_CACHE`] if the file hasn't changed since it was read, read
+/// on from where reading stopped if it only grew, else read whole, and
+/// cached. The lock isn't held while reading, so scans of other config dirs
+/// don't wait on this one.
 fn cached_summary(path: &Path) -> Option<TranscriptSummary> {
-    let file = File::open(path).ok()?;
+    let mut file = File::open(path).ok()?;
     let metadata = file.metadata().ok()?;
     if !metadata.is_file() {
         return None;
     }
-    let len = metadata.len();
-    let modified = metadata.modified().ok()?;
-    if let Some((cached_len, cached_modified, summary)) = lock_cache().get(path) {
-        if *cached_len == len && *cached_modified == modified {
-            return Some(summary.clone());
+    let (inode, len, modified) = (metadata.ino(), metadata.len(), metadata.modified().ok()?);
+    let cached = lock_cache().get(path).cloned();
+    if let Some(cached) = &cached {
+        if cached.inode == inode && cached.len == len && cached.modified == modified {
+            return cached.summary.clone();
         }
     }
-    let summary = read_summary(path, file, modified)?;
-    lock_cache().insert(path.to_path_buf(), (len, modified, summary.clone()));
-    Some(summary)
+    let (start, mut scan) = match cached {
+        Some(cached) if grew(&mut file, &cached, inode, len) => (cached.offset, cached.scan),
+        _ => (0, Scan::default()),
+    };
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let (read, tail) = read_lines(BufReader::new(file), &mut scan);
+    let summary = finish(&scan, tail.as_deref(), path, modified);
+    let read = CachedRead {
+        inode,
+        len,
+        modified,
+        offset: start + read,
+        scan,
+        summary: summary.clone(),
+    };
+    lock_cache().insert(path.to_path_buf(), read);
+    summary
 }
 
-/// Read the summary of the transcript `file` at `path`, last written at
-/// `modified`, from its records. Later records win. Lines that aren't a
-/// record, like the last one while Claude Code is still writing it, are
-/// skipped; reading stops at the first line that isn't UTF-8, which only a
-/// write cut short leaves. Only the last `timestamp` is kept, and parsed once
-/// at the end; one that doesn't parse leaves the file's modification time.
-fn read_summary(path: &Path, file: File, modified: SystemTime) -> Option<TranscriptSummary> {
-    let session_id = path.file_stem()?.to_str()?.to_string();
-    let mut summary = TranscriptSummary {
-        session_id,
-        path: path.to_path_buf(),
-        cwd: None,
-        custom_title: None,
-        ai_title: None,
-        first_prompt: None,
-        last_prompt: None,
-        last_used_at: DateTime::<Utc>::from(modified),
-    };
-    let mut last_timestamp = None;
-    let mut sidechain_seen = false;
-    let mut main_seen = false;
-    for line in BufReader::new(file).lines().map_while(Result::ok) {
-        if !MARKERS.iter().any(|marker| line.contains(marker)) {
-            continue;
+/// Whether `file`, read before as `cached` and now of `inode` and `len`, only
+/// grew since: it is the same file, no shorter, and still ends a line where
+/// reading stopped. Claude Code only ever appends to a transcript.
+fn grew(file: &mut File, cached: &CachedRead, inode: u64, len: u64) -> bool {
+    if cached.inode != inode || len < cached.len {
+        return false;
+    }
+    if cached.offset == 0 {
+        return true;
+    }
+    let mut last = [0_u8; 1];
+    file.seek(SeekFrom::Start(cached.offset - 1)).is_ok()
+        && file.read_exact(&mut last).is_ok()
+        && last[0] == b'\n'
+}
+
+/// Read the lines `reader` holds into `scan`, up to the end of its last whole
+/// line. Returns how many bytes those are, with the line after them that has
+/// no end yet, which Claude Code may still be writing. Reading stops early,
+/// as at the end, when the file can't be read on.
+fn read_lines(mut reader: impl BufRead, scan: &mut Scan) -> (u64, Option<Vec<u8>>) {
+    let mut read = 0;
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) | Err(_) => return (read, None),
+            Ok(_) if line.last() != Some(&b'\n') => return (read, Some(line)),
+            Ok(count) => {
+                read += count as u64;
+                scan.read(&line);
+            }
         }
-        let Ok(record) = serde_json::from_str::<Record>(&line) else {
-            continue;
+    }
+}
+
+/// The summary of the transcript at `path`, last written at `modified`, whose
+/// whole lines say `scan`, and `tail` after them if it has one: `None` when it
+/// holds a subagent's records only.
+fn finish(
+    scan: &Scan,
+    tail: Option<&[u8]>,
+    path: &Path,
+    modified: SystemTime,
+) -> Option<TranscriptSummary> {
+    let Some(tail) = tail else {
+        return scan.summary(path, modified);
+    };
+    let mut whole = scan.clone();
+    whole.read(tail);
+    whole.summary(path, modified)
+}
+
+impl Scan {
+    /// Take in the record on `line`. A line that isn't UTF-8, or isn't a
+    /// record, like one Claude Code is still writing, is skipped, as is one
+    /// without a field read here.
+    fn read(&mut self, line: &[u8]) {
+        let Ok(line) = std::str::from_utf8(line) else {
+            return;
+        };
+        if !MARKERS.iter().any(|marker| line.contains(marker)) {
+            return;
+        }
+        let Ok(record) = serde_json::from_str::<Record>(line) else {
+            return;
         };
         match record.is_sidechain {
-            Some(true) => sidechain_seen = true,
-            Some(false) => main_seen = true,
+            Some(true) => self.sidechain_seen = true,
+            Some(false) => self.main_seen = true,
             None => {}
         }
         if record.timestamp.is_some() {
-            last_timestamp = record.timestamp;
+            self.last_timestamp = record.timestamp;
         }
         match record.kind.as_deref() {
             Some(kind @ ("user" | "assistant")) => {
                 if record.cwd.is_some() {
-                    summary.cwd = record.cwd;
+                    self.cwd = record.cwd;
                 }
                 let typed = kind == "user" && record.is_sidechain != Some(true) && !record.is_meta;
-                if typed && summary.first_prompt.is_none() {
-                    summary.first_prompt = first_text(&line);
+                if typed && self.first_prompt.is_none() {
+                    self.first_prompt = record.message.and_then(first_text);
                 }
             }
             Some("custom-title") => {
-                summary.custom_title = record.custom_title.or(summary.custom_title);
+                self.custom_title = record.custom_title.or(self.custom_title.take());
             }
             Some("ai-title") => {
-                summary.ai_title = record.ai_title.or(summary.ai_title);
+                self.ai_title = record.ai_title.or(self.ai_title.take());
             }
             Some("last-prompt") => {
-                summary.last_prompt = record.last_prompt.or(summary.last_prompt);
+                self.last_prompt = record.last_prompt.or(self.last_prompt.take());
             }
             Some("relocated") => {
-                summary.cwd = record.relocated_cwd.or(summary.cwd);
+                self.cwd = record.relocated_cwd.or(self.cwd.take());
             }
             _ => {}
         }
     }
-    if sidechain_seen && !main_seen {
-        return None;
+
+    /// The summary of the transcript at `path`, last written at `modified`,
+    /// that says this: `None` when it holds a subagent's records only. Its
+    /// last use is its last `timestamp`, or, when that is missing or doesn't
+    /// parse, `modified`.
+    fn summary(&self, path: &Path, modified: SystemTime) -> Option<TranscriptSummary> {
+        if self.sidechain_seen && !self.main_seen {
+            return None;
+        }
+        let last_used_at = self
+            .last_timestamp
+            .as_deref()
+            .and_then(|timestamp| timestamp.parse().ok())
+            .unwrap_or_else(|| DateTime::<Utc>::from(modified));
+        Some(TranscriptSummary {
+            session_id: path.file_stem()?.to_str()?.to_string(),
+            path: path.to_path_buf(),
+            cwd: self.cwd.clone(),
+            custom_title: self.custom_title.clone(),
+            ai_title: self.ai_title.clone(),
+            first_prompt: self.first_prompt.clone(),
+            last_prompt: self.last_prompt.clone(),
+            last_used_at,
+        })
     }
-    if let Some(timestamp) = last_timestamp.and_then(|timestamp| timestamp.parse().ok()) {
-        summary.last_used_at = timestamp;
-    }
-    Some(summary)
 }
 
-/// The text of the `user` record on `line`, trimmed and cut to
+/// The text of the user's `message`, trimmed and cut to
 /// [`FIRST_PROMPT_MAX_CHARS`]: its content if plain text, else its first
-/// non-blank text block. `None` for a record with no text, such as a tool
+/// non-blank text block. `None` for a message with no text, such as a tool
 /// result.
-fn first_text(line: &str) -> Option<String> {
-    let record = serde_json::from_str::<UserRecord>(line).ok()?;
-    let text = match record.message.content {
+fn first_text(message: &RawValue) -> Option<String> {
+    let message = serde_json::from_str::<UserMessage>(message.get()).ok()?;
+    let text = match message.content {
         Content::Text(text) => text,
         Content::Blocks(blocks) => blocks
             .into_iter()
@@ -515,6 +628,122 @@ mod tests {
 
         assert_eq!(summary.custom_title.as_deref(), Some("Kept"));
         assert_eq!(summary.last_used_at, utc("2026-09-01T10:00:00Z"));
+    }
+
+    #[test]
+    fn a_line_that_isnt_utf8_is_skipped_and_the_rest_read() {
+        let root = tempdir().unwrap();
+        let path = transcript_path(root.path(), SESSION);
+        write_lines(&path, &[user("2026-09-01T10:00:00Z", "/work", json!("Hi"))]);
+        let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(b"{\"type\":\"custom-title\",\"customTitle\":\"\xff\xfe\"}\n")
+            .unwrap();
+        let later = json!({ "type": "custom-title", "customTitle": "Kept", "sessionId": SESSION });
+        writeln!(file, "{later}").unwrap();
+
+        assert_eq!(
+            summarize(&path).unwrap().custom_title.as_deref(),
+            Some("Kept")
+        );
+    }
+
+    /// Date the file at `path` `modified`.
+    fn date(path: &Path, modified: SystemTime) {
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+    }
+
+    #[test]
+    fn a_transcript_of_sidechain_records_only_is_not_read_again_until_it_changes() {
+        let root = tempdir().unwrap();
+        let path = transcript_path(root.path(), SESSION);
+        let written = SystemTime::UNIX_EPOCH + Duration::from_secs(1_750_000_000);
+        let mut sidechain = user("2026-09-01T10:00:00Z", "/work", json!("Subtasks"));
+        sidechain["isSidechain"] = json!(true);
+        write_lines(&path, &[sidechain]);
+        date(&path, written);
+        assert_eq!(scan_projects(root.path()), []);
+
+        // Rewritten to the same length and date, it isn't read again.
+        let mut main = user("2026-09-01T10:00:00Z", "/work", json!("Subtask"));
+        main["isSidechain"] = json!(false);
+        write_lines(&path, &[main]);
+        date(&path, written);
+
+        assert_eq!(scan_projects(root.path()), []);
+    }
+
+    #[test]
+    fn a_transcript_that_grew_reads_the_same_as_read_whole() {
+        let root = tempdir().unwrap();
+        let path = transcript_path(root.path(), SESSION);
+        write_lines(
+            &path,
+            &[
+                user(
+                    "2026-09-01T10:00:00Z",
+                    "/work/app",
+                    json!("Fix the login bug"),
+                ),
+                json!({ "type": "ai-title", "aiTitle": "Login fix", "sessionId": SESSION }),
+            ],
+        );
+        let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(br#"{"type":"last-prompt","lastPrompt":"Fix the lo"#)
+            .unwrap();
+        let first = scan_projects(root.path());
+        assert_eq!(first[0].last_prompt, None);
+
+        writeln!(file, r#"gin bug","sessionId":"{SESSION}"}}"#).unwrap();
+        let later = [
+            assistant("2026-09-01T10:05:00Z", "/work/app/web"),
+            json!({ "type": "custom-title", "customTitle": "Login", "sessionId": SESSION }),
+            user("2026-09-01T10:07:30Z", "/work/app/web", json!("And logout")),
+        ];
+        for line in later {
+            writeln!(file, "{line}").unwrap();
+        }
+        drop(file);
+
+        let grown = scan_projects(root.path());
+
+        assert_eq!(grown, [summarize(&path).unwrap()]);
+        assert_eq!(grown[0].first_prompt.as_deref(), Some("Fix the login bug"));
+        assert_eq!(grown[0].last_prompt.as_deref(), Some("Fix the login bug"));
+        assert_eq!(grown[0].custom_title.as_deref(), Some("Login"));
+        assert_eq!(grown[0].cwd.as_deref(), Some("/work/app/web"));
+        assert_eq!(grown[0].last_used_at, utc("2026-09-01T10:07:30Z"));
+    }
+
+    #[test]
+    fn a_transcript_that_grew_is_read_on_from_where_it_was_read_to() {
+        let root = tempdir().unwrap();
+        let path = transcript_path(root.path(), SESSION);
+        write_lines(
+            &path,
+            &[
+                user("2026-09-01T10:00:00Z", "/work", json!("Hi")),
+                json!({ "type": "ai-title", "aiTitle": "Aaaa", "sessionId": SESSION }),
+            ],
+        );
+        assert_eq!(
+            scan_projects(root.path())[0].ai_title.as_deref(),
+            Some("Aaaa")
+        );
+
+        // Claude Code only ever appends, so what was read isn't read again.
+        let text = fs::read_to_string(&path).unwrap().replace("Aaaa", "Bbbb");
+        let tail = json!({ "type": "last-prompt", "lastPrompt": "Hi", "sessionId": SESSION });
+        fs::write(&path, format!("{text}{tail}\n")).unwrap();
+
+        let grown = scan_projects(root.path());
+
+        assert_eq!(grown[0].ai_title.as_deref(), Some("Aaaa"));
+        assert_eq!(grown[0].last_prompt.as_deref(), Some("Hi"));
     }
 
     #[test]

@@ -6,9 +6,11 @@
 //! `archived-sessions.idx` lists the archived ones and `deleted_<uuid>` marks
 //! one the app deleted.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
+use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -65,8 +67,17 @@ pub struct DesktopRecord {
     pub archived: bool,
 }
 
+/// Records already read, by path, each with the length and modification
+/// time the file had then, and `None` for one that wasn't a readable record.
+/// A file that still has both is not read again. Whether a record is archived
+/// or deleted is told by other files, read every time.
+static RECORD_CACHE: LazyLock<Mutex<RecordCache>> = LazyLock::new(Mutex::default);
+
+/// What each record file held when read, by its path.
+type RecordCache = HashMap<PathBuf, (u64, SystemTime, Option<RecordFile>)>;
+
 /// The fields of a `local_<uuid>.json` record read here.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RecordFile {
     /// The transcript the session continues.
@@ -95,9 +106,11 @@ struct ArchivedIndex {
 
 /// Every record under `gui_data_dir`, of every `<account>/<org>` folder, as
 /// the user may have switched accounts. Records the app deleted and files
-/// that aren't a readable record are skipped.
+/// that aren't a readable record are skipped. A record file that hasn't
+/// changed since it was last read comes from [`RECORD_CACHE`].
 pub fn read_records(gui_data_dir: &Path) -> Vec<DesktopRecord> {
     let mut records = Vec::new();
+    let mut seen = HashSet::new();
     for org_dir in account_org_dirs(gui_data_dir) {
         let Ok(files) = fs::read_dir(&org_dir) else {
             continue;
@@ -118,10 +131,8 @@ pub fn read_records(gui_data_dir: &Path) -> Vec<DesktopRecord> {
             if org_dir.join(tombstone).exists() {
                 continue;
             }
-            let Some(record) = fs::read_to_string(&path)
-                .ok()
-                .and_then(|text| serde_json::from_str::<RecordFile>(&text).ok())
-            else {
+            seen.insert(path.clone());
+            let Some(record) = cached_record(&path) else {
                 continue;
             };
             records.push(DesktopRecord {
@@ -143,7 +154,35 @@ pub fn read_records(gui_data_dir: &Path) -> Vec<DesktopRecord> {
             });
         }
     }
+    // Forget records that have gone, so the cache stays the size of what is
+    // on disk.
+    let records_dir = gui_data_dir.join(RECORDS_DIR);
+    lock_records().retain(|path, _| !path.starts_with(&records_dir) || seen.contains(path));
     records
+}
+
+/// Take [`RECORD_CACHE`]. Entries are whole values swapped in and out, so a
+/// panic under the lock leaves nothing half-written.
+fn lock_records() -> MutexGuard<'static, RecordCache> {
+    RECORD_CACHE.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The record file at `path`: from [`RECORD_CACHE`] if it hasn't changed
+/// since it was read, else read now and cached. `None` when it isn't a
+/// readable record.
+fn cached_record(path: &Path) -> Option<RecordFile> {
+    let metadata = fs::metadata(path).ok()?;
+    let (len, modified) = (metadata.len(), metadata.modified().ok()?);
+    if let Some((cached_len, cached_modified, record)) = lock_records().get(path) {
+        if *cached_len == len && *cached_modified == modified {
+            return record.clone();
+        }
+    }
+    let record = fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<RecordFile>(&text).ok());
+    lock_records().insert(path.to_path_buf(), (len, modified, record.clone()));
+    record
 }
 
 /// Archive `record`, or restore it, the way the desktop app does: its
@@ -556,6 +595,32 @@ mod tests {
             .collect();
 
         assert_eq!(ids, ["local_kept"]);
+    }
+
+    #[test]
+    fn a_record_that_hasnt_changed_isnt_read_again_but_the_index_is() {
+        let root = tempdir().unwrap();
+        let dir = org_dir(root.path(), ACCOUNT, ORG);
+        let path = write_record(&dir, "aaa", json!({ "cliSessionId": "s", "title": "Aaaa" }));
+        let written = fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(read_records(root.path())[0].title.as_deref(), Some("Aaaa"));
+
+        write_record(&dir, "aaa", json!({ "cliSessionId": "s", "title": "Bbbb" }));
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(written)
+            .unwrap();
+        write_json(
+            &dir.join(ARCHIVED_INDEX),
+            &json!({ "v": 1, "archived": ["local_aaa"] }),
+        );
+
+        let records = read_records(root.path());
+
+        assert_eq!(records[0].title.as_deref(), Some("Aaaa"));
+        assert!(records[0].archived);
     }
 
     #[test]
