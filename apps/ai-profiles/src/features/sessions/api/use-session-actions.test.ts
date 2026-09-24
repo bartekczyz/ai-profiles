@@ -47,8 +47,8 @@ async function planThenRefocus(plan: MovePlan): Promise<number> {
     focusManager.setFocused(true)
   })
 
-  // Give a refetch the focus started time to reach the command.
-  await new Promise((resolve) => setTimeout(resolve, 20))
+  // A refetch the focus started is under way by now; wait for it to settle.
+  await waitFor(() => expect(result.current.isFetching).toBe(false))
   return vi.mocked(planSessionMove).mock.calls.length - planned
 }
 
