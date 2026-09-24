@@ -280,8 +280,9 @@ pub fn build_destination_record(
             let mut fields: Map<String, Value> =
                 serde_json::from_str(&fs::read_to_string(&source.path)?)
                     .map_err(|_| unexpected(&source.path))?;
+            // Removed in place, so the fields left keep their order.
             for field in ACCOUNT_BOUND_FIELDS {
-                fields.remove(field);
+                fields.shift_remove(field);
             }
             fields.insert("sessionId".to_string(), json!(source.local_id));
             fields
@@ -951,6 +952,39 @@ mod tests {
                 "model": "claude-opus-5-5",
                 "isArchived": false,
             })
+        );
+    }
+
+    #[test]
+    fn a_moved_record_keeps_the_order_of_its_fields() {
+        let root = tempdir().unwrap();
+        let dir = org_dir(root.path(), ACCOUNT, ORG);
+        fs::write(
+            dir.join("local_aaa.json"),
+            r#"{"sessionId":"local_aaa","cliSessionId":"gone","remoteMcpServersConfig":[],"title":"Audit","spawnSeed":7,"model":"m","isArchived":true}"#,
+        )
+        .unwrap();
+        let source = read_records(root.path()).remove(0);
+
+        let record =
+            build_destination_record(Some(&source), &transcript("current", None), &[]).unwrap();
+
+        let keys: Vec<&str> = record
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "sessionId",
+                "cliSessionId",
+                "title",
+                "model",
+                "isArchived",
+                "priorCliSessionIds"
+            ]
         );
     }
 
