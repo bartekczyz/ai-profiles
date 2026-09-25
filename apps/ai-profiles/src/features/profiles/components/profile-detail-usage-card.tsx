@@ -611,6 +611,221 @@ function formatMoney(amountMinor: number, currency: string, exponent: number): s
 const meterGridClass =
   'grid min-h-[15px] grid-cols-[32px_1fr_180px] items-center gap-2 lg:grid-cols-[140px_1fr_180px] lg:gap-3'
 
+/**
+ * Severity level for a meter's bar, driving both its fill color and (via
+ * `meterToneBarClass`) the Tailwind class that paints it.
+ */
+export type MeterTone = 'muted' | 'ok' | 'warn' | 'crit'
+
+/**
+ * Rounds raw utilization (0..=100+, uncapped when a user is over-limit) into
+ * the whole-percent value the label and tone lookup both key off. Null
+ * utilization (no data yet) stays null rather than becoming a false 0%.
+ */
+export function usedPercentFromUtilization(utilization: number | null): number | null {
+  if (utilization === null) {
+    return null
+  }
+  return Math.round(utilization)
+}
+
+/**
+ * Flips a used-percent into whichever display the user has toggled to.
+ * "used" passes the value through; "remaining" inverts it and floors at 0
+ * so an over-limit account (over 100% used) never shows negative remaining.
+ */
+export function displayPercent(usedPercent: number | null, display: UsageDisplay): number | null {
+  if (usedPercent === null) {
+    return null
+  }
+  if (display === 'remaining') {
+    return Math.max(0, 100 - usedPercent)
+  }
+  return usedPercent
+}
+
+/**
+ * Clamps a display percent into the 0..100 range a bar's width can render.
+ * Null (no data) fills to 0 — an empty bar rather than a full one.
+ */
+export function meterFillPercent(percent: number | null): number {
+  if (percent === null) {
+    return 0
+  }
+  return Math.min(100, Math.max(0, percent))
+}
+
+/**
+ * Severity tone for a meter's bar, derived from used-percent regardless of
+ * which display the user is viewing — tone always tracks how much of the
+ * quota is actually used, never the remaining view's flipped number.
+ */
+export function meterTone(usedPercent: number | null): MeterTone {
+  if (usedPercent === null) {
+    return 'muted'
+  }
+  if (usedPercent < 50) {
+    return 'ok'
+  }
+  if (usedPercent < 80) {
+    return 'warn'
+  }
+  return 'crit'
+}
+
+const meterToneBarClass: Record<MeterTone, string> = {
+  muted: 'bg-muted-strong',
+  ok: 'bg-green',
+  warn: 'bg-amber',
+  crit: 'bg-red',
+}
+
+/**
+ * Flips a pace-marker position into whichever display the user has toggled
+ * to, mirroring `displayPercent` — "remaining" mirrors the marker across
+ * the bar rather than recomputing it from a remaining-based percent.
+ */
+export function displayPacePercent(pacePercent: number | null, display: UsageDisplay): number | null {
+  if (pacePercent === null) {
+    return null
+  }
+  if (display === 'remaining') {
+    return 100 - pacePercent
+  }
+  return pacePercent
+}
+
+type MeterLabelColumnProps = {
+  /**
+   * Full label shown at wide viewports.
+   */
+  label: string
+  /**
+   * Collapsed label shown at narrow viewports.
+   */
+  shortLabel: string
+}
+
+/**
+ * The meter's label column: a short initial at narrow viewports, the full
+ * word at wide ones.
+ */
+function MeterLabelColumn({ label, shortLabel }: MeterLabelColumnProps) {
+  return (
+    <span className="font-mono text-mono text-muted-strong">
+      <span className="lg:hidden">{shortLabel}</span>
+      <span className="hidden lg:inline">{label}</span>
+    </span>
+  )
+}
+
+type MeterBarProps = {
+  /**
+   * Accessible name for the progressbar element.
+   */
+  ariaLabel: string
+  /**
+   * Display-adjusted fill percent (0..100+ before clamping), or null when
+   * there's no data. Read for the progressbar's `aria-valuenow`/`aria-valuetext`.
+   */
+  percent: number | null
+  /**
+   * Which of used/remaining `percent` is expressed in, named in
+   * `aria-valuetext` and used to derive the pace marker's side of the bar.
+   */
+  display: UsageDisplay
+  /**
+   * Clamped 0..100 percent the bar's fill is drawn at.
+   */
+  fillPercent: number
+  /**
+   * Tailwind background class painting the fill, chosen by tone.
+   */
+  barClass: string
+  /**
+   * Whether to draw the weekly day separators over the track.
+   */
+  showDailySegments: boolean
+  /**
+   * Display-adjusted pace-marker position (0..100), or null to omit the
+   * marker entirely.
+   */
+  pacePercent: number | null
+}
+
+/**
+ * The meter's progress bar: the filled track, optional weekly day
+ * separators, and an optional pace marker positioned in the same display
+ * (used/remaining) as the fill itself.
+ */
+function MeterBar({
+  ariaLabel,
+  percent,
+  display,
+  fillPercent,
+  barClass,
+  showDailySegments,
+  pacePercent,
+}: MeterBarProps) {
+  const remaining = display === 'remaining'
+  return (
+    <div className="relative">
+      <div
+        role="progressbar"
+        aria-valuenow={percent ?? undefined}
+        aria-valuetext={percent === null ? undefined : `${percent}% ${display}`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={ariaLabel}
+        className="relative h-1.5 overflow-hidden rounded-full bg-cream-3"
+      >
+        <div className={`h-full rounded-full ${barClass}`} style={{ width: `${fillPercent}%` }} />
+        {showDailySegments ? <DaySeparators /> : null}
+      </div>
+      {pacePercent === null ? null : <PaceMarker percent={pacePercent} remaining={remaining} />}
+    </div>
+  )
+}
+
+type MeterTrailingProps = {
+  /**
+   * Display-adjusted percent shown before the reset text, or null to show
+   * the placeholder dash.
+   */
+  percent: number | null
+  /**
+   * Relative/absolute reset text shown after the percent, or null to omit it.
+   */
+  resetLabel: ResetLabel | null
+  /**
+   * Replaces the default "42% · resets in 3h" text entirely. Used by rows
+   * measured in something other than a percentage of a time window.
+   */
+  trailing: ReactNode
+}
+
+/**
+ * The meter's trailing column: caller-supplied text (e.g. spend), or the
+ * default "42% · resets in 3h" built from the percent and reset label.
+ */
+function MeterTrailing({ trailing, percent, resetLabel }: MeterTrailingProps) {
+  return (
+    <span className="text-right font-mono text-mono tabular-nums text-muted-strong">
+      {trailing ?? (
+        <>
+          {percent === null ? '—' : `${percent}%`}
+          {resetLabel ? (
+            <span className="group relative inline-block">
+              {` · ${resetLabel.relative}`}
+              <TooltipBubble>{resetLabel.absolute}</TooltipBubble>
+            </span>
+          ) : null}
+        </>
+      )}
+    </span>
+  )
+}
+
 function Meter({
   label,
   shortLabel,
@@ -630,59 +845,27 @@ function Meter({
    */
   trailing?: ReactNode
 }) {
-  // utilization comes from the API on a 0..=100 percentage scale and
-  // may exceed 100 when the user is over-limit. We show the literal
-  // value in the label but cap the visual bar fill at 100%.
-  const utilization = meterWindow?.utilization ?? null
   const display = useContext(UsageDisplayContext)
-  const usedPercent = utilization === null ? null : Math.round(utilization)
-  const percent = usedPercent === null ? null : display === 'remaining' ? Math.max(0, 100 - usedPercent) : usedPercent
-  const fillPercent = percent === null ? 0 : Math.min(100, Math.max(0, percent))
-  const tone = usedPercent === null ? 'muted' : usedPercent < 50 ? 'ok' : usedPercent < 80 ? 'warn' : 'crit'
-  const barClass =
-    tone === 'ok' ? 'bg-green' : tone === 'warn' ? 'bg-amber' : tone === 'crit' ? 'bg-red' : 'bg-muted-strong'
+  const usedPercent = usedPercentFromUtilization(meterWindow?.utilization ?? null)
+  const percent = displayPercent(usedPercent, display)
+  const fillPercent = meterFillPercent(percent)
+  const barClass = meterToneBarClass[meterTone(usedPercent)]
   const resetLabel = formatReset(meterWindow?.resetsAt ?? null)
   const pacePercent = computePacePercent(meterWindow?.resetsAt ?? null, paceWindowMins)
 
   return (
     <div className={meterGridClass}>
-      <span className="font-mono text-mono text-muted-strong">
-        <span className="lg:hidden">{shortLabel}</span>
-        <span className="hidden lg:inline">{label}</span>
-      </span>
-      <div className="relative">
-        <div
-          role="progressbar"
-          aria-valuenow={percent ?? undefined}
-          aria-valuetext={percent === null ? undefined : `${percent}% ${display}`}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={label}
-          className="relative h-1.5 overflow-hidden rounded-full bg-cream-3"
-        >
-          <div className={`h-full rounded-full ${barClass}`} style={{ width: `${fillPercent}%` }} />
-          {showDailySegments ? <DaySeparators /> : null}
-        </div>
-        {pacePercent === null ? null : (
-          <PaceMarker
-            percent={display === 'remaining' ? 100 - pacePercent : pacePercent}
-            remaining={display === 'remaining'}
-          />
-        )}
-      </div>
-      <span className="text-right font-mono text-mono tabular-nums text-muted-strong">
-        {trailing ?? (
-          <>
-            {percent === null ? '—' : `${percent}%`}
-            {resetLabel ? (
-              <span className="group relative inline-block">
-                {` · ${resetLabel.relative}`}
-                <TooltipBubble>{resetLabel.absolute}</TooltipBubble>
-              </span>
-            ) : null}
-          </>
-        )}
-      </span>
+      <MeterLabelColumn label={label} shortLabel={shortLabel} />
+      <MeterBar
+        showDailySegments={showDailySegments}
+        ariaLabel={label}
+        barClass={barClass}
+        display={display}
+        fillPercent={fillPercent}
+        pacePercent={displayPacePercent(pacePercent, display)}
+        percent={percent}
+      />
+      <MeterTrailing percent={percent} resetLabel={resetLabel} trailing={trailing} />
     </div>
   )
 }

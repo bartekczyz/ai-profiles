@@ -13,10 +13,15 @@ import {
   codexDisplayToggleCopy,
   codexMeterRows,
   codexWindowLabel,
+  displayPacePercent,
+  displayPercent,
   Meters,
+  meterFillPercent,
+  meterTone,
   ProfileDetailUsageCard,
   quotaErrorMessage,
   toggleUsageDisplay,
+  usedPercentFromUtilization,
   visibleScopedWeekly,
 } from './profile-detail-usage-card'
 
@@ -887,5 +892,90 @@ describe('codexDisplayToggleCopy', () => {
       ariaLabel: 'Show used quota',
       tooltip: 'Switch to used quota',
     })
+  })
+})
+
+describe('usedPercentFromUtilization', () => {
+  it('keeps null utilization as null', () => {
+    expect(usedPercentFromUtilization(null)).toBeNull()
+  })
+
+  it('rounds to the nearest whole percent', () => {
+    expect(usedPercentFromUtilization(42.6)).toBe(43)
+  })
+
+  it('keeps values over 100 for an over-limit account', () => {
+    expect(usedPercentFromUtilization(142)).toBe(142)
+  })
+})
+
+describe('displayPercent', () => {
+  it('passes a used-percent through unchanged for the used display', () => {
+    expect(displayPercent(30, 'used')).toBe(30)
+  })
+
+  it('inverts a used-percent for the remaining display', () => {
+    expect(displayPercent(30, 'remaining')).toBe(70)
+  })
+
+  it('floors remaining at 0 for an over-limit account', () => {
+    expect(displayPercent(142, 'remaining')).toBe(0)
+  })
+
+  it('keeps null utilization as null in either display', () => {
+    expect(displayPercent(null, 'used')).toBeNull()
+    expect(displayPercent(null, 'remaining')).toBeNull()
+  })
+})
+
+describe('meterFillPercent', () => {
+  it('fills to 0 when there is no data', () => {
+    expect(meterFillPercent(null)).toBe(0)
+  })
+
+  it('passes a normal percent through', () => {
+    expect(meterFillPercent(55)).toBe(55)
+  })
+
+  it('caps an over-limit percent at 100', () => {
+    expect(meterFillPercent(142)).toBe(100)
+  })
+
+  it('floors a negative percent at 0', () => {
+    expect(meterFillPercent(-5)).toBe(0)
+  })
+})
+
+describe('meterTone', () => {
+  it('is muted with no data', () => {
+    expect(meterTone(null)).toBe('muted')
+  })
+
+  it('is ok under 50%', () => {
+    expect(meterTone(49)).toBe('ok')
+  })
+
+  it('is warn between 50% and 80%', () => {
+    expect(meterTone(50)).toBe('warn')
+    expect(meterTone(79)).toBe('warn')
+  })
+
+  it('is crit at 80% and above', () => {
+    expect(meterTone(80)).toBe('crit')
+    expect(meterTone(142)).toBe('crit')
+  })
+})
+
+describe('displayPacePercent', () => {
+  it('keeps null pace as null', () => {
+    expect(displayPacePercent(null, 'used')).toBeNull()
+  })
+
+  it('passes pace through unchanged for the used display', () => {
+    expect(displayPacePercent(40, 'used')).toBe(40)
+  })
+
+  it('mirrors pace across the bar for the remaining display', () => {
+    expect(displayPacePercent(40, 'remaining')).toBe(60)
   })
 })
