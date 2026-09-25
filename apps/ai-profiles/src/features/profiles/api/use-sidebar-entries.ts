@@ -1,5 +1,5 @@
 import type { AppId } from '@/lib/app-registry'
-import type { DefaultEntry, ExistingInstallInfo, SidebarEntry } from '@/lib/types'
+import type { DefaultEntry, ExistingInstallInfo, Profile, SidebarEntry } from '@/lib/types'
 
 import { appIds, appSpecs } from '@/lib/app-registry'
 import { useAppState } from '@/lib/app-state/use-app-state'
@@ -47,6 +47,30 @@ export function entryId(entry: SidebarEntry): string {
  */
 export function appFromEntry(entry: SidebarEntry): AppId {
   return entry.kind === 'managed' ? entry.profile.app : entry.entry.app
+}
+
+/**
+ * The selected sidebar entry, split the way the app shell consumes it.
+ */
+type ResolvedSelection = {
+  /**
+   * The entry whose id is selected, or `null` when none matches.
+   */
+  selected: SidebarEntry | null
+  /**
+   * The selected managed profile, or `null` for a default entry or no selection.
+   */
+  managedSelected: Profile | null
+}
+
+/**
+ * Pure: finds the entry for `selectedId` and, when it is a managed profile,
+ * that profile — default entries don't support edit/delete.
+ */
+export function resolveSelection(entries: Array<SidebarEntry>, selectedId: string | null): ResolvedSelection {
+  const selected = entries.find((entry) => entryId(entry) === selectedId) ?? null
+  const managedSelected = selected?.kind === 'managed' ? selected.profile : null
+  return { selected, managedSelected }
 }
 
 export type SidebarGroup = {

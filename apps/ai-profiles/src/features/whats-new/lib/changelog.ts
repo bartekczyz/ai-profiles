@@ -66,6 +66,105 @@ function toItem(body: string): ChangelogItem {
 }
 
 /**
+ * Where `parseChangelog` is in the file.
+ */
+type ParserState = {
+  /**
+   * Releases parsed so far, in file order.
+   */
+  releases: Array<ChangelogRelease>
+  /**
+   * The release under the latest `## …` heading, or `null` while outside one (preamble, `## Unreleased`).
+   */
+  release: ChangelogRelease | null
+  /**
+   * The section under the latest `### …` heading, or `null` while outside one.
+   */
+  section: ChangelogSection | null
+  /**
+   * The raw text of the item being read, or `null` while not inside one.
+   */
+  pendingItem: string | null
+}
+
+/**
+ * Handles one changelog line, advancing the parser.
+ */
+type LineHandler = (state: ParserState, line: string) => void
+
+/**
+ * Adds the item being read, if any, to the current section.
+ */
+function flushItem(state: ParserState): void {
+  if (state.section !== null && state.pendingItem !== null) {
+    state.section.items.push(toItem(state.pendingItem))
+  }
+  state.pendingItem = null
+}
+
+/**
+ * A `## …` line: starts a release when the heading carries a semver.
+ */
+function startRelease(state: ParserState, line: string): void {
+  flushItem(state)
+  state.section = null
+  state.release = createRelease(line)
+  if (state.release !== null) {
+    state.releases.push(state.release)
+  }
+}
+
+/**
+ * A `### …` line: starts a section of the current release. Ignored outside a release.
+ */
+function startSection(state: ParserState, line: string): void {
+  flushItem(state)
+  if (state.release === null) {
+    state.section = null
+    return
+  }
+  state.section = { title: line.slice(4).replace(warningPrefixPattern, '').trim(), items: [] }
+  state.release.sections.push(state.section)
+}
+
+/**
+ * A `* …` line: starts an item.
+ */
+function startItem(state: ParserState, line: string): void {
+  flushItem(state)
+  state.pendingItem = line.slice(2)
+}
+
+/**
+ * Any other line: a blank one ends the item being read; a non-blank one continues it (wrapped text).
+ */
+function continueItem(state: ParserState, line: string): void {
+  if (line.trim() === '') {
+    flushItem(state)
+    return
+  }
+  if (state.pendingItem !== null) {
+    state.pendingItem = `${state.pendingItem} ${line.trim()}`
+  }
+}
+
+/**
+ * The handler for a line, picked by its prefix.
+ */
+function handlerFor(line: string): LineHandler {
+  if (line.startsWith('## ')) {
+    return startRelease
+  }
+  if (line.startsWith('### ')) {
+    return startSection
+  }
+  if (line.startsWith('* ')) {
+    return startItem
+  }
+  return continueItem
+}
+
+/**
  * Parses release-please's `CHANGELOG.md` into structured releases.
  *
  * A `## …` heading containing a semver starts a release; `### …` starts a section; `* …` starts an
@@ -74,44 +173,14 @@ function toItem(body: string): ChangelogItem {
  * as is the `# Changelog` preamble.
  */
 export function parseChangelog(raw: string): Array<ChangelogRelease> {
-  const releases: Array<ChangelogRelease> = []
-  let release: ChangelogRelease | null = null
-  let section: ChangelogSection | null = null
-  let pendingItem: string | null = null
-
-  function flushItem() {
-    if (section !== null && pendingItem !== null) {
-      section.items.push(toItem(pendingItem))
-    }
-    pendingItem = null
-  }
+  const state: ParserState = { releases: [], release: null, section: null, pendingItem: null }
 
   for (const line of raw.split(/\r?\n/)) {
-    if (line.startsWith('## ')) {
-      flushItem()
-      section = null
-      release = createRelease(line)
-      if (release !== null) {
-        releases.push(release)
-      }
-    } else if (line.startsWith('### ')) {
-      flushItem()
-      section = release === null ? null : { title: line.slice(4).replace(warningPrefixPattern, '').trim(), items: [] }
-      if (release !== null && section !== null) {
-        release.sections.push(section)
-      }
-    } else if (line.startsWith('* ')) {
-      flushItem()
-      pendingItem = line.slice(2)
-    } else if (line.trim() === '') {
-      flushItem()
-    } else if (pendingItem !== null) {
-      pendingItem = `${pendingItem} ${line.trim()}`
-    }
+    handlerFor(line)(state, line)
   }
-  flushItem()
+  flushItem(state)
 
-  return releases.map((entry) => ({
+  return state.releases.map((entry) => ({
     ...entry,
     sections: entry.sections.filter((entrySection) => entrySection.items.length > 0),
   }))

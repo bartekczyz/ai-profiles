@@ -1,10 +1,12 @@
-import type { Ref } from 'react'
+import type { ReactNode, Ref } from 'react'
 import type { SidebarEntry } from '@/lib/types'
 import type { SidebarGroup } from '../api/use-sidebar-entries'
+import type { ManagedEntry } from '../lib/sidebar-section'
 
 import { useState } from 'react'
 
 import {
+  type Announcements,
   closestCenter,
   DndContext,
   type DragEndEvent,
@@ -21,6 +23,7 @@ import { ariaKeyshortcutsFor, Button, Kbd } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
 
 import { entryId, groupEntriesByApp } from '../api/use-sidebar-entries'
+import { reorderedProfileIds, visibleSection } from '../lib/sidebar-section'
 import { AppGlyph } from './app-glyph'
 import { ManagedSidebarSwatch } from './managed-sidebar-swatch'
 import { OutlinedSwatch } from './outlined-swatch'
@@ -28,8 +31,6 @@ import { SidebarBrandMark } from './sidebar-brand-mark'
 import { SidebarProfileRow } from './sidebar-profile-row'
 import { SidebarSearchInput } from './sidebar-search-input'
 import { SortableProfileRow } from './sortable-profile-row'
-
-type ManagedEntry = Extract<SidebarEntry, { kind: 'managed' }>
 
 // Zeroing the X component locks drag motion to the vertical axis. The list
 // is a column, so horizontal movement has no semantic meaning and only adds
@@ -162,56 +163,16 @@ function AppSection({
   onSelect,
   onReorder,
 }: AppSectionProps) {
-  const sensors = useSensors(
-    // 6px activation distance means a normal click still selects; only
-    // sustained drag motion starts a reorder.
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
-
-  const trimmedQuery = query.trim().toLowerCase()
-  const matches = (name: string) => trimmedQuery.length === 0 || name.toLowerCase().includes(trimmedQuery)
-
-  // The row reads just "Default" — the app it belongs to is stated by the
-  // glyph in its leading column — unless the user has renamed it. (Without a
-  // custom name, entry.name stays the app name for surfaces without grouping,
-  // e.g. the command palette.)
-  const defaultRowName = group.default?.entry.customName ?? 'Default'
-  const visibleDefault = group.default !== null && matches(defaultRowName) ? group.default : null
-  const visibleManaged = group.managed.filter((managedEntry) => matches(managedEntry.profile.name))
+  const { defaultRowName, visibleDefault, visibleManaged } = visibleSection(group, query)
 
   if (visibleDefault === null && visibleManaged.length === 0) {
     return null
   }
 
-  const shortcutIndexFor = (id: string) => managedFlat.findIndex((managedEntry) => managedEntry.profile.id === id)
   const reorderable = canReorder && group.managed.length > 1
   // Built once and handed to every row in the section — the mark is per-app,
   // not per-row, and a single-app sidebar suppresses it entirely.
   const rowGlyph = showAppGlyph ? <AppGlyph app={group.app} size={13} /> : null
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event
-    if (!over || active.id === over.id || !onReorder) {
-      return
-    }
-    const ids = group.managed.map((managedEntry) => managedEntry.profile.id)
-    const oldIndex = ids.indexOf(String(active.id))
-    const newIndex = ids.indexOf(String(over.id))
-    if (oldIndex === -1 || newIndex === -1) {
-      return
-    }
-    const reordered = [...ids]
-    const [moved] = reordered.splice(oldIndex, 1)
-    reordered.splice(newIndex, 0, moved)
-    // Thread the reordered ids back through the flat store order, keeping
-    // every other app's profiles in their existing positions.
-    let cursor = 0
-    const fullOrder = managedFlat.map((managedEntry) =>
-      managedEntry.profile.app === group.app ? reordered[cursor++] : managedEntry.profile.id,
-    )
-    onReorder(fullOrder)
-  }
 
   return (
     <section className="flex flex-col gap-px">
@@ -227,48 +188,14 @@ function AppSection({
       ) : null}
 
       {reorderable ? (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          modifiers={[restrictToVerticalAxis, restrictToScrollableAncestor]}
-          onDragEnd={handleDragEnd}
-          accessibility={{
-            announcements: {
-              onDragStart: ({ active }) => `Picked up ${activeName(group.managed, active.id)}`,
-              onDragOver: ({ active, over }) =>
-                over
-                  ? `${activeName(group.managed, active.id)} moved over ${activeName(group.managed, over.id)}`
-                  : `${activeName(group.managed, active.id)} is no longer over a droppable area`,
-              onDragEnd: ({ active, over }) =>
-                over
-                  ? `${activeName(group.managed, active.id)} dropped onto ${activeName(group.managed, over.id)}`
-                  : `${activeName(group.managed, active.id)} drop cancelled`,
-              onDragCancel: ({ active }) => `Drag of ${activeName(group.managed, active.id)} cancelled`,
-            },
-          }}
-        >
-          <SortableContext
-            items={group.managed.map((managedEntry) => managedEntry.profile.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            <ul aria-label={`${appSpecs[group.app].displayName} profiles`} className="flex flex-col gap-px">
-              {group.managed.map((managedEntry) => (
-                <li key={managedEntry.profile.id}>
-                  <SortableProfileRow
-                    name={managedEntry.profile.name}
-                    swatch={<ManagedSidebarSwatch color={managedEntry.profile.color} />}
-                    surfaces={managedEntry.profile.surfaces}
-                    selected={managedEntry.profile.id === selectedId}
-                    glyph={rowGlyph}
-                    shortcutIndex={shortcutIndexFor(managedEntry.profile.id)}
-                    sortableId={managedEntry.profile.id}
-                    onSelect={() => onSelect(managedEntry.profile.id)}
-                  />
-                </li>
-              ))}
-            </ul>
-          </SortableContext>
-        </DndContext>
+        <ReorderableManagedList
+          group={group}
+          managedFlat={managedFlat}
+          selectedId={selectedId}
+          glyph={rowGlyph}
+          onSelect={onSelect}
+          onReorder={onReorder}
+        />
       ) : (
         <ul aria-label={`${appSpecs[group.app].displayName} profiles`} className="flex flex-col gap-px">
           {visibleManaged.map((managedEntry) => (
@@ -279,7 +206,7 @@ function AppSection({
                 surfaces={managedEntry.profile.surfaces}
                 selected={managedEntry.profile.id === selectedId}
                 glyph={rowGlyph}
-                shortcutIndex={shortcutIndexFor(managedEntry.profile.id)}
+                shortcutIndex={shortcutIndexOf(managedFlat, managedEntry.profile.id)}
                 onSelect={() => onSelect(managedEntry.profile.id)}
               />
             </li>
@@ -288,6 +215,125 @@ function AppSection({
       )}
     </section>
   )
+}
+
+type ReorderableManagedListProps = {
+  /**
+   * The app section whose managed rows are listed, all of them.
+   */
+  group: SidebarGroup
+  /**
+   * Every managed entry in store order, for the ⌘N chip index and the full
+   * order after a reorder.
+   */
+  managedFlat: Array<ManagedEntry>
+  /**
+   * The selected entry's id, or `null` when none is selected.
+   */
+  selectedId: string | null
+  /**
+   * The app mark each row leads with, or `null` in a single-app sidebar.
+   */
+  glyph: ReactNode
+  /**
+   * Called with a row's id when the user selects it.
+   */
+  onSelect: (id: string) => void
+  /**
+   * Called with the full managed order after the user drags a row.
+   */
+  onReorder?: (ids: Array<string>) => void
+}
+
+/**
+ * The section's managed rows as a drag-to-reorder list. Drag motion stays on
+ * the vertical axis inside the scrolling list, and screen readers hear each
+ * pick-up, move and drop by profile name.
+ */
+function ReorderableManagedList({
+  group,
+  managedFlat,
+  selectedId,
+  glyph,
+  onSelect,
+  onReorder,
+}: ReorderableManagedListProps) {
+  const sensors = useSensors(
+    // 6px activation distance means a normal click still selects; only
+    // sustained drag motion starts a reorder.
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || !onReorder) {
+      return
+    }
+    const fullOrder = reorderedProfileIds(managedFlat, group, String(active.id), String(over.id))
+    if (fullOrder !== null) {
+      onReorder(fullOrder)
+    }
+  }
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      modifiers={[restrictToVerticalAxis, restrictToScrollableAncestor]}
+      onDragEnd={handleDragEnd}
+      accessibility={{ announcements: dragAnnouncements(group.managed) }}
+    >
+      <SortableContext
+        items={group.managed.map((managedEntry) => managedEntry.profile.id)}
+        strategy={verticalListSortingStrategy}
+      >
+        <ul aria-label={`${appSpecs[group.app].displayName} profiles`} className="flex flex-col gap-px">
+          {group.managed.map((managedEntry) => (
+            <li key={managedEntry.profile.id}>
+              <SortableProfileRow
+                name={managedEntry.profile.name}
+                swatch={<ManagedSidebarSwatch color={managedEntry.profile.color} />}
+                surfaces={managedEntry.profile.surfaces}
+                selected={managedEntry.profile.id === selectedId}
+                glyph={glyph}
+                shortcutIndex={shortcutIndexOf(managedFlat, managedEntry.profile.id)}
+                sortableId={managedEntry.profile.id}
+                onSelect={() => onSelect(managedEntry.profile.id)}
+              />
+            </li>
+          ))}
+        </ul>
+      </SortableContext>
+    </DndContext>
+  )
+}
+
+/**
+ * The position of profile `id` in the flat managed store order — the index
+ * its ⌘N chip shows.
+ */
+function shortcutIndexOf(managedFlat: Array<ManagedEntry>, id: string): number {
+  return managedFlat.findIndex((managedEntry) => managedEntry.profile.id === id)
+}
+
+/**
+ * What screen readers hear as a managed row is dragged, naming the profiles
+ * rather than their ids.
+ */
+function dragAnnouncements(managedEntries: Array<ManagedEntry>): Announcements {
+  return {
+    onDragStart: ({ active }) => `Picked up ${activeName(managedEntries, active.id)}`,
+    onDragOver: ({ active, over }) =>
+      over
+        ? `${activeName(managedEntries, active.id)} moved over ${activeName(managedEntries, over.id)}`
+        : `${activeName(managedEntries, active.id)} is no longer over a droppable area`,
+    onDragEnd: ({ active, over }) =>
+      over
+        ? `${activeName(managedEntries, active.id)} dropped onto ${activeName(managedEntries, over.id)}`
+        : `${activeName(managedEntries, active.id)} drop cancelled`,
+    onDragCancel: ({ active }) => `Drag of ${activeName(managedEntries, active.id)} cancelled`,
+  }
 }
 
 function activeName(managedEntries: Array<ManagedEntry>, id: string | number): string {

@@ -24,22 +24,7 @@ export function useAppState(): UseAppStateResult {
       await queryClient.cancelQueries({ queryKey: queryKeys.appState })
       const previous = queryClient.getQueryData<AppState>(queryKeys.appState)
       if (previous) {
-        const optimistic: AppState = {
-          ...previous,
-          welcomeShown: patch.welcomeShown ?? previous.welcomeShown,
-          migrationDismissedAt: patch.clearMigrationDismissed
-            ? null
-            : (patch.migrationDismissedAt ?? previous.migrationDismissedAt),
-          pathBannerDismissedAt: patch.clearPathBannerDismissed
-            ? null
-            : (patch.pathBannerDismissedAt ?? previous.pathBannerDismissedAt),
-          themeMode: patch.themeMode ?? previous.themeMode,
-          selectedEntryId: patch.clearSelectedEntryId ? null : (patch.selectedEntryId ?? previous.selectedEntryId),
-          dockIconAcknowledgedAt: patch.dockIconAcknowledgedAt ?? previous.dockIconAcknowledgedAt,
-          defaultProfileNames: withDefaultProfileName(previous.defaultProfileNames, patch.defaultProfileName),
-          dismissedRepairSessions: withDismissedRepair(previous.dismissedRepairSessions, patch.dismissedRepair),
-        }
-        queryClient.setQueryData(queryKeys.appState, optimistic)
+        queryClient.setQueryData(queryKeys.appState, computeOptimisticAppState(previous, patch))
       }
       return { previous }
     },
@@ -63,6 +48,29 @@ export function useAppState(): UseAppStateResult {
     refresh: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.appState })
     },
+  }
+}
+
+/**
+ * Computes the optimistic `AppState` shown while a patch is in flight, by
+ * applying the patch's overrides (and "clear" flags) on top of the last
+ * known state. Pure so the mutation's `onMutate` stays a thin orchestrator.
+ */
+export function computeOptimisticAppState(previous: AppState, patch: AppStatePatch): AppState {
+  return {
+    ...previous,
+    welcomeShown: patch.welcomeShown ?? previous.welcomeShown,
+    migrationDismissedAt: patch.clearMigrationDismissed
+      ? null
+      : (patch.migrationDismissedAt ?? previous.migrationDismissedAt),
+    pathBannerDismissedAt: patch.clearPathBannerDismissed
+      ? null
+      : (patch.pathBannerDismissedAt ?? previous.pathBannerDismissedAt),
+    themeMode: patch.themeMode ?? previous.themeMode,
+    selectedEntryId: patch.clearSelectedEntryId ? null : (patch.selectedEntryId ?? previous.selectedEntryId),
+    dockIconAcknowledgedAt: patch.dockIconAcknowledgedAt ?? previous.dockIconAcknowledgedAt,
+    defaultProfileNames: withDefaultProfileName(previous.defaultProfileNames, patch.defaultProfileName),
+    dismissedRepairSessions: withDismissedRepair(previous.dismissedRepairSessions, patch.dismissedRepair),
   }
 }
 

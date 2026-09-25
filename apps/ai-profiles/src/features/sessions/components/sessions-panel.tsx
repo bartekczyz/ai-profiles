@@ -10,9 +10,8 @@ import { appFromEntry, entryId, useSidebarEntries } from '@/features/profiles/ap
 import { appSpecs } from '@/lib/app-registry'
 
 import { useSessions } from '../api/use-sessions'
-import { describeFailure } from '../lib/describe-failure'
 import { sessionCount } from '../lib/session-count'
-import { countByTab, filterSessions, hasBothKinds, sortSessions } from '../lib/session-filters'
+import { emptyTabCopy, sessionsView } from '../lib/sessions-view'
 import { ConfirmSessionActionDialog } from './confirm-session-action-dialog'
 import { MoveSessionDialog } from './move-session-dialog'
 import { RefreshFailedNote } from './refresh-failed-note'
@@ -59,6 +58,81 @@ type PendingMove = {
    * Where to move it.
    */
   destination: MoveTarget
+}
+
+/**
+ * Where a profile's sessions can move, and what the profile is called.
+ */
+type MoveTargets = {
+  /**
+   * The other profiles of the app a session can be moved to.
+   */
+  moveTargets: Array<MoveTarget>
+  /**
+   * The profile's name.
+   */
+  profileLabel: string
+}
+
+type SessionsHeaderProps = {
+  /**
+   * How many sessions each tab holds; absent until the first listing lands.
+   */
+  counts?: Record<SessionsTab, number>
+}
+
+type TabNoticesProps = {
+  /**
+   * Whether the repair offer may show — on the Active tab only.
+   */
+  repairShown: boolean
+  /**
+   * Whether a refresh failed over the rows on screen.
+   */
+  refreshFailed: boolean
+  /**
+   * Whether a Retry is under way.
+   */
+  retrying: boolean
+  /**
+   * The profile whose sessions are listed.
+   */
+  profileId: string
+  /**
+   * The profile's name.
+   */
+  profileLabel: string
+  /**
+   * The sessions that need repair.
+   */
+  repairSessionIds: Array<string>
+  /**
+   * Refetches.
+   */
+  onRetry: () => void
+}
+
+type PendingDialogsProps = {
+  /**
+   * The profile whose sessions are listed.
+   */
+  profileId: string
+  /**
+   * The action waiting on confirmation, if any.
+   */
+  pendingAction: PendingAction | null
+  /**
+   * The move waiting on confirmation, if any.
+   */
+  pendingMove: PendingMove | null
+  /**
+   * Drops the pending action.
+   */
+  onCloseAction: () => void
+  /**
+   * Drops the pending move.
+   */
+  onCloseMove: () => void
 }
 
 type TabLabelProps = {
@@ -140,26 +214,12 @@ export function SessionsPanel({ profileId, app }: Props) {
   const [direction, setDirection] = useState<SortDirection>('desc')
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
-  const profiles: Array<MoveTarget> = useSidebarEntries()
-    .filter((entry) => appFromEntry(entry) === app)
-    .map((entry) => ({
-      id: entryId(entry),
-      label: entry.kind === 'managed' ? entry.profile.name : entry.entry.name,
-    }))
-  const moveTargets = profiles.filter((profile) => profile.id !== profileId)
-  const profileLabel = profiles.find((profile) => profile.id === profileId)?.label ?? appSpecs[app].displayName
-
-  const listed = sessionsQuery.data?.sessions
-  const sessions = listed ?? []
-  const counts = countByTab(sessions)
-  const inTab = filterSessions(sessions, { tab, kind: 'all', query: '' })
-  const kindFilterShown = hasBothKinds(inTab)
-  const kind = kindFilterShown ? kindChoice : 'all'
-  const visible = sortSessions(filterSessions(inTab, { tab, kind, query }), direction)
-  // A failed refetch keeps the rows it already has, under a quiet note; only
-  // a listing that never landed shows the failure.
-  const failure = listed === undefined && sessionsQuery.isError ? describeFailure(sessionsQuery.error) : null
-  const refreshFailed = listed !== undefined && sessionsQuery.isError
+  const { moveTargets, profileLabel } = useMoveTargets(profileId, app)
+  const view = sessionsView(
+    { sessions: sessionsQuery.data?.sessions, isError: sessionsQuery.isError, error: sessionsQuery.error },
+    { tab, kindChoice, query, direction },
+  )
+  const empty = emptyTabCopy(tab, app)
   const retry = () => {
     void sessionsQuery.refetch()
   }
@@ -170,21 +230,11 @@ export function SessionsPanel({ profileId, app }: Props) {
       className={sessionsPanelClasses}
       onValueChange={(value) => setTab(value === 'archived' ? 'archived' : 'active')}
     >
-      <header className={sessionsHeaderClasses}>
-        <h2 className="font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong">Sessions</h2>
-        <TabsList aria-label="Sessions" className={tabListClasses}>
-          <TabsTrigger value="active" className={tabTriggerClasses}>
-            <TabLabel label="Active" count={listed === undefined ? undefined : counts.active} />
-          </TabsTrigger>
-          <TabsTrigger value="archived" className={tabTriggerClasses}>
-            <TabLabel label="Archived" count={listed === undefined ? undefined : counts.archived} />
-          </TabsTrigger>
-        </TabsList>
-      </header>
+      <SessionsHeader counts={view.counts} />
       <SessionsControls
-        kindFilterShown={kindFilterShown}
+        kindFilterShown={view.kindFilterShown}
         query={query}
-        kind={kind}
+        kind={view.kind}
         direction={direction}
         onQueryChange={setQuery}
         onKindChange={setKindChoice}
@@ -194,45 +244,120 @@ export function SessionsPanel({ profileId, app }: Props) {
           controls are the same list either way, filtered by the tab. Keyed
           by the tab, so switching starts it afresh as separate tabs would. */}
       <TabsContent key={tab} value={tab} className={tabContentClasses}>
-        {/* Its own boundary: the banner waits on the app state for what was
-            dismissed, and the rows shouldn't wait with it. */}
-        {tab === 'active' ? (
-          <Suspense fallback={null}>
-            <RepairBanner
-              profileId={profileId}
-              profileLabel={profileLabel}
-              repairSessionIds={sessions.filter((session) => session.needsRepair).map((session) => session.id)}
-            />
-          </Suspense>
-        ) : null}
-        {refreshFailed ? <RefreshFailedNote retrying={sessionsQuery.isFetching} onRetry={retry} /> : null}
+        <TabNotices
+          repairShown={tab === 'active'}
+          refreshFailed={view.refreshFailed}
+          retrying={sessionsQuery.isFetching}
+          profileId={profileId}
+          profileLabel={profileLabel}
+          repairSessionIds={view.repairSessionIds}
+          onRetry={retry}
+        />
         <SessionsList
           loading={sessionsQuery.isPending}
           retrying={sessionsQuery.isFetching}
-          failure={failure}
-          tabTotal={inTab.length}
-          sessions={visible}
+          failure={view.failure}
+          tabTotal={view.tabTotal}
+          sessions={view.visible}
           app={app}
           moveTargets={moveTargets}
-          emptyTitle={tab === 'active' ? 'No sessions yet' : 'No archived sessions'}
-          emptyHint={
-            tab === 'active' ? `${appSpecs[app].cliDisplayName} sessions this profile starts show up here.` : undefined
-          }
+          emptyTitle={empty.title}
+          emptyHint={empty.hint}
           onRetry={retry}
           onClearSearch={() => setQuery('')}
           onAction={(session, action) => setPendingAction({ session, action })}
           onMove={(session, destination) => setPendingMove({ session, destination })}
         />
       </TabsContent>
-      {listed === undefined || inTab.length === 0 ? null : (
-        <ListFooter shown={visible.length} total={inTab.length} direction={direction} />
-      )}
+      {view.footerShown ? <ListFooter shown={view.visible.length} total={view.tabTotal} direction={direction} /> : null}
+      <PendingDialogs
+        profileId={profileId}
+        pendingAction={pendingAction}
+        pendingMove={pendingMove}
+        onCloseAction={() => setPendingAction(null)}
+        onCloseMove={() => setPendingMove(null)}
+      />
+    </Tabs>
+  )
+}
+
+/**
+ * The other profiles of `app` a session of `profileId` can move to, and what
+ * the profile itself is called — its app's name for a stock install the
+ * sidebar doesn't list.
+ */
+function useMoveTargets(profileId: string, app: AppId): MoveTargets {
+  const profiles: Array<MoveTarget> = useSidebarEntries()
+    .filter((entry) => appFromEntry(entry) === app)
+    .map((entry) => ({
+      id: entryId(entry),
+      label: entry.kind === 'managed' ? entry.profile.name : entry.entry.name,
+    }))
+  return {
+    moveTargets: profiles.filter((profile) => profile.id !== profileId),
+    profileLabel: profiles.find((profile) => profile.id === profileId)?.label ?? appSpecs[app].displayName,
+  }
+}
+
+/**
+ * The card's eyebrow row: the SESSIONS eyebrow, with the Active and Archived
+ * tabs across from it.
+ */
+function SessionsHeader({ counts }: SessionsHeaderProps) {
+  return (
+    <header className={sessionsHeaderClasses}>
+      <h2 className="font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong">Sessions</h2>
+      <TabsList aria-label="Sessions" className={tabListClasses}>
+        <TabsTrigger value="active" className={tabTriggerClasses}>
+          <TabLabel label="Active" count={counts?.active} />
+        </TabsTrigger>
+        <TabsTrigger value="archived" className={tabTriggerClasses}>
+          <TabLabel label="Archived" count={counts?.archived} />
+        </TabsTrigger>
+      </TabsList>
+    </header>
+  )
+}
+
+/**
+ * What heads the open tab's rows: the offer to repair sessions, on the Active
+ * tab, and a note when a refresh failed.
+ */
+function TabNotices({
+  repairShown,
+  refreshFailed,
+  retrying,
+  profileId,
+  profileLabel,
+  repairSessionIds,
+  onRetry,
+}: TabNoticesProps) {
+  return (
+    <>
+      {/* Its own boundary: the banner waits on the app state for what was
+          dismissed, and the rows shouldn't wait with it. */}
+      {repairShown ? (
+        <Suspense fallback={null}>
+          <RepairBanner profileId={profileId} profileLabel={profileLabel} repairSessionIds={repairSessionIds} />
+        </Suspense>
+      ) : null}
+      {refreshFailed ? <RefreshFailedNote retrying={retrying} onRetry={onRetry} /> : null}
+    </>
+  )
+}
+
+/**
+ * The confirm dialogs for an action or a move asked for from a row.
+ */
+function PendingDialogs({ profileId, pendingAction, pendingMove, onCloseAction, onCloseMove }: PendingDialogsProps) {
+  return (
+    <>
       {pendingAction === null ? null : (
         <ConfirmSessionActionDialog
           profileId={profileId}
           session={pendingAction.session}
           action={pendingAction.action}
-          onClose={() => setPendingAction(null)}
+          onClose={onCloseAction}
         />
       )}
       {pendingMove === null ? null : (
@@ -240,10 +365,10 @@ export function SessionsPanel({ profileId, app }: Props) {
           profileId={profileId}
           session={pendingMove.session}
           destination={pendingMove.destination}
-          onClose={() => setPendingMove(null)}
+          onClose={onCloseMove}
         />
       )}
-    </Tabs>
+    </>
   )
 }
 

@@ -40,11 +40,6 @@ export type DefaultEntry = {
 
 export type SidebarEntry = { kind: 'managed'; profile: Profile } | { kind: 'default'; entry: DefaultEntry }
 
-export type AppError = {
-  kind: 'Io' | 'Json' | 'Validation' | 'NotFound' | 'NotInstalled'
-  message: string
-}
-
 export type Surface = 'gui' | 'cli'
 
 export type ProfilePatch = {

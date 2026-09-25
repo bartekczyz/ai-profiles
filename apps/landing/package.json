@@ -20,7 +20,6 @@
     "@fontsource-variable/geist": "5.2.9",
     "@fontsource-variable/geist-mono": "5.2.8",
     "astro": "6.3.7",
-    "c15t": "2.1.0",
     "posthog-js": "1.376.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"

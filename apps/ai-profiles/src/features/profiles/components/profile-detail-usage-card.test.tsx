@@ -9,7 +9,21 @@ import { appSpecs } from '@/lib/app-registry'
 import { openCliLogin } from '@/lib/commands'
 
 import { UsageUnavailableError, useProfileUsage } from '../api/use-profile-usage'
-import { ProfileDetailUsageCard } from './profile-detail-usage-card'
+import {
+  codexDisplayToggleCopy,
+  codexMeterRows,
+  codexWindowLabel,
+  displayPacePercent,
+  displayPercent,
+  Meters,
+  meterFillPercent,
+  meterTone,
+  ProfileDetailUsageCard,
+  quotaErrorMessage,
+  toggleUsageDisplay,
+  usedPercentFromUtilization,
+  visibleScopedWeekly,
+} from './profile-detail-usage-card'
 
 // Partial mock: keep the real `refetchIntervalMs` and `UsageUnavailableError`
 // (the card does `error instanceof UsageUnavailableError`), stub only the hook.
@@ -512,6 +526,23 @@ describe('ProfileDetailUsageCard', () => {
     expect(screen.getByRole('progressbar', { name: 'Weekly · Opus' })).toHaveAttribute('aria-valuenow', '3')
   })
 
+  it.each([
+    ['no_credentials', /sign in to claude code once/i],
+    ['needs_login', /session expired — run `claude`/i],
+    ['unauthorized', /token refresh needed — run `claude`/i],
+    ['forbidden', /blocked upstream/i],
+    ['rate_limited', /rate limited/i],
+    ['network', /couldn't reach anthropic/i],
+    ['unknown', /couldn't load usage stats/i],
+  ] as const)('quotaErrorMessage renders %s copy for claude', (code, expected) => {
+    expect(quotaErrorMessage('claude', code, 'claude')).toMatch(expected)
+  })
+
+  it('quotaErrorMessage names the given CLI command for needs_login and unauthorized', () => {
+    expect(quotaErrorMessage('claude', 'needs_login', 'claude-work')).toContain('claude-work')
+    expect(quotaErrorMessage('claude', 'unauthorized', 'claude-work')).toContain('claude-work')
+  })
+
   it('falls back to a neutral label when the scoped weekly names no model', () => {
     mockUsage({
       primary: null,
@@ -721,5 +752,230 @@ describe('quota pace windows', () => {
     const bars = screen.getAllByRole('progressbar')
     expect(bars[1].children).toHaveLength(7)
     expect(bars[2].children).toHaveLength(7)
+  })
+})
+
+describe('Meters', () => {
+  it('renders one meter per present Codex slot plus resets', () => {
+    render(
+      <Meters
+        app="codex"
+        quota={{
+          primary: { utilization: 10, resetsAt: null, windowDurationMins: 10080 },
+          secondary: null,
+          scopedWeekly: [],
+          rateLimitResetCredits: { availableCount: 1, credits: null },
+        }}
+      />,
+    )
+    expect(screen.getAllByRole('progressbar')).toHaveLength(1)
+    expect(screen.getByRole('progressbar', { name: 'Weekly' })).toHaveAttribute('aria-valuenow', '10')
+    expect(screen.getByText('1 reset available')).toBeInTheDocument()
+  })
+
+  it('renders primary, weekly, scoped-weekly, and credits meters for a Claude-style app', () => {
+    render(
+      <Meters
+        app="claude"
+        quota={{
+          primary: { utilization: 63, resetsAt: null },
+          secondary: { utilization: 21, resetsAt: null },
+          scopedWeekly: [{ utilization: 8, resetsAt: null, label: 'Fable' }],
+          spend: { usedMinor: 100, limitMinor: 1000, currency: 'USD', exponent: 2, percent: 10 },
+        }}
+      />,
+    )
+    expect(screen.getAllByRole('progressbar')).toHaveLength(4)
+    expect(screen.getByRole('progressbar', { name: '5-hour window' })).toHaveAttribute('aria-valuenow', '63')
+    expect(screen.getByRole('progressbar', { name: 'Weekly · Fable' })).toHaveAttribute('aria-valuenow', '8')
+    expect(screen.getByRole('progressbar', { name: 'Usage credits' })).toHaveAttribute('aria-valuenow', '10')
+  })
+
+  it('renders the primary and weekly placeholders for a null quota, with no scoped weekly or credits', () => {
+    render(<Meters app="claude" quota={null} />)
+    const bars = screen.getAllByRole('progressbar')
+    expect(bars).toHaveLength(2)
+    for (const bar of bars) {
+      expect(bar).not.toHaveAttribute('aria-valuenow')
+    }
+  })
+})
+
+describe('codexWindowLabel', () => {
+  it.each([
+    [10080, 'Weekly', 'W'],
+    [300, '5-hour window', '5h'],
+    [60, '1-hour window', '1h'],
+    [45, '45-minute window', '45m'],
+    [null, 'Usage window', 'Usage'],
+    [undefined, 'Usage window', 'Usage'],
+  ] as const)('labels a %s-minute window', (minutes, label, shortLabel) => {
+    expect(codexWindowLabel(minutes)).toEqual({ label, shortLabel })
+  })
+})
+
+describe('codexMeterRows', () => {
+  it('skips a slot the payload leaves empty', () => {
+    const rows = codexMeterRows({
+      primary: { utilization: 10, resetsAt: null },
+      secondary: null,
+      scopedWeekly: [],
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].slot).toBe('primary')
+  })
+
+  it('returns no rows when quota is null', () => {
+    expect(codexMeterRows(null)).toEqual([])
+  })
+
+  it('marks a weekly (10080-minute) window for daily segments and passes its pace duration', () => {
+    const rows = codexMeterRows({
+      primary: { utilization: 10, resetsAt: null, windowDurationMins: 10080 },
+      secondary: null,
+      scopedWeekly: [],
+    })
+    expect(rows[0]).toMatchObject({ label: 'Weekly', showDailySegments: true, paceWindowMins: 10080 })
+  })
+
+  it('renders both slots in order when both are present', () => {
+    const rows = codexMeterRows({
+      primary: { utilization: 10, resetsAt: null, windowDurationMins: 300 },
+      secondary: { utilization: 5, resetsAt: null, windowDurationMins: 10080 },
+      scopedWeekly: [],
+    })
+    expect(rows.map((row) => row.slot)).toEqual(['primary', 'secondary'])
+    expect(rows[1]).toMatchObject({ label: 'Weekly', showDailySegments: true })
+  })
+})
+
+describe('visibleScopedWeekly', () => {
+  it('returns no rows when the app does not report scoped weekly quotas', () => {
+    expect(visibleScopedWeekly(false, [{ utilization: 10, resetsAt: null }])).toEqual([])
+  })
+
+  it('returns no rows when scopedWeekly is undefined', () => {
+    expect(visibleScopedWeekly(true, undefined)).toEqual([])
+  })
+
+  it('drops a row the user has not touched this window', () => {
+    const untouched = { utilization: 0, resetsAt: null }
+    const touched = { utilization: 5, resetsAt: null }
+    expect(visibleScopedWeekly(true, [untouched, touched])).toEqual([touched])
+  })
+
+  it('keeps a row with unknown (null) utilization', () => {
+    const unknown = { utilization: null, resetsAt: null }
+    expect(visibleScopedWeekly(true, [unknown])).toEqual([unknown])
+  })
+})
+
+describe('toggleUsageDisplay', () => {
+  it('flips used to remaining and back', () => {
+    expect(toggleUsageDisplay('used')).toBe('remaining')
+    expect(toggleUsageDisplay('remaining')).toBe('used')
+  })
+})
+
+describe('codexDisplayToggleCopy', () => {
+  it('describes switching away from used', () => {
+    expect(codexDisplayToggleCopy('used')).toEqual({
+      buttonLabel: 'Used',
+      ariaLabel: 'Show remaining quota',
+      tooltip: 'Switch to remaining quota',
+    })
+  })
+
+  it('describes switching away from remaining', () => {
+    expect(codexDisplayToggleCopy('remaining')).toEqual({
+      buttonLabel: 'Remaining',
+      ariaLabel: 'Show used quota',
+      tooltip: 'Switch to used quota',
+    })
+  })
+})
+
+describe('usedPercentFromUtilization', () => {
+  it('keeps null utilization as null', () => {
+    expect(usedPercentFromUtilization(null)).toBeNull()
+  })
+
+  it('rounds to the nearest whole percent', () => {
+    expect(usedPercentFromUtilization(42.6)).toBe(43)
+  })
+
+  it('keeps values over 100 for an over-limit account', () => {
+    expect(usedPercentFromUtilization(142)).toBe(142)
+  })
+})
+
+describe('displayPercent', () => {
+  it('passes a used-percent through unchanged for the used display', () => {
+    expect(displayPercent(30, 'used')).toBe(30)
+  })
+
+  it('inverts a used-percent for the remaining display', () => {
+    expect(displayPercent(30, 'remaining')).toBe(70)
+  })
+
+  it('floors remaining at 0 for an over-limit account', () => {
+    expect(displayPercent(142, 'remaining')).toBe(0)
+  })
+
+  it('keeps null utilization as null in either display', () => {
+    expect(displayPercent(null, 'used')).toBeNull()
+    expect(displayPercent(null, 'remaining')).toBeNull()
+  })
+})
+
+describe('meterFillPercent', () => {
+  it('fills to 0 when there is no data', () => {
+    expect(meterFillPercent(null)).toBe(0)
+  })
+
+  it('passes a normal percent through', () => {
+    expect(meterFillPercent(55)).toBe(55)
+  })
+
+  it('caps an over-limit percent at 100', () => {
+    expect(meterFillPercent(142)).toBe(100)
+  })
+
+  it('floors a negative percent at 0', () => {
+    expect(meterFillPercent(-5)).toBe(0)
+  })
+})
+
+describe('meterTone', () => {
+  it('is muted with no data', () => {
+    expect(meterTone(null)).toBe('muted')
+  })
+
+  it('is ok under 50%', () => {
+    expect(meterTone(49)).toBe('ok')
+  })
+
+  it('is warn between 50% and 80%', () => {
+    expect(meterTone(50)).toBe('warn')
+    expect(meterTone(79)).toBe('warn')
+  })
+
+  it('is crit at 80% and above', () => {
+    expect(meterTone(80)).toBe('crit')
+    expect(meterTone(142)).toBe('crit')
+  })
+})
+
+describe('displayPacePercent', () => {
+  it('keeps null pace as null', () => {
+    expect(displayPacePercent(null, 'used')).toBeNull()
+  })
+
+  it('passes pace through unchanged for the used display', () => {
+    expect(displayPacePercent(40, 'used')).toBe(40)
+  })
+
+  it('mirrors pace across the bar for the remaining display', () => {
+    expect(displayPacePercent(40, 'remaining')).toBe(60)
   })
 })

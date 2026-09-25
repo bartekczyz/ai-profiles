@@ -47,6 +47,20 @@ export function makeRetryingClient(): QueryClient {
   })
 }
 
+/**
+ * Builds the RTL `wrapper` that provides `client` and a Suspense boundary.
+ * A factory (not a nested component) because RTL needs a component that closes over per-test values.
+ */
+function createQueryWrapper(client: QueryClient, suspenseFallback: ReactNode) {
+  return function QueryWrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={client}>
+        <Suspense fallback={suspenseFallback}>{children}</Suspense>
+      </QueryClientProvider>
+    )
+  }
+}
+
 type RenderWithQueryOptions = {
   client?: QueryClient
   suspenseFallback?: ReactNode
@@ -57,14 +71,7 @@ export function renderWithQuery(
   options: RenderWithQueryOptions = {},
 ): RenderResult & { client: QueryClient } {
   const { client = makeTestClient(), suspenseFallback = null, ...rest } = options
-  function Wrapper({ children }: { children: ReactNode }) {
-    return (
-      <QueryClientProvider client={client}>
-        <Suspense fallback={suspenseFallback}>{children}</Suspense>
-      </QueryClientProvider>
-    )
-  }
-  const result = render(ui, { wrapper: Wrapper, ...rest })
+  const result = render(ui, { wrapper: createQueryWrapper(client, suspenseFallback), ...rest })
   return { ...result, client }
 }
 
@@ -78,13 +85,6 @@ export function renderHookWithQuery<TResult, TProps>(
   options: RenderHookWithQueryOptions<TProps> = {},
 ): RenderHookResult<TResult, TProps> & { client: QueryClient } {
   const { client = makeTestClient(), suspenseFallback = null, ...rest } = options
-  function Wrapper({ children }: { children: ReactNode }) {
-    return (
-      <QueryClientProvider client={client}>
-        <Suspense fallback={suspenseFallback}>{children}</Suspense>
-      </QueryClientProvider>
-    )
-  }
-  const result = renderHook(callback, { wrapper: Wrapper, ...rest })
+  const result = renderHook(callback, { wrapper: createQueryWrapper(client, suspenseFallback), ...rest })
   return { ...result, client }
 }

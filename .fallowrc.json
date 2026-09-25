@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "ignoreExports": [
+    // shadcn primitives: kept identical to `shadcn add` output, so unused sub-parts are expected.
+    { "file": "apps/ai-profiles/src/design/ui/**", "exports": ["*"] }
+  ],
+  "boundaries": {
+    "zones": [
+      { "name": "design", "patterns": ["apps/ai-profiles/src/design/**"] },
+      {
+        "name": "app",
+        "patterns": [
+          "apps/ai-profiles/src/components/**",
+          "apps/ai-profiles/src/features/**",
+          "apps/ai-profiles/src/lib/**",
+          "apps/ai-profiles/src/test/**",
+          "apps/ai-profiles/src/*.{ts,tsx}"
+        ]
+      }
+    ],
+    "rules": [
+      // The design module is closed so it can later move to packages/ as-is.
+      { "from": "design", "allow": [] },
+      { "from": "app", "allow": ["design"] }
+    ]
+  }
+}

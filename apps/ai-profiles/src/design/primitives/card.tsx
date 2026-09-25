@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from 'react'
+import type { HTMLAttributes } from 'react'
 
 import { cn } from '@/design/lib/cn'
 
@@ -17,26 +17,3 @@ export function Card({ className, children, ...rest }: CardProps) {
     </div>
   )
 }
-
-type CardRowProps = {
-  leading?: ReactNode
-  label: ReactNode
-  detail?: ReactNode
-  trailing?: ReactNode
-  className?: string
-}
-
-export function CardRow({ leading, label, detail, trailing, className }: CardRowProps) {
-  return (
-    <div className={cn('flex items-center gap-3 px-4 py-3 border-b border-border-soft last:border-b-0', className)}>
-      {leading ? <span className="flex-shrink-0">{leading}</span> : null}
-      <div className="flex-1 min-w-0">
-        <div className="text-body text-ink tracking-[-0.005em]">{label}</div>
-        {detail ? <div className="font-mono text-mono text-muted-strong mt-0.5">{detail}</div> : null}
-      </div>
-      {trailing ? <div className="flex-shrink-0">{trailing}</div> : null}
-    </div>
-  )
-}
-
-export type { CardProps, CardRowProps }

@@ -40,6 +40,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # fallow audit diffs against the PR base, so it needs history.
+          fetch-depth: 0
 
       # No `version:` here on purpose — `packageManager` in root
       # package.json is the source of truth and pnpm/action-setup@v4
@@ -70,3 +73,11 @@ jobs:
 
       - name: test
         run: pnpm turbo run test
+
+      - name: fallow audit (new findings in changed files)
+        if: github.event_name == 'pull_request'
+        run: pnpm fallow audit --base origin/${{ github.base_ref }} --quiet
+
+      - name: fallow (full)
+        if: github.event_name == 'push'
+        run: pnpm fallow --quiet

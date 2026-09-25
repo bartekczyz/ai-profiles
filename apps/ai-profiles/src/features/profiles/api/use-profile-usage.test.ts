@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest'
 
 import { queryKeys } from '@/lib/query/keys'
 
-import { ensureUsable, narrowProfileUsage, UsageUnavailableError } from './use-profile-usage'
+import { narrowProfileUsage } from './narrow-usage'
+import { ensureUsable, UsageUnavailableError } from './use-profile-usage'
 
 describe('narrowProfileUsage', () => {
   it('preserves reset counts and nullable expiry details', () => {

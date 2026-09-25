@@ -1,5 +1,5 @@
 import type { AppId } from '@/lib/app-registry'
-import type { ExistingInstallInfo, ImportExistingInput, Profile } from '@/lib/types'
+import type { ExistingInstallInfo, ExistingInstallSizes, ImportExistingInput, Profile } from '@/lib/types'
 
 import { useState } from 'react'
 
@@ -11,8 +11,9 @@ import { useMigrationSizes } from '@/features/migration/api/use-migration'
 // cross-feature: migration dialog reuses the profile color picker for the imported profile
 import { ColorSwatchPicker } from '@/features/profiles/components/color-swatch-picker'
 import { slugifyPreview } from '@/features/profiles/components/profile-form-fields'
+import { isProfileFormValid } from '@/features/profiles/lib/profile-form'
 import { appSpecs } from '@/lib/app-registry'
-import { isValidHexColor, presetColors } from '@/lib/colors'
+import { presetColors } from '@/lib/colors'
 import { formatBytes } from '@/lib/format-bytes'
 
 type Props = {
@@ -44,8 +45,7 @@ export function MigrationDialog({ open, app, existing, onClose, onImport }: Prop
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const canSubmit = name.trim().length > 0 && isValidHexColor(color) && (includeGui || includeCli) && !submitting
-  const slugPreview = name.trim().length > 0 ? slugifyPreview(name) : ''
+  const valid = isProfileFormValid(name, color, { gui: includeGui, cli: includeCli })
 
   async function handleSubmit() {
     setSubmitting(true)
@@ -67,77 +67,13 @@ export function MigrationDialog({ open, app, existing, onClose, onImport }: Prop
       description={`Adopt your existing ${spec.displayName} data as your first profile. The originals move to a 7-day backup; the data stays reachable via a new ${spec.cliWrapperPrefix}-<name> command.`}
       onClose={onClose}
       className="w-[min(760px,calc(100%-64px))]"
-      foot={
-        <>
-          <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={submitting} onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            disabled={!canSubmit}
-            variant="primary"
-            size="sm"
-            leadingIcon={submitting ? <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> : null}
-            trailingKbd={submitting ? null : <Kbd variant="onOrange">⏎</Kbd>}
-            onClick={handleSubmit}
-          >
-            {submitting ? 'Importing…' : 'Import'}
-          </Button>
-        </>
-      }
+      foot={<MigrationDialogFoot valid={valid} submitting={submitting} onCancel={onClose} onImport={handleSubmit} />}
     >
       <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_minmax(0,300px)]">
         <div className="space-y-5">
-          <section>
-            <div className="mb-2 font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong">
-              Detected
-            </div>
-            <ul className="overflow-hidden rounded-lg border border-border bg-white dark:bg-cream-2">
-              {existing.guiPath ? (
-                <DetectedRow
-                  label={`${spec.displayName} Desktop`}
-                  path={existing.guiPath}
-                  sizeBytes={sizes.guiSizeBytes}
-                />
-              ) : null}
-              {existing.cliPath ? (
-                <DetectedRow
-                  label={`${spec.cliDisplayName} CLI`}
-                  path={existing.cliPath}
-                  sizeBytes={sizes.cliSizeBytes}
-                />
-              ) : null}
-            </ul>
-          </section>
+          <DetectedSection app={app} existing={existing} sizes={sizes} />
 
-          <div>
-            <label
-              htmlFor="migration-name"
-              className="mb-1.5 block font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted"
-            >
-              Profile name
-            </label>
-            <Input
-              autoFocus
-              id="migration-name"
-              type="text"
-              value={name}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              onChange={(event) => setName(event.target.value)}
-            />
-            {/* Always rendered so the line reserves its height — no shift when typing. */}
-            <p className="mt-1.5 font-mono text-mono text-muted-strong">
-              {slugPreview ? (
-                <>
-                  Invoked as <code className="text-ink">{`${spec.cliWrapperPrefix}-${slugPreview}`}</code>
-                </>
-              ) : (
-                '\u00A0'
-              )}
-            </p>
-          </div>
+          <ProfileNameField name={name} cliWrapperPrefix={spec.cliWrapperPrefix} onChange={setName} />
 
           <div>
             <div className="mb-1.5 font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted">
@@ -146,35 +82,14 @@ export function MigrationDialog({ open, app, existing, onClose, onImport }: Prop
             <ColorSwatchPicker value={color} onChange={setColor} />
           </div>
 
-          <fieldset>
-            <legend className="mb-1.5 font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted">
-              What to import
-            </legend>
-            <div className="flex flex-col gap-1.5 text-body text-ink-soft">
-              {existing.guiPath ? (
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={includeGui}
-                    onChange={(event) => setIncludeGui(event.target.checked)}
-                    className="h-3.5 w-3.5 cursor-pointer accent-orange"
-                  />
-                  Desktop app data (history, login)
-                </label>
-              ) : null}
-              {existing.cliPath ? (
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={includeCli}
-                    onChange={(event) => setIncludeCli(event.target.checked)}
-                    className="h-3.5 w-3.5 cursor-pointer accent-orange"
-                  />
-                  {spec.cliDisplayName} CLI config
-                </label>
-              ) : null}
-            </div>
-          </fieldset>
+          <ImportChoices
+            app={app}
+            existing={existing}
+            includeGui={includeGui}
+            includeCli={includeCli}
+            onIncludeGuiChange={setIncludeGui}
+            onIncludeCliChange={setIncludeCli}
+          />
 
           {error ? <p className="text-meta text-red">{error}</p> : null}
         </div>
@@ -187,6 +102,211 @@ export function MigrationDialog({ open, app, existing, onClose, onImport }: Prop
         </section>
       </div>
     </Dialog>
+  )
+}
+
+type MigrationDialogFootProps = {
+  /**
+   * Whether the form holds a profile that can be imported.
+   */
+  valid: boolean
+  /**
+   * Whether an import is under way.
+   */
+  submitting: boolean
+  /**
+   * Dismisses the dialog.
+   */
+  onCancel: () => void
+  /**
+   * Starts the import.
+   */
+  onImport: () => void
+}
+
+/**
+ * The dialog's Cancel and Import buttons. Both lock while an import is under
+ * way, and Import swaps its shortcut for a spinner.
+ */
+function MigrationDialogFoot({ valid, submitting, onCancel, onImport }: MigrationDialogFootProps) {
+  return (
+    <>
+      <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={submitting} onClick={onCancel}>
+        Cancel
+      </Button>
+      <Button
+        disabled={!valid || submitting}
+        variant="primary"
+        size="sm"
+        leadingIcon={submitting ? <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> : null}
+        trailingKbd={submitting ? null : <Kbd variant="onOrange">⏎</Kbd>}
+        onClick={onImport}
+      >
+        {submitting ? 'Importing…' : 'Import'}
+      </Button>
+    </>
+  )
+}
+
+type DetectedSectionProps = {
+  /**
+   * The app whose install was detected.
+   */
+  app: AppId
+  /**
+   * Where the install's desktop and CLI data were found.
+   */
+  existing: ExistingInstallInfo
+  /**
+   * How much each detected install holds on disk, once measured.
+   */
+  sizes: ExistingInstallSizes
+}
+
+/**
+ * Lists the detected desktop and CLI installs, each with its size and path.
+ */
+function DetectedSection({ app, existing, sizes }: DetectedSectionProps) {
+  const spec = appSpecs[app]
+  return (
+    <section>
+      <div className="mb-2 font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong">
+        Detected
+      </div>
+      <ul className="overflow-hidden rounded-lg border border-border bg-white dark:bg-cream-2">
+        {existing.guiPath ? (
+          <DetectedRow label={`${spec.displayName} Desktop`} path={existing.guiPath} sizeBytes={sizes.guiSizeBytes} />
+        ) : null}
+        {existing.cliPath ? (
+          <DetectedRow label={`${spec.cliDisplayName} CLI`} path={existing.cliPath} sizeBytes={sizes.cliSizeBytes} />
+        ) : null}
+      </ul>
+    </section>
+  )
+}
+
+type ProfileNameFieldProps = {
+  /**
+   * The name as typed.
+   */
+  name: string
+  /**
+   * The app's CLI wrapper prefix, which the command preview starts with.
+   */
+  cliWrapperPrefix: string
+  /**
+   * Called with the name as the user types it.
+   */
+  onChange: (name: string) => void
+}
+
+/**
+ * The profile name input, with a preview of the command the profile will be
+ * invoked as.
+ */
+function ProfileNameField({ name, cliWrapperPrefix, onChange }: ProfileNameFieldProps) {
+  const slugPreview = slugifyPreview(name)
+  return (
+    <div>
+      <label
+        htmlFor="migration-name"
+        className="mb-1.5 block font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted"
+      >
+        Profile name
+      </label>
+      <Input
+        autoFocus
+        id="migration-name"
+        type="text"
+        value={name}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {/* Always rendered so the line reserves its height — no shift when typing. */}
+      <p className="mt-1.5 font-mono text-mono text-muted-strong">
+        {slugPreview ? (
+          <>
+            Invoked as <code className="text-ink">{`${cliWrapperPrefix}-${slugPreview}`}</code>
+          </>
+        ) : (
+          '\u00A0'
+        )}
+      </p>
+    </div>
+  )
+}
+
+type ImportChoicesProps = {
+  /**
+   * The app whose install is being imported.
+   */
+  app: AppId
+  /**
+   * Where the install's desktop and CLI data were found.
+   */
+  existing: ExistingInstallInfo
+  /**
+   * Whether the desktop app's data is imported.
+   */
+  includeGui: boolean
+  /**
+   * Whether the CLI's config is imported.
+   */
+  includeCli: boolean
+  /**
+   * Called when the user ticks or unticks the desktop app's data.
+   */
+  onIncludeGuiChange: (include: boolean) => void
+  /**
+   * Called when the user ticks or unticks the CLI's config.
+   */
+  onIncludeCliChange: (include: boolean) => void
+}
+
+/**
+ * One checkbox per detected install, choosing what the import takes.
+ */
+function ImportChoices({
+  app,
+  existing,
+  includeGui,
+  includeCli,
+  onIncludeGuiChange,
+  onIncludeCliChange,
+}: ImportChoicesProps) {
+  return (
+    <fieldset>
+      <legend className="mb-1.5 font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted">
+        What to import
+      </legend>
+      <div className="flex flex-col gap-1.5 text-body text-ink-soft">
+        {existing.guiPath ? (
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={includeGui}
+              onChange={(event) => onIncludeGuiChange(event.target.checked)}
+              className="h-3.5 w-3.5 cursor-pointer accent-orange"
+            />
+            Desktop app data (history, login)
+          </label>
+        ) : null}
+        {existing.cliPath ? (
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={includeCli}
+              onChange={(event) => onIncludeCliChange(event.target.checked)}
+              className="h-3.5 w-3.5 cursor-pointer accent-orange"
+            />
+            {appSpecs[app].cliDisplayName} CLI config
+          </label>
+        ) : null}
+      </div>
+    </fieldset>
   )
 }
 

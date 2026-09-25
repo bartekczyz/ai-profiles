@@ -95,6 +95,40 @@ type RowActionsInput = {
   onMove: (session: Session, target: MoveTarget) => void
 }
 
+type SessionRowsProps = {
+  /**
+   * The rows to show, filtered and ordered.
+   */
+  sessions: Array<Session>
+  /**
+   * The app the sessions are of.
+   */
+  app: AppId
+  /**
+   * The other profiles of the app a session can be moved to.
+   */
+  moveTargets: Array<MoveTarget>
+  /**
+   * Asks to do `action` to `session`, from its row.
+   */
+  onAction: (session: Session, action: SessionAction) => void
+  /**
+   * Asks to move `session` to `target`, from its row.
+   */
+  onMove: (session: Session, target: MoveTarget) => void
+}
+
+type EmptyNoticeProps = {
+  /**
+   * What the empty tab says.
+   */
+  title: string
+  /**
+   * A line under the title.
+   */
+  hint?: string
+}
+
 type NoticeProps = {
   /**
    * The notice's content.
@@ -167,12 +201,7 @@ export function SessionsList({
     return <ListError retrying={retrying} message={failure.message} onRetry={onRetry} />
   }
   if (tabTotal === 0) {
-    return (
-      <Notice>
-        <p className="text-[12.5px] text-ink">{emptyTitle}</p>
-        {emptyHint === undefined ? null : <p className="mt-0.5 text-[11px] text-muted-strong">{emptyHint}</p>}
-      </Notice>
-    )
+    return <EmptyNotice title={emptyTitle} hint={emptyHint} />
   }
   if (sessions.length === 0) {
     return (
@@ -184,6 +213,14 @@ export function SessionsList({
       </Notice>
     )
   }
+  return <SessionRows sessions={sessions} app={app} moveTargets={moveTargets} onAction={onAction} onMove={onMove} />
+}
+
+/**
+ * The rows, which share one tooltip provider for why their actions are held
+ * back.
+ */
+function SessionRows({ sessions, app, moveTargets, onAction, onMove }: SessionRowsProps) {
   return (
     <TooltipProvider>
       <ul aria-label="Sessions" className={sessionsListClasses}>
@@ -197,6 +234,18 @@ export function SessionsList({
         ))}
       </ul>
     </TooltipProvider>
+  )
+}
+
+/**
+ * An empty tab: what it says, and a line under that when there is one.
+ */
+function EmptyNotice({ title, hint }: EmptyNoticeProps) {
+  return (
+    <Notice>
+      <p className="text-[12.5px] text-ink">{title}</p>
+      {hint === undefined ? null : <p className="mt-0.5 text-[11px] text-muted-strong">{hint}</p>}
+    </Notice>
   )
 }
 

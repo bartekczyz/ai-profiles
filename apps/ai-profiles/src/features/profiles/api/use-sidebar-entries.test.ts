@@ -3,7 +3,7 @@ import type { ExistingInstallInfo, SidebarEntry } from '@/lib/types'
 
 import { describe, expect, it } from 'vitest'
 
-import { groupEntriesByApp, makeDefaultEntries } from './use-sidebar-entries'
+import { groupEntriesByApp, makeDefaultEntries, resolveSelection } from './use-sidebar-entries'
 
 function existing(overrides: Partial<ExistingInstallInfo> = {}): ExistingInstallInfo {
   return { guiPath: null, cliPath: null, guiSizeBytes: null, cliSizeBytes: null, ...overrides }
@@ -101,5 +101,24 @@ describe('groupEntriesByApp', () => {
 
   it('returns no groups for no entries', () => {
     expect(groupEntriesByApp([])).toEqual([])
+  })
+})
+
+describe('resolveSelection', () => {
+  const entries = [defaultFor('claude'), managed('a', 'claude')]
+
+  it('resolves a managed selection to its entry and profile', () => {
+    const { selected, managedSelected } = resolveSelection(entries, 'a')
+    expect(selected).toBe(entries[1])
+    expect(managedSelected?.id).toBe('a')
+  })
+
+  it('resolves a default selection to its entry with no managed profile', () => {
+    expect(resolveSelection(entries, 'default:claude')).toEqual({ selected: entries[0], managedSelected: null })
+  })
+
+  it('resolves nothing for no selection or a stale id', () => {
+    expect(resolveSelection(entries, null)).toEqual({ selected: null, managedSelected: null })
+    expect(resolveSelection(entries, 'gone')).toEqual({ selected: null, managedSelected: null })
   })
 })

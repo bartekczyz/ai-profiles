@@ -100,42 +100,18 @@ export function ProfileDetailSurfacesPanel({
   onCopyCli,
   onError,
 }: Props) {
-  const [copied, setCopied] = useState(false)
-  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (resetTimer.current !== null) {
-        clearTimeout(resetTimer.current)
-      }
-    }
-  }, [])
-
-  async function safeRun(action: () => Promise<unknown>): Promise<boolean> {
-    try {
-      await action()
-      onError(null)
-      return true
-    } catch (caught) {
-      onError(caught instanceof Error ? caught.message : String(caught))
-      return false
-    }
-  }
+  const { copied, flashCopied } = useCopiedFlash()
 
   async function launch(): Promise<void> {
-    await safeRun(onLaunchGui)
+    await runReportingErrors(onLaunchGui, onError)
   }
 
   async function copy(): Promise<void> {
-    const succeeded = await safeRun(onCopyCli)
+    const succeeded = await runReportingErrors(onCopyCli, onError)
     if (!succeeded) {
       return
     }
-    setCopied(true)
-    if (resetTimer.current !== null) {
-      clearTimeout(resetTimer.current)
-    }
-    resetTimer.current = setTimeout(() => setCopied(false), copiedResetMs)
+    flashCopied()
   }
 
   // Registered here rather than in the app shell so the keyboard route runs
@@ -166,57 +142,33 @@ export function ProfileDetailSurfacesPanel({
     <>
       <div className="overflow-hidden rounded-[10px] border border-border bg-white/50 dark:bg-white/[0.035]">
         <SurfaceRow
+          enabled={guiEnabled}
           glyph={<Monitor aria-hidden className="h-3.5 w-3.5" strokeWidth={1.85} />}
           title="Desktop app"
-          description={guiEnabled ? guiDescription : offDescription}
+          description={guiDescription}
           control={
-            guiEnabled ? (
-              <button
-                type="button"
-                disabled={opening}
-                aria-busy={opening}
-                aria-keyshortcuts={ariaKeyshortcutsFor('open-selected-desktop')}
-                className={cn(
-                  controlClasses,
-                  filledClasses,
-                  busyClasses,
-                  'gap-[7px] px-[11px] text-[12px] font-medium',
-                )}
-                onClick={() => {
-                  void launch()
-                }}
-              >
-                {opening ? 'Opening' : 'Open'}
-                <Kbd variant="onOrange" shortcutId="open-selected-desktop" />
-              </button>
-            ) : null
+            <OpenDesktopButton
+              opening={opening}
+              onOpen={() => {
+                void launch()
+              }}
+            />
           }
         />
         <SurfaceRow
+          enabled={cliEnabled}
           glyph={<Terminal aria-hidden className="h-3.5 w-3.5" strokeWidth={1.85} />}
           title="Terminal"
-          description={cliEnabled ? cliDescription : offDescription}
+          description={cliDescription}
           control={
-            cliEnabled ? (
-              <button
-                type="button"
-                data-copied={copied ? 'true' : 'false'}
-                aria-keyshortcuts={ariaKeyshortcutsFor('copy-selected-cli')}
-                className={cn(
-                  controlClasses,
-                  tokenPromoted ? filledClasses : outlinedClasses,
-                  'gap-2 px-[9px] font-mono text-[11.5px]',
-                  !tokenPromoted &&
-                    'data-[copied=true]:border-green data-[copied=true]:bg-green/[0.06] data-[copied=true]:text-green',
-                )}
-                onClick={() => {
-                  void copy()
-                }}
-              >
-                {copied ? 'Copied' : command}
-                <Kbd variant={tokenPromoted ? 'onOrange' : 'default'} shortcutId="copy-selected-cli" />
-              </button>
-            ) : null
+            <CopyCommandButton
+              copied={copied}
+              promoted={tokenPromoted}
+              command={command}
+              onCopy={() => {
+                void copy()
+              }}
+            />
           }
         />
       </div>
@@ -231,7 +183,130 @@ export function ProfileDetailSurfacesPanel({
   )
 }
 
+/**
+ * Runs a surface action and reports how it went: clears the pane's error on
+ * success, sets it to the failure's message otherwise. Resolves to whether the
+ * action succeeded.
+ */
+async function runReportingErrors(
+  action: () => Promise<unknown>,
+  onError: (message: string | null) => void,
+): Promise<boolean> {
+  try {
+    await action()
+    onError(null)
+    return true
+  } catch (caught) {
+    onError(caught instanceof Error ? caught.message : String(caught))
+    return false
+  }
+}
+
+/**
+ * The command token's copy confirmation: `copied` turns on with `flashCopied`
+ * and back off `copiedResetMs` later, restarting the wait on a repeat copy.
+ */
+function useCopiedFlash() {
+  const [copied, setCopied] = useState(false)
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (resetTimer.current !== null) {
+        clearTimeout(resetTimer.current)
+      }
+    }
+  }, [])
+
+  function flashCopied(): void {
+    setCopied(true)
+    if (resetTimer.current !== null) {
+      clearTimeout(resetTimer.current)
+    }
+    resetTimer.current = setTimeout(() => setCopied(false), copiedResetMs)
+  }
+
+  return { copied, flashCopied }
+}
+
+type OpenDesktopButtonProps = {
+  /**
+   * Whether a desktop launch is under way.
+   */
+  opening: boolean
+  /**
+   * Launches the desktop app.
+   */
+  onOpen: () => void
+}
+
+/**
+ * The Desktop app row's Open button, busy while a launch is under way.
+ */
+function OpenDesktopButton({ opening, onOpen }: OpenDesktopButtonProps) {
+  return (
+    <button
+      type="button"
+      disabled={opening}
+      aria-busy={opening}
+      aria-keyshortcuts={ariaKeyshortcutsFor('open-selected-desktop')}
+      className={cn(controlClasses, filledClasses, busyClasses, 'gap-[7px] px-[11px] text-[12px] font-medium')}
+      onClick={onOpen}
+    >
+      {opening ? 'Opening' : 'Open'}
+      <Kbd variant="onOrange" shortcutId="open-selected-desktop" />
+    </button>
+  )
+}
+
+type CopyCommandButtonProps = {
+  /**
+   * Whether the token shows its copy confirmation instead of the command.
+   */
+  copied: boolean
+  /**
+   * Whether the token takes the primary fill, as the pane's only action.
+   */
+  promoted: boolean
+  /**
+   * The shell command the token shows and copies.
+   */
+  command: string
+  /**
+   * Copies the command.
+   */
+  onCopy: () => void
+}
+
+/**
+ * The Terminal row's command token, which copies the command on press.
+ */
+function CopyCommandButton({ copied, promoted, command, onCopy }: CopyCommandButtonProps) {
+  return (
+    <button
+      type="button"
+      data-copied={copied ? 'true' : 'false'}
+      aria-keyshortcuts={ariaKeyshortcutsFor('copy-selected-cli')}
+      className={cn(
+        controlClasses,
+        promoted ? filledClasses : outlinedClasses,
+        'gap-2 px-[9px] font-mono text-[11.5px]',
+        !promoted && 'data-[copied=true]:border-green data-[copied=true]:bg-green/[0.06] data-[copied=true]:text-green',
+      )}
+      onClick={onCopy}
+    >
+      {copied ? 'Copied' : command}
+      <Kbd variant={promoted ? 'onOrange' : 'default'} shortcutId="copy-selected-cli" />
+    </button>
+  )
+}
+
 type SurfaceRowProps = {
+  /**
+   * Whether the surface is on. A switched-off row says so and greys its
+   * control to an em dash.
+   */
+  enabled: boolean
   glyph: ReactNode
   title: string
   control: ReactNode
@@ -241,7 +316,8 @@ type SurfaceRowProps = {
   description?: string
 }
 
-function SurfaceRow({ glyph, title, control, description }: SurfaceRowProps) {
+function SurfaceRow({ enabled, glyph, title, control, description }: SurfaceRowProps) {
+  const shownDescription = enabled ? description : offDescription
   return (
     <div className={rowClasses}>
       <span className="flex min-w-0 items-center gap-[9px]">
@@ -253,14 +329,16 @@ function SurfaceRow({ glyph, title, control, description }: SurfaceRowProps) {
         </span>
         <span className="min-w-0">
           <span className="block text-[12.5px] tracking-[-0.005em] text-ink">{title}</span>
-          {description === undefined ? (
+          {shownDescription === undefined ? (
             <Skeleton shape="text" className="mt-1 h-2.5 w-44" />
           ) : (
-            <span className="block text-[11px] text-muted-strong">{description}</span>
+            <span className="block text-[11px] text-muted-strong">{shownDescription}</span>
           )}
         </span>
       </span>
-      {control ?? (
+      {enabled ? (
+        control
+      ) : (
         <span aria-hidden className="text-[11px] text-muted-strong">
           —
         </span>

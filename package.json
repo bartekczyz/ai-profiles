@@ -8,10 +8,13 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "lint": "biome check",
-    "format": "biome format --write"
+    "format": "biome format --write",
+    "fallow": "fallow",
+    "fallow:audit": "fallow audit"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
+    "fallow": "3.28.0",
     "lefthook": "2.1.8",
     "turbo": "2.9.14",
     "typescript": "6.0.3"
