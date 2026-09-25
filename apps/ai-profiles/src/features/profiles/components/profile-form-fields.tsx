@@ -1,18 +1,15 @@
 import type { ReactNode } from 'react'
 import type { AppId, Dependencies, Surfaces } from '@/lib/types'
 
-import { Check, Info } from 'lucide-react'
-
-// cross-feature: form fields use the profile color picker primitive
-import { Button, cn } from '@/design'
 import { Input } from '@/design/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/design/ui/select'
-import { type AppSpec, appIds, appSpecs } from '@/lib/app-registry'
+import { appIds, appSpecs } from '@/lib/app-registry'
 
 import { ColorSwatchPicker } from './color-swatch-picker'
+import { ProfileSurfaceFields } from './profile-surface-fields'
 
 type Props = {
-  app?: AppId | ''
+  app: AppId | ''
   name: string
   color: string
   surfaces: Surfaces
@@ -80,127 +77,126 @@ export function ProfileFormFields({
   onDistinctDockIconChange,
   onExplainDockIcon,
 }: Props) {
-  const slugPreview = name.trim().length > 0 ? slugifyPreview(name) : ''
-  const resolvedApp = app !== '' && app !== undefined ? app : undefined
-  const spec = resolvedApp !== undefined ? appSpecs[resolvedApp] : null
-  const appDeps = resolvedApp !== undefined ? dependencies.apps[resolvedApp] : null
-  // The Dock icon belongs to the desktop launcher, so it means nothing without one.
-  const desktopLauncher = surfaces.gui && (appDeps?.guiInstalled ?? false)
-
   return (
     <div className="space-y-4">
       {onAppChange !== undefined && installedApps !== undefined ? (
-        <Field label="Type">
-          <Select value={app ?? ''} onValueChange={(value) => onAppChange(value as AppId)}>
-            <SelectTrigger aria-label="App type" className="w-full">
-              <SelectValue placeholder="Choose an app" />
-            </SelectTrigger>
-            <SelectContent>
-              {appIds.map((id) => (
-                <SelectItem key={id} disabled={!installedApps.includes(id)} value={id}>
-                  {appSpecs[id].displayName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
+        <AppTypeField app={app} installedApps={installedApps} onAppChange={onAppChange} />
       ) : null}
-      <Field htmlFor="profile-name" label="Name">
-        <Input
-          autoFocus
-          id="profile-name"
-          type="text"
-          value={name}
-          onChange={(event) => onNameChange(event.target.value)}
-          placeholder="Personal"
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-        />
-        {/* Always rendered (non-breaking space when empty) so the slug line
-            reserves its height and the dialog doesn't shift when typing. */}
-        {showSlugPreview ? (
-          <p className="mt-1.5 font-mono text-mono text-muted-strong">
-            {slugPreview ? `Slug: ${slugPreview}` : '\u00A0'}
-          </p>
-        ) : null}
-      </Field>
+      <NameField name={name} showSlugPreview={showSlugPreview} onNameChange={onNameChange} />
       <Field label="Color">
         <ColorSwatchPicker value={color} onChange={onColorChange} />
       </Field>
       <Field label="Surfaces">
-        <div className="flex flex-col gap-2.5">
-          {/* The Dock icon is an option of the desktop launcher, so it shares its card. */}
-          <SurfaceCard>
-            <ToggleRow
-              checked={surfaces.gui && (appDeps?.guiInstalled ?? false)}
-              disabled={!(appDeps?.guiInstalled ?? false)}
-              title={spec?.gui.label ?? 'Desktop App launcher'}
-              description={spec?.gui.description ?? ''}
-              onChange={(next) => onSurfacesChange({ ...surfaces, gui: next })}
-            />
-            <ToggleRow
-              nested
-              checked={distinctDockIcon && desktopLauncher}
-              disabled={!desktopLauncher}
-              title="Distinct Dock icon"
-              description={dockIconDescription(spec)}
-              info={{ label: 'About the Dock icon', onClick: onExplainDockIcon }}
-              onChange={onDistinctDockIconChange}
-            />
-          </SurfaceCard>
-          {appDeps !== null && !appDeps.guiInstalled ? (
-            <p className="pl-7 font-mono text-mono text-muted-strong">
-              Install{' '}
-              <a className="underline" href={spec?.gui.installUrl} target="_blank" rel="noreferrer">
-                {spec?.displayName} Desktop
-              </a>{' '}
-              first.
-            </p>
-          ) : null}
-          <SurfaceCard>
-            <ToggleRow
-              checked={surfaces.cli && (appDeps?.cliInstalled ?? false)}
-              disabled={!(appDeps?.cliInstalled ?? false)}
-              title={spec?.cli.label ?? 'CLI wrapper'}
-              description={spec?.cli.description ?? ''}
-              onChange={(next) => onSurfacesChange({ ...surfaces, cli: next })}
-            />
-          </SurfaceCard>
-          {appDeps !== null && !appDeps.cliInstalled ? (
-            <p className="pl-7 font-mono text-mono text-muted-strong">
-              Install{' '}
-              <a className="underline" href={spec?.cli.installUrl} target="_blank" rel="noreferrer">
-                {spec?.cliDisplayName}
-              </a>{' '}
-              first.
-            </p>
-          ) : null}
-        </div>
+        <ProfileSurfaceFields
+          app={app}
+          surfaces={surfaces}
+          distinctDockIcon={distinctDockIcon}
+          dependencies={dependencies}
+          onSurfacesChange={onSurfacesChange}
+          onDistinctDockIconChange={onDistinctDockIconChange}
+          onExplainDockIcon={onExplainDockIcon}
+        />
       </Field>
     </div>
   )
 }
 
+type AppTypeFieldProps = {
+  /**
+   * The chosen app, or `''` while none has been chosen.
+   */
+  app: AppId | ''
+  /**
+   * The apps that can be chosen; the others are listed, disabled.
+   */
+  installedApps: ReadonlyArray<AppId>
+  /**
+   * Takes the newly chosen app.
+   */
+  onAppChange: (app: AppId) => void
+}
+
 /**
- * What the Dock icon option says next to its checkbox, so the price of it (for
- * ChatGPT, its notifications) is in front of the user before they turn it on,
- * not only in the explanation that follows.
+ * The app-type Select, for a profile whose app is still to be chosen.
  */
-function dockIconDescription(spec: AppSpec | null): string {
-  const intro = 'Gives this profile its own Dock icon and name.'
-  if (spec === null) {
-    return intro
-  }
-  const cost = spec.dockIcon.cost === null ? '' : ` ${spec.dockIcon.cost}`
-  return `${intro}${cost} The default ${spec.displayName} keeps the stock app.`
+function AppTypeField({ app, installedApps, onAppChange }: AppTypeFieldProps) {
+  return (
+    <Field label="Type">
+      <Select value={app} onValueChange={(value) => onAppChange(value as AppId)}>
+        <SelectTrigger aria-label="App type" className="w-full">
+          <SelectValue placeholder="Choose an app" />
+        </SelectTrigger>
+        <SelectContent>
+          {appIds.map((id) => (
+            <SelectItem key={id} disabled={!installedApps.includes(id)} value={id}>
+              {appSpecs[id].displayName}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </Field>
+  )
+}
+
+type NameFieldProps = {
+  /**
+   * The name as typed.
+   */
+  name: string
+  /**
+   * Whether to show the slug the name will get under the input.
+   */
+  showSlugPreview: boolean
+  /**
+   * Takes the name as typed.
+   */
+  onNameChange: (name: string) => void
+}
+
+/**
+ * The name input, with the live slug helper under it.
+ */
+function NameField({ name, showSlugPreview, onNameChange }: NameFieldProps) {
+  return (
+    <Field htmlFor="profile-name" label="Name">
+      <Input
+        autoFocus
+        id="profile-name"
+        type="text"
+        value={name}
+        onChange={(event) => onNameChange(event.target.value)}
+        placeholder="Personal"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+      />
+      {showSlugPreview ? <SlugPreview name={name} /> : null}
+    </Field>
+  )
+}
+
+type SlugPreviewProps = {
+  /**
+   * The name as typed.
+   */
+  name: string
+}
+
+/**
+ * The slug the name will get, as the server will derive it.
+ */
+function SlugPreview({ name }: SlugPreviewProps) {
+  const slug = slugifyPreview(name)
+  // Always rendered (non-breaking space when empty) so the slug line reserves
+  // its height and the dialog doesn't shift when typing.
+  return <p className="mt-1.5 font-mono text-mono text-muted-strong">{slug ? `Slug: ${slug}` : '\u00A0'}</p>
 }
 
 type FieldProps = {
   label: string
   htmlFor?: string
-  children: React.ReactNode
+  children: ReactNode
 }
 
 function Field({ label, htmlFor, children }: FieldProps) {
@@ -213,88 +209,6 @@ function Field({ label, htmlFor, children }: FieldProps) {
         {label}
       </label>
       {children}
-    </div>
-  )
-}
-
-/**
- * A surface, drawn as a card of one or more rows, each a toggle of its own.
- */
-function SurfaceCard({ children }: { children: ReactNode }) {
-  return (
-    <div className="divide-y divide-border-soft overflow-hidden rounded-lg border border-border bg-white dark:bg-cream-2">
-      {children}
-    </div>
-  )
-}
-
-type ToggleRowProps = {
-  checked: boolean
-  disabled: boolean
-  title: string
-  description: string
-  /**
-   * Set for an option of the row above it, so that it sits under that row's
-   * title rather than under its checkbox.
-   */
-  nested?: boolean
-  /**
-   * A button on the row that opens an explanation of the option, for an option
-   * that needs one. It is a control of its own: pressing it does not toggle the
-   * option, and it works while the option is disabled.
-   */
-  info?: { label: string; onClick: () => void }
-  onChange: (next: boolean) => void
-}
-
-function ToggleRow({ checked, disabled, title, description, nested = false, info, onChange }: ToggleRowProps) {
-  return (
-    <div className="relative">
-      {/* biome-ignore lint/a11y/useSemanticElements: rich row layout with description copy precludes a native <input type="checkbox"> */}
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={checked}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={cn(
-          'flex w-full items-start gap-3 p-3 text-left cursor-pointer transition-colors duration-(--duration-snap) ease-(--ease-natural)',
-          'hover:not-disabled:bg-black/[0.02] dark:hover:not-disabled:bg-white/[0.03]',
-          // Inside the row, so the card's edge does not clip it.
-          'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-orange/40',
-          'disabled:cursor-not-allowed disabled:opacity-60',
-          // A nested option lines up with the title of the row above: past its
-          // checkbox (16px) and the gap (12px), from the row's own padding (12px).
-          nested && 'pl-10',
-          // Room for the info button, which sits on the row rather than in it.
-          info !== undefined && 'pr-11',
-        )}
-      >
-        <span
-          aria-hidden
-          className={cn(
-            'mt-px grid h-4 w-4 shrink-0 place-items-center rounded-[5px] border-[1.5px] transition-colors duration-(--duration-snap) ease-(--ease-natural)',
-            checked ? 'border-orange bg-orange' : 'border-border bg-cream',
-          )}
-        >
-          {checked ? <Check className="h-[11px] w-[11px] text-white" strokeWidth={3} /> : null}
-        </span>
-        <span className="flex-1">
-          <span className="block text-[13px] font-medium text-ink">{title}</span>
-          <span className="mt-0.5 block text-[12px] text-muted leading-[1.4]">{description}</span>
-        </span>
-      </button>
-      {info !== undefined ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={info.label}
-          title={info.label}
-          leadingIcon={<Info className="h-4 w-4" />}
-          className="absolute top-2 right-2 h-6 w-6 px-0"
-          onClick={info.onClick}
-        />
-      ) : null}
     </div>
   )
 }

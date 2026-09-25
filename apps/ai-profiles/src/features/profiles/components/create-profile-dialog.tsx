@@ -3,10 +3,17 @@ import type { AppId, Dependencies, Surfaces } from '@/lib/types'
 import { useState } from 'react'
 
 import { Dialog, useToast } from '@/design'
-import { appIds, appSpecs } from '@/lib/app-registry'
-import { isValidHexColor, presetColors } from '@/lib/colors'
+import { presetColors } from '@/lib/colors'
 import { extractErrorMessage } from '@/lib/extract-error-message'
 
+import {
+  availableSurfaces,
+  effectiveSurfaces,
+  installedAppIds,
+  isProfileFormValid,
+  newProfileDockIcon,
+  preselectedApp,
+} from '../lib/profile-form'
 import { DockIconConsentDialog } from './dock-icon-consent-dialog'
 import { ProfileDialogFoot } from './profile-dialog-foot'
 import { ProfileFormFields } from './profile-form-fields'
@@ -51,19 +58,14 @@ export function CreateProfileDialog({
   // when they change the app.
   const [dockIconChoice, setDockIconChoice] = useState<boolean | null>(null)
 
-  const installedApps = appIds.filter((id) => dependencies.apps[id].guiInstalled || dependencies.apps[id].cliInstalled)
-  // Pre-select when exactly one app is installed; otherwise leave empty so the
-  // user makes a deliberate choice.
-  const defaultApp: AppId | '' = installedApps.length === 1 ? installedApps[0] : ''
+  const installedApps = installedAppIds(dependencies)
+  const defaultApp = preselectedApp(installedApps)
   const [app, setApp] = useState<AppId | ''>(defaultApp)
 
-  const appDeps = app !== '' ? dependencies.apps[app] : null
-  const effectiveGui = surfaces.gui && (appDeps?.guiInstalled ?? false)
-  const effectiveCli = surfaces.cli && (appDeps?.cliInstalled ?? false)
-  const canSubmit = app !== '' && name.trim().length > 0 && isValidHexColor(color) && (effectiveGui || effectiveCli)
+  const effective = effectiveSurfaces(surfaces, availableSurfaces(dependencies, app))
+  const canSubmit = app !== '' && isProfileFormValid(name, color, effective)
 
-  const dockIconByDefault = app !== '' && dockIconAcknowledged && appSpecs[app].dockIcon.defaultOn
-  const dockIcon = (dockIconChoice ?? dockIconByDefault) && effectiveGui
+  const dockIcon = newProfileDockIcon(dockIconChoice, app, dockIconAcknowledged, effective.gui)
   const dockIconConsent = useDockIconConsent({
     acknowledged: dockIconAcknowledged,
     onChoose: setDockIconChoice,
@@ -81,7 +83,7 @@ export function CreateProfileDialog({
         app: selectedApp,
         name: name.trim(),
         color,
-        surfaces: { gui: effectiveGui, cli: effectiveCli },
+        surfaces: effective,
         distinctDockIcon: dockIcon,
       })
       setName('')
