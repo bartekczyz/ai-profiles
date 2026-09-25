@@ -8,15 +8,10 @@ import { RotateCw } from 'lucide-react'
 import { Button, Skeleton, StatusDot } from '@/design'
 import { useAppMetadata } from '@/features/about/api/use-app-metadata'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
+import { hookInstallMessage, rcDisplay, shellHookStatus, updateAction } from '@/features/settings/lib/system-status'
 import { type UpdaterStatus, useUpdater } from '@/features/updater/api/use-updater'
 import { appIds, appSpecs } from '@/lib/app-registry'
 import { detectShell, installPathHook } from '@/lib/commands'
-
-const rcDisplay: Record<Shell, string> = {
-  zsh: '~/.zshrc',
-  bash: '~/.bashrc',
-  fish: '~/.config/fish/config.fish',
-}
 
 type Row = {
   label: string
@@ -105,15 +100,64 @@ export function SystemSection() {
   const updater = useUpdater()
   const { version } = useAppMetadata()
   const [shell, setShell] = useState<Shell | null>(null)
-  const [hookMessage, setHookMessage] = useState<string | null>(null)
-  const [hookError, setHookError] = useState<string | null>(null)
-  const [hookBusy, setHookBusy] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-  const [refreshedAt, setRefreshedAt] = useState<number | null>(null)
 
   useEffect(() => {
     void detectShell().then(setShell)
   }, [])
+
+  async function refresh() {
+    await Promise.all([dependencies.refresh(), detectShell().then(setShell)])
+  }
+
+  const updaterDescription = describeUpdaterStatus(updater.status)
+  const rows = buildRows(dependencies.deps, shell, updaterDescription, version)
+  const action = updateAction(updater.status)
+  const handleUpdateAction = action.installs ? updater.installAndRestart : updater.check
+
+  return (
+    <section className="mb-8">
+      <div className="mb-2.5 flex items-center justify-between">
+        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">System</span>
+        <RefreshControl onRefresh={refresh} />
+      </div>
+      <div className="rounded-xl border border-border bg-white py-1 dark:bg-cream-2">
+        {rows.map((row, index) => (
+          <StatusRow
+            // biome-ignore lint/suspicious/noArrayIndexKey: rows are a stable ordered list with no insert/reorder semantics
+            key={index}
+            row={row}
+          />
+        ))}
+      </div>
+      <ShellHookControls
+        localBinOnPath={dependencies.deps.localBinOnPath}
+        shell={shell}
+        onInstalled={dependencies.refresh}
+      />
+      <div className="mt-2 flex items-center gap-2.5 font-mono text-[11px] text-muted-strong">
+        <span>{updaterDescription.detail}</span>
+        <Button size="sm" variant="ghost" disabled={action.busy} onClick={() => void handleUpdateAction()}>
+          {action.label}
+        </Button>
+      </div>
+    </section>
+  )
+}
+
+type RefreshControlProps = {
+  /**
+   * Re-reads the dependencies and the shell; resolves once both are back.
+   */
+  onRefresh: () => Promise<unknown>
+}
+
+/**
+ * The header's Refresh button, spinning while a refresh runs and followed by a
+ * brief "Refreshed" confirmation once it lands.
+ */
+function RefreshControl({ onRefresh }: RefreshControlProps) {
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshedAt, setRefreshedAt] = useState<number | null>(null)
 
   useEffect(() => {
     if (refreshedAt === null) {
@@ -130,12 +174,81 @@ export function SystemSection() {
     setRefreshing(true)
     setRefreshedAt(null)
     try {
-      await Promise.all([dependencies.refresh(), detectShell().then(setShell)])
+      await onRefresh()
       setRefreshedAt(Date.now())
     } finally {
       setRefreshing(false)
     }
   }
+
+  return (
+    <div className="flex items-center gap-2">
+      {refreshedAt !== null ? (
+        <span className="font-mono text-[11px] text-muted-strong" role="status" aria-live="polite">
+          Refreshed
+        </span>
+      ) : null}
+      <Button
+        size="sm"
+        variant="secondary"
+        leadingIcon={<RotateCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={1.85} />}
+        disabled={refreshing}
+        onClick={() => void handleRefresh()}
+      >
+        {refreshing ? 'Refreshing…' : 'Refresh'}
+      </Button>
+    </div>
+  )
+}
+
+type StatusRowProps = {
+  /**
+   * The dependency or subsystem the row reports on.
+   */
+  row: Row
+}
+
+/**
+ * One line of the System card: a status dot, a label, and a mono detail.
+ */
+function StatusRow({ row }: StatusRowProps) {
+  return (
+    <div className="grid grid-cols-[7px_1fr_auto] items-center gap-3 border-b border-border-soft px-4 py-3 text-[13px] tracking-[-0.003em] text-ink-soft last:border-b-0">
+      <StatusDot pulse tone={row.tone} />
+      <span>
+        {row.label}
+        {row.aux ? <span className="ml-2 font-mono text-[11.5px] text-muted">{row.aux}</span> : null}
+      </span>
+      <span className="font-mono text-[11.5px] text-muted">{row.detail}</span>
+    </div>
+  )
+}
+
+type ShellHookControlsProps = {
+  /**
+   * Whether `~/.local/bin` is on the user's PATH.
+   */
+  localBinOnPath: boolean
+  /**
+   * The detected shell, or `null` while detection runs.
+   */
+  shell: Shell | null
+  /**
+   * Re-reads the dependencies once the hook has been written.
+   */
+  onInstalled: () => Promise<unknown>
+}
+
+/**
+ * The shell hookline: which shell was detected and whether its rc file has
+ * the PATH hook, with a one-click (re-)install and its outcome underneath.
+ */
+function ShellHookControls({ localBinOnPath, shell, onInstalled }: ShellHookControlsProps) {
+  const [hookMessage, setHookMessage] = useState<string | null>(null)
+  const [hookError, setHookError] = useState<string | null>(null)
+  const [hookBusy, setHookBusy] = useState(false)
+
+  const hookInstalled = localBinOnPath && shell !== null
 
   async function handleReinstall() {
     if (!shell) {
@@ -146,12 +259,8 @@ export function SystemSection() {
     setHookError(null)
     try {
       const outcome = await installPathHook(shell)
-      if (outcome.outcome === 'alreadyInstalled') {
-        setHookMessage(`${rcDisplay[shell]} already has the hook.`)
-      } else {
-        setHookMessage(`Updated ${rcDisplay[shell]}. Open a new terminal to pick it up.`)
-      }
-      await dependencies.refresh()
+      setHookMessage(hookInstallMessage(shell, outcome))
+      await onInstalled()
     } catch (caught) {
       setHookError(caught instanceof Error ? caught.message : String(caught))
     } finally {
@@ -159,58 +268,10 @@ export function SystemSection() {
     }
   }
 
-  const updaterDescription = describeUpdaterStatus(updater.status)
-  const rows = buildRows(dependencies.deps, shell, updaterDescription, version)
-  const hookInstalled = dependencies.deps.localBinOnPath && shell !== null
-  const updateCheckBusy = updater.status.kind === 'checking' || updater.status.kind === 'installing'
-  const updateActionLabel = updater.status.kind === 'available' ? 'Restart and install' : 'Check now'
-  const handleUpdateAction = updater.status.kind === 'available' ? updater.installAndRestart : updater.check
-
   return (
-    <section className="mb-8">
-      <div className="mb-2.5 flex items-center justify-between">
-        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">System</span>
-        <div className="flex items-center gap-2">
-          {refreshedAt !== null ? (
-            <span className="font-mono text-[11px] text-muted-strong" role="status" aria-live="polite">
-              Refreshed
-            </span>
-          ) : null}
-          <Button
-            size="sm"
-            variant="secondary"
-            leadingIcon={<RotateCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={1.85} />}
-            disabled={refreshing}
-            onClick={() => void handleRefresh()}
-          >
-            {refreshing ? 'Refreshing…' : 'Refresh'}
-          </Button>
-        </div>
-      </div>
-      <div className="rounded-xl border border-border bg-white py-1 dark:bg-cream-2">
-        {rows.map((row, index) => (
-          <div
-            // biome-ignore lint/suspicious/noArrayIndexKey: rows are a stable ordered list with no insert/reorder semantics
-            key={index}
-            className="grid grid-cols-[7px_1fr_auto] items-center gap-3 border-b border-border-soft px-4 py-3 text-[13px] tracking-[-0.003em] text-ink-soft last:border-b-0"
-          >
-            <StatusDot tone={row.tone} pulse />
-            <span>
-              {row.label}
-              {row.aux ? <span className="ml-2 font-mono text-[11.5px] text-muted">{row.aux}</span> : null}
-            </span>
-            <span className="font-mono text-[11.5px] text-muted">{row.detail}</span>
-          </div>
-        ))}
-      </div>
+    <>
       <div className="mt-2.5 flex items-center gap-2.5 font-mono text-[11px] text-muted-strong">
-        <span>
-          {shell
-            ? hookInstalled
-              ? `Detected ${shell} — hook installed in ${rcDisplay[shell]}.`
-              : `Detected ${shell} — hook not yet installed in ${rcDisplay[shell]}.`
-            : 'Detecting your shell…'}
-        </span>
+        <span>{shellHookStatus(shell, hookInstalled)}</span>
         <Button size="sm" variant="ghost" disabled={!shell || hookBusy} onClick={handleReinstall}>
           {hookInstalled ? 'Re-install hook' : 'Install hook'}
         </Button>
@@ -225,13 +286,7 @@ export function SystemSection() {
           {hookError}
         </p>
       ) : null}
-      <div className="mt-2 flex items-center gap-2.5 font-mono text-[11px] text-muted-strong">
-        <span>{updaterDescription.detail}</span>
-        <Button size="sm" variant="ghost" disabled={updateCheckBusy} onClick={() => void handleUpdateAction()}>
-          {updateActionLabel}
-        </Button>
-      </div>
-    </section>
+    </>
   )
 }
 
