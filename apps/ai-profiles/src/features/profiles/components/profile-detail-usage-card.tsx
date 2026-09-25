@@ -57,7 +57,7 @@ export function ProfileDetailUsageCard({ app, profileId, cliEnabled, cliCommand 
   )
 }
 
-type UsageDisplay = 'used' | 'remaining'
+export type UsageDisplay = 'used' | 'remaining'
 const usageDisplayKey = 'ai-profiles-codex-usage-display'
 const UsageDisplayContext = createContext<UsageDisplay>('used')
 
@@ -67,6 +67,41 @@ function readUsageDisplay(): UsageDisplay {
   } catch {
     return 'used'
   }
+}
+
+/**
+ * Flips between the two usage displays. Kept as its own function so the
+ * toggle's target value can't drift from the copy below it describes.
+ */
+export function toggleUsageDisplay(display: UsageDisplay): UsageDisplay {
+  return display === 'used' ? 'remaining' : 'used'
+}
+
+export type CodexDisplayToggleCopy = {
+  /**
+   * Text shown on the toggle button itself, naming the CURRENT display.
+   */
+  buttonLabel: string
+  /**
+   * Accessible name for the toggle button, describing the action it performs.
+   */
+  ariaLabel: string
+  /**
+   * Tooltip text shown on hover, describing the action it performs.
+   */
+  tooltip: string
+}
+
+/**
+ * Copy for the Codex used/remaining toggle button, derived from which
+ * display is currently shown. One function keeps the button text,
+ * aria-label, and tooltip from drifting out of sync with each other.
+ */
+export function codexDisplayToggleCopy(display: UsageDisplay): CodexDisplayToggleCopy {
+  if (display === 'used') {
+    return { buttonLabel: 'Used', ariaLabel: 'Show remaining quota', tooltip: 'Switch to remaining quota' }
+  }
+  return { buttonLabel: 'Remaining', ariaLabel: 'Show used quota', tooltip: 'Switch to used quota' }
 }
 
 function UsageCardInner({ app, profileId, cliCommand }: { app: AppId; profileId: string; cliCommand: string }) {
@@ -81,6 +116,7 @@ function UsageCardInner({ app, profileId, cliCommand }: { app: AppId; profileId:
       // Storage may be unavailable; switching still works for this session.
     }
   }
+  const toggleCopy = codexDisplayToggleCopy(display)
 
   return (
     <UsageDisplayContext.Provider value={app === 'codex' ? display : 'used'}>
@@ -95,15 +131,13 @@ function UsageCardInner({ app, profileId, cliCommand }: { app: AppId; profileId:
                 </span>
                 <button
                   type="button"
-                  aria-label={display === 'used' ? 'Show remaining quota' : 'Show used quota'}
-                  onClick={() => changeDisplay(display === 'used' ? 'remaining' : 'used')}
+                  aria-label={toggleCopy.ariaLabel}
+                  onClick={() => changeDisplay(toggleUsageDisplay(display))}
                   className="group relative inline-flex min-h-[22px] cursor-pointer items-center gap-1 rounded px-1 text-mono transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                 >
-                  {display === 'used' ? 'Used' : 'Remaining'}
+                  {toggleCopy.buttonLabel}
                   <ArrowLeftRight aria-hidden size={10} className="opacity-60" />
-                  <TooltipBubble>
-                    {display === 'used' ? 'Switch to remaining quota' : 'Switch to used quota'}
-                  </TooltipBubble>
+                  <TooltipBubble>{toggleCopy.tooltip}</TooltipBubble>
                 </button>
               </>
             ) : null}
@@ -293,7 +327,7 @@ function quotaErrorShort(quotaError: QuotaError): string {
 // Resolves the message shown in place of the meters for a given error code.
 // All app-specific copy lives in the registry so a ChatGPT pane never names
 // Anthropic (and vice versa); unknown stays neutral.
-function quotaErrorMessage(app: AppId, quotaError: QuotaError, cliCommand: string): string {
+export function quotaErrorMessage(app: AppId, quotaError: QuotaError, cliCommand: string): string {
   const usage = appSpecs[app].usage
   if (quotaError === 'no_credentials') {
     return usage?.noCredentials ?? 'Sign in once with this profile to see usage.'
@@ -354,56 +388,127 @@ function AvailableResets({ resets }: { resets: RateLimitResetCredits | undefined
   )
 }
 
-function Meters({ app, quota }: { app: AppId; quota: ProfileUsage['quota'] }) {
-  // Codex primary/secondary are positions, not fixed time periods. A weekly-only
-  // plan can put its weekly quota in primary. Never invent an absent window.
+export type CodexWindowLabel = {
+  /**
+   * Full label shown at wide viewports, e.g. "5-hour window".
+   */
+  label: string
+  /**
+   * Collapsed label shown at narrow viewports, e.g. "5h".
+   */
+  shortLabel: string
+}
+
+/**
+ * Labels for a Codex primary/secondary meter, derived from its window
+ * duration. Codex windows are positions, not fixed periods, so the label is
+ * computed from whatever duration the payload reports rather than hardcoded
+ * per slot.
+ */
+export function codexWindowLabel(minutes: number | null | undefined): CodexWindowLabel {
+  if (minutes === 10080) {
+    return { label: 'Weekly', shortLabel: 'W' }
+  }
+  if (minutes == null) {
+    return { label: 'Usage window', shortLabel: 'Usage' }
+  }
+  if (minutes % 60 === 0) {
+    return { label: `${minutes / 60}-hour window`, shortLabel: `${minutes / 60}h` }
+  }
+  return { label: `${minutes}-minute window`, shortLabel: `${minutes}m` }
+}
+
+export type CodexMeterRow = {
+  /**
+   * Which Codex quota position the row renders.
+   */
+  slot: 'primary' | 'secondary'
+  /**
+   * The window's usage data.
+   */
+  window: UsageWindow
+  /**
+   * Full label shown at wide viewports.
+   */
+  label: string
+  /**
+   * Collapsed label shown at narrow viewports.
+   */
+  shortLabel: string
+  /**
+   * Whether the bar is split into daily segments (weekly windows only).
+   */
+  showDailySegments: boolean
+  /**
+   * Window length used to compute the pace marker; absent when unknown.
+   */
+  paceWindowMins: number | null | undefined
+}
+
+/**
+ * The Codex primary/secondary rows to render, in slot order, skipping any
+ * slot the payload left empty. Codex primary/secondary are positions, not
+ * fixed time periods — a weekly-only plan can put its weekly quota in
+ * primary — so an absent window is never invented.
+ */
+export function codexMeterRows(quota: ProfileUsage['quota']): Array<CodexMeterRow> {
+  const rows: Array<CodexMeterRow> = []
+  for (const slot of ['primary', 'secondary'] as const) {
+    const window = quota?.[slot]
+    if (!window) {
+      continue
+    }
+    const minutes = window.windowDurationMins
+    const { label, shortLabel } = codexWindowLabel(minutes)
+    rows.push({
+      slot,
+      window,
+      label,
+      shortLabel,
+      showDailySegments: minutes === 10080,
+      paceWindowMins: minutes,
+    })
+  }
+  return rows
+}
+
+/**
+ * Scoped-weekly rows to render for an app that reports per-model weekly
+ * sub-quotas (Claude). Skips a row the user hasn't touched this window
+ * (utilization explicitly 0) so the card stays focused. Unknown utilization
+ * (null) is kept visible — we'd rather show a placeholder than silently drop
+ * a window we lack data for.
+ */
+export function visibleScopedWeekly(
+  hasScopedWeekly: boolean | undefined,
+  scopedWeekly: Array<UsageWindow> | undefined,
+): Array<UsageWindow> {
+  if (!hasScopedWeekly) {
+    return []
+  }
+  return (scopedWeekly ?? []).filter((window) => window.utilization !== 0)
+}
+
+export function Meters({ app, quota }: { app: AppId; quota: ProfileUsage['quota'] }) {
   if (app === 'codex') {
     return (
       <div className="flex flex-col gap-2">
-        {(['primary', 'secondary'] as const).map((slot) => {
-          const window = quota?.[slot]
-          if (!window) return null
-          const minutes = window.windowDurationMins
-          const label =
-            minutes === 10080
-              ? 'Weekly'
-              : minutes == null
-                ? 'Usage window'
-                : minutes % 60 === 0
-                  ? `${minutes / 60}-hour window`
-                  : `${minutes}-minute window`
-          const shortLabel =
-            minutes === 10080
-              ? 'W'
-              : minutes == null
-                ? 'Usage'
-                : minutes % 60 === 0
-                  ? `${minutes / 60}h`
-                  : `${minutes}m`
-          return (
-            <Meter
-              key={slot}
-              label={label}
-              shortLabel={shortLabel}
-              meterWindow={window}
-              showDailySegments={minutes === 10080}
-              paceWindowMins={minutes}
-            />
-          )
-        })}
+        {codexMeterRows(quota).map((row) => (
+          <Meter
+            key={row.slot}
+            label={row.label}
+            shortLabel={row.shortLabel}
+            meterWindow={row.window}
+            showDailySegments={row.showDailySegments}
+            paceWindowMins={row.paceWindowMins}
+          />
+        ))}
         <AvailableResets resets={quota?.rateLimitResetCredits} />
       </div>
     )
   }
   const usageCopy = appSpecs[app].usage
-  // Per-model weekly sub-quotas only exist for apps that report them
-  // (Claude). Within that, skip a row the user hasn't touched this window
-  // (utilization explicitly 0) so the card stays focused. Unknown
-  // utilization (null) is kept visible — we'd rather show a placeholder
-  // than silently drop a window we lack data for.
-  const scopedWeekly = usageCopy?.hasScopedWeekly
-    ? (quota?.scopedWeekly ?? []).filter((window) => window.utilization !== 0)
-    : []
+  const scopedWeekly = visibleScopedWeekly(usageCopy?.hasScopedWeekly, quota?.scopedWeekly)
   return (
     <div className="flex flex-col gap-2">
       <Meter
