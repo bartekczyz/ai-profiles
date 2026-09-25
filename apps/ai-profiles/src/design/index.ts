@@ -2,7 +2,8 @@
  * Public surface of the design module.
  *
  * The module is closed — nothing here imports from @/components, @/hooks,
- * @/lib, or @tauri-apps/*. Future monorepo split is a `mv src/design
+ * @/lib, or @tauri-apps/* (enforced by the `design` zone in .fallowrc.json and
+ * by boundary.test.ts). Future monorepo split is a `mv src/design
  * packages/design-system/src` plus a tsconfig path edit.
  */
 

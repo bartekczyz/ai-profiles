@@ -5,7 +5,12 @@ import { describe, expect, it } from 'vitest'
 
 const DESIGN_ROOT = path.resolve(__dirname)
 
-const FORBIDDEN_PREFIXES = ['@/components', '@/hooks', '@/lib', '@tauri-apps/']
+/**
+ * Import prefixes the design module may not use. Internal paths (`@/lib`, `@/components`, …) are
+ * enforced by the `design` zone in `.fallowrc.json`; npm packages can't be fallow zones, so the
+ * Tauri ban lives here.
+ */
+const forbiddenPrefixes = ['@tauri-apps/']
 
 async function walk(directory: string): Promise<Array<string>> {
   const entries = await readdir(directory, { withFileTypes: true })
@@ -27,7 +32,7 @@ async function walk(directory: string): Promise<Array<string>> {
 }
 
 describe('design module boundary', () => {
-  it('forbids imports from app-internal paths', async () => {
+  it('forbids imports from @tauri-apps packages', async () => {
     const files = await walk(DESIGN_ROOT)
     expect(files.length).toBeGreaterThan(0)
     const violations: Array<{ file: string; line: string }> = []
@@ -38,7 +43,7 @@ describe('design module boundary', () => {
         if (!/\bfrom\b\s+['"]/.test(line) && !/^\s*import\s+['"]/.test(line)) {
           continue
         }
-        for (const prefix of FORBIDDEN_PREFIXES) {
+        for (const prefix of forbiddenPrefixes) {
           if (line.includes(`'${prefix}`) || line.includes(`"${prefix}`)) {
             violations.push({ file: path.relative(DESIGN_ROOT, file), line: line.trim() })
           }
