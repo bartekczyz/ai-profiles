@@ -79,5 +79,3 @@ export function QueryErrorBoundary({ fallback, children }: QueryErrorBoundaryPro
     </QueryErrorResetBoundary>
   )
 }
-
-export type { FallbackProps }

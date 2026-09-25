@@ -17,8 +17,6 @@ export const presetColors = [
   '#8b7355', // brown
 ] as const
 
-export type PresetColor = (typeof presetColors)[number]
-
 export function isValidHexColor(value: string): boolean {
   return /^#[0-9a-fA-F]{6}$/.test(value)
 }

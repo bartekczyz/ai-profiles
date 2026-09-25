@@ -19,7 +19,7 @@ type MarkProps = {
  * "ChatGPT" mark is published; OpenAI's mark is what its own apps use).
  */
 
-export function ClaudeMark({ size = 16, className }: MarkProps) {
+function ClaudeMark({ size = 16, className }: MarkProps) {
   return (
     // biome-ignore lint/a11y/noSvgWithoutTitle: decorative brand mark (aria-hidden); always labelled by adjacent text
     <svg
@@ -44,7 +44,7 @@ export function ClaudeMark({ size = 16, className }: MarkProps) {
  * is now ChatGPT, and OpenAI doesn't publish a distinct "ChatGPT" glyph
  * separate from their company mark.
  */
-export function ChatGptMark({ size = 16, className }: MarkProps) {
+function ChatGptMark({ size = 16, className }: MarkProps) {
   return (
     // biome-ignore lint/a11y/noSvgWithoutTitle: decorative brand mark (aria-hidden); always labelled by adjacent text
     <svg

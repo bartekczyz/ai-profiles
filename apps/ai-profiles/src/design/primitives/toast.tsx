@@ -175,5 +175,3 @@ export function useToast(): ToastContextValue {
   }
   return context
 }
-
-export type { ToastTone }

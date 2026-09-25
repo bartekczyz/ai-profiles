@@ -2,12 +2,13 @@ import type { AppId, Dependencies, Surfaces } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { Button, Dialog, Kbd, useToast } from '@/design'
+import { Dialog, useToast } from '@/design'
 import { appIds, appSpecs } from '@/lib/app-registry'
 import { isValidHexColor, presetColors } from '@/lib/colors'
 import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { DockIconConsentDialog } from './dock-icon-consent-dialog'
+import { ProfileDialogFoot } from './profile-dialog-foot'
 import { ProfileFormFields } from './profile-form-fields'
 import { useDockIconConsent } from './use-dock-icon-consent'
 
@@ -104,20 +105,14 @@ export function CreateProfileDialog({
         onClose={onClose}
         onSubmit={handleSubmit}
         foot={
-          <>
-            <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={submitting} onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              trailingKbd={<Kbd variant="onOrange">⏎</Kbd>}
-              disabled={!canSubmit || submitting}
-              onClick={handleSubmit}
-            >
-              {submitting ? 'Creating…' : 'Create profile'}
-            </Button>
-          </>
+          <ProfileDialogFoot
+            canSubmit={canSubmit}
+            submitting={submitting}
+            submitLabel="Create profile"
+            submittingLabel="Creating…"
+            onCancel={onClose}
+            onSubmit={handleSubmit}
+          />
         }
       >
         <ProfileFormFields

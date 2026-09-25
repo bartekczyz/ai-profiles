@@ -2,11 +2,12 @@ import type { Dependencies, Profile, Surfaces } from '@/lib/types'
 
 import { useEffect, useState } from 'react'
 
-import { Button, Dialog, Kbd, useToast } from '@/design'
+import { Dialog, useToast } from '@/design'
 import { isValidHexColor } from '@/lib/colors'
 import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { DockIconConsentDialog } from './dock-icon-consent-dialog'
+import { ProfileDialogFoot } from './profile-dialog-foot'
 import { ProfileFormFields } from './profile-form-fields'
 import { useDockIconConsent } from './use-dock-icon-consent'
 
@@ -90,20 +91,14 @@ export function EditProfileDialog({
         onClose={onClose}
         onSubmit={handleSubmit}
         foot={
-          <>
-            <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={submitting} onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              trailingKbd={<Kbd variant="onOrange">⏎</Kbd>}
-              disabled={!canSubmit || submitting}
-              onClick={handleSubmit}
-            >
-              {submitting ? 'Saving…' : 'Save'}
-            </Button>
-          </>
+          <ProfileDialogFoot
+            canSubmit={canSubmit}
+            submitting={submitting}
+            submitLabel="Save"
+            submittingLabel="Saving…"
+            onCancel={onClose}
+            onSubmit={handleSubmit}
+          />
         }
       >
         <ProfileFormFields

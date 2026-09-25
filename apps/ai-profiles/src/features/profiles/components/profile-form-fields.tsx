@@ -8,7 +8,6 @@ import { Button, cn } from '@/design'
 import { Input } from '@/design/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/design/ui/select'
 import { type AppSpec, appIds, appSpecs } from '@/lib/app-registry'
-import { presetColors } from '@/lib/colors'
 
 import { ColorSwatchPicker } from './color-swatch-picker'
 
@@ -299,5 +298,3 @@ function ToggleRow({ checked, disabled, title, description, nested = false, info
     </div>
   )
 }
-
-export { presetColors }

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react'
 
 export type ThemeMode = 'light' | 'system' | 'dark'
-export type ResolvedTheme = 'light' | 'dark'
+type ResolvedTheme = 'light' | 'dark'
 
 type ThemeContextValue = {
   mode: ThemeMode
