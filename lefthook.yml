@@ -25,3 +25,7 @@ pre-push:
     - name: landing test
       glob: "apps/landing/**/*.{ts,tsx}"
       run: pnpm --filter landing test
+
+    - name: fallow audit
+      glob: "{apps,packages}/**/*.{ts,tsx,astro,json}"
+      run: pnpm fallow audit --base origin/main --quiet
