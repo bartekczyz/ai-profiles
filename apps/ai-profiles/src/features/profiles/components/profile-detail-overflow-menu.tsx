@@ -26,10 +26,10 @@ type Props = {
    */
   onDelete?: () => void
   /**
-   * Offered only for a stock install, which has no Edit dialog to rename it
+   * Offered only for a stock install, which has no Edit dialog to rename or recolor it
    * from. Absent on managed profiles.
    */
-  onRename?: () => void
+  onEdit?: () => void
 }
 
 type RevealTarget = {
@@ -60,7 +60,7 @@ const triggerClasses = 'w-7 px-0 text-muted hover:not-disabled:text-ink'
  * being switched on: the directories are there either way, and gating the
  * key while still offering the menu row would be inconsistent.
  */
-export function ProfileDetailOverflowMenu({ profileId, onError, onDelete, onRename }: Props) {
+export function ProfileDetailOverflowMenu({ profileId, onError, onDelete, onEdit }: Props) {
   const paths = useProfilePaths(profileId)
 
   async function reveal(path: string | null): Promise<void> {
@@ -122,11 +122,11 @@ export function ProfileDetailOverflowMenu({ profileId, onError, onDelete, onRena
             <span className="truncate font-mono text-[10px] text-muted-strong">{shortenHomePath(target.path)}</span>
           </DropdownMenuItem>
         ))}
-        {onRename === undefined ? null : (
+        {onEdit === undefined ? null : (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="px-2 py-1.5 text-[12px]" onSelect={onRename}>
-              <span className="flex-1">Rename…</span>
+            <DropdownMenuItem className="px-2 py-1.5 text-[12px]" onSelect={onEdit}>
+              <span className="flex-1">Edit name and color…</span>
             </DropdownMenuItem>
           </>
         )}

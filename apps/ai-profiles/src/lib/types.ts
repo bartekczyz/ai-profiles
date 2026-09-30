@@ -35,6 +35,8 @@ export type DefaultEntry = {
   name: string
   /** The name the user gave this entry, or `null` for the stock label. */
   customName: string | null
+  /** The colour the user gave this entry (`#rrggbb`), or `null` for none. */
+  color: string | null
   surfaces: Surfaces
 }
 
@@ -155,6 +157,8 @@ export type AppState = {
    * session not among them needs repair.
    */
   dismissedRepairSessions: Record<string, Array<string>>
+  /** Colours the user gave the stock-install entries. Absent key → no colour. */
+  defaultProfileColors: Partial<Record<AppId, string>>
 }
 
 export type AppStatePatch = {
@@ -179,6 +183,10 @@ export type AppStatePatch = {
    * list forgets the dismissal.
    */
   dismissedRepair?: { profileId: string; sessionIds: Array<string> }
+  /**
+   * Colours one app's stock-install entry. An empty colour removes it.
+   */
+  defaultProfileColor?: { app: AppId; color: string }
 }
 
 /**

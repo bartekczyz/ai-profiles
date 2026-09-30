@@ -71,6 +71,7 @@ export function computeOptimisticAppState(previous: AppState, patch: AppStatePat
     dockIconAcknowledgedAt: patch.dockIconAcknowledgedAt ?? previous.dockIconAcknowledgedAt,
     defaultProfileNames: withDefaultProfileName(previous.defaultProfileNames, patch.defaultProfileName),
     dismissedRepairSessions: withDismissedRepair(previous.dismissedRepairSessions, patch.dismissedRepair),
+    defaultProfileColors: withDefaultProfileColor(previous.defaultProfileColors, patch.defaultProfileColor),
   }
 }
 
@@ -107,6 +108,24 @@ function withDismissedRepair(
     delete next[patch.profileId]
   } else {
     next[patch.profileId] = patch.sessionIds
+  }
+  return next
+}
+
+/** Mirrors the Rust side: an empty colour drops it, others are lowercased. */
+function withDefaultProfileColor(
+  colors: AppState['defaultProfileColors'] | undefined,
+  recolor: AppStatePatch['defaultProfileColor'],
+): AppState['defaultProfileColors'] {
+  const next = { ...(colors ?? {}) }
+  if (recolor === undefined) {
+    return next
+  }
+  const color = recolor.color.trim().toLowerCase()
+  if (color.length === 0) {
+    delete next[recolor.app]
+  } else {
+    next[recolor.app] = color
   }
   return next
 }
