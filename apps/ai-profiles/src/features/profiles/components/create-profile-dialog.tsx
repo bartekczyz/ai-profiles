@@ -1,4 +1,5 @@
 import type { AppId, Dependencies, Surfaces } from '@/lib/types'
+import type { IconChange } from '../lib/launcher-icon'
 
 import { useState } from 'react'
 
@@ -15,6 +16,7 @@ import {
   preselectedApp,
 } from '../lib/profile-form'
 import { DockIconConsentDialog } from './dock-icon-consent-dialog'
+import { useLauncherIconChange } from './launcher-icon-controls'
 import { ProfileDialogFoot } from './profile-dialog-foot'
 import { ProfileFormFields } from './profile-form-fields'
 import { useDockIconConsent } from './use-dock-icon-consent'
@@ -38,8 +40,18 @@ type Props = {
     color: string
     surfaces: Surfaces
     distinctDockIcon: boolean
+    /**
+     * An image picked for the launcher's icon, or `null` for the generated one.
+     */
+    iconChange: IconChange | null
   }) => Promise<void>
 }
+
+/**
+ * What the launcher-icon change of the profile being created is kept under:
+ * it has no id of its own yet.
+ */
+const NEW_PROFILE = 'new-profile'
 
 export function CreateProfileDialog({
   open,
@@ -61,6 +73,7 @@ export function CreateProfileDialog({
   const installedApps = installedAppIds(dependencies)
   const defaultApp = preselectedApp(installedApps)
   const [app, setApp] = useState<AppId | ''>(defaultApp)
+  const launcherIcon = useLauncherIconChange({ profileId: NEW_PROFILE, app, color, customIcon: null, open })
 
   const effective = effectiveSurfaces(surfaces, availableSurfaces(dependencies, app))
   const canSubmit = app !== '' && isProfileFormValid(name, color, effective)
@@ -85,7 +98,9 @@ export function CreateProfileDialog({
         color,
         surfaces: effective,
         distinctDockIcon: dockIcon,
+        iconChange: launcherIcon.change,
       })
+      launcherIcon.clear()
       setName('')
       setColor(presetColors[0])
       setSurfaces({ gui: true, cli: true })
@@ -131,6 +146,7 @@ export function CreateProfileDialog({
           onSurfacesChange={setSurfaces}
           onDistinctDockIconChange={dockIconConsent.choose}
           onExplainDockIcon={dockIconConsent.explain}
+          launcherIcon={launcherIcon.field}
         />
       </Dialog>
       {/* A sibling rather than a child, so keys pressed in it are not taken for

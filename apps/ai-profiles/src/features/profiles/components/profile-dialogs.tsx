@@ -4,15 +4,22 @@ import type { Profile } from '@/lib/types'
 
 import { useState } from 'react'
 
+import { useToast } from '@/design'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
 import { useApplyIconChange, useCustomIcon } from '@/features/profiles/api/use-custom-icon'
 import { useProfiles } from '@/features/profiles/api/use-profiles'
 import { planProfileEdit } from '@/features/profiles/lib/plan-profile-edit'
 import { useAppState } from '@/lib/app-state/use-app-state'
+import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { CreateProfileDialog } from './create-profile-dialog'
 import { DeleteProfileDialog } from './delete-profile-dialog'
 import { EditProfileDialog } from './edit-profile-dialog'
+
+/**
+ * The launcher-icon change a create or edit form submits beside the profile.
+ */
+type IconInput = { iconChange: IconChange | null }
 
 type Props = {
   /**
@@ -50,22 +57,29 @@ export function ProfileDialogs({ createOpen, editOpen, deleteOpen, profile, onCl
   const dependencies = useDependencies()
   const appState = useAppState()
   const [submitting, setSubmitting] = useState(false)
+  const toast = useToast()
   const dockIconAcknowledged = appState.state.dockIconAcknowledgedAt !== null
   // Read only while the edit dialog is open, the one place it is shown.
   const customIcon = useCustomIcon(profile?.id ?? null, editOpen)
   const applyIconChange = useApplyIconChange()
 
-  async function handleCreate(input: Parameters<typeof profiles.create>[0]) {
+  async function handleCreate({ iconChange, ...input }: Parameters<typeof profiles.create>[0] & IconInput) {
     setSubmitting(true)
     try {
       const created = await profiles.create(input)
       onCreated(created.id)
+      // Once the profile is there, as it has no id before. The image was
+      // checked when it was picked; should it fail now, the profile stands
+      // with the generated icon, and saying the create failed would be wrong.
+      await applyIconChange({ profileId: created.id, change: iconChange }).catch((caught) => {
+        toast.error('Profile created, but its icon could not be set.', extractErrorMessage(caught))
+      })
     } finally {
       setSubmitting(false)
     }
   }
 
-  async function handleEdit(input: ProfileEditInput & { iconChange: IconChange | null }) {
+  async function handleEdit(input: ProfileEditInput & IconInput) {
     if (!profile) {
       return
     }

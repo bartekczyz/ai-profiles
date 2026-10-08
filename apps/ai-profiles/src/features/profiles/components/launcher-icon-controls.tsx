@@ -32,12 +32,13 @@ export type LauncherIconField = {
 }
 
 /**
- * The launcher-icon change made in the edit form of profile `profileId`, and
- * the controls' field for making it. `customIcon` is the profile's own icon
- * (`null` for none, `undefined` until that is known); `app` and `color` are
- * what the generated icon is drawn from, the color as picked in the form. The
- * generated icon is rendered only while the form is `open`. A change belongs to
- * the profile it was made for: opening another profile starts from none.
+ * The launcher-icon change made in the form of profile `profileId` (any fixed
+ * id for one being created), and the controls' field for making it.
+ * `customIcon` is the profile's own icon (`null` for none, `undefined` until
+ * that is known); `app` and `color` are what the generated icon is drawn from,
+ * as picked in the form (`''` while no app is). The generated icon is rendered
+ * only while the form is `open`. A change belongs to the profile it was made
+ * for: opening another profile starts from none.
  */
 export function useLauncherIconChange({
   profileId,
@@ -47,7 +48,7 @@ export function useLauncherIconChange({
   open,
 }: {
   profileId: string
-  app: AppId
+  app: AppId | ''
   color: string
   customIcon: string | null | undefined
   open: boolean

@@ -25,17 +25,18 @@ export function useCustomIcon(profileId: string | null, enabled: boolean): strin
 
 /**
  * The icon a launcher of `app` gets in `color` without a picked image, as a
- * data URL; `null` while it renders, and while not `enabled`. The previous
+ * data URL; `null` while it renders, while not `enabled`, and while no app is
+ * chosen (`''`). The previous
  * color's icon of the same app stays up meanwhile, so the preview doesn't
  * flicker as swatches are clicked through, and while a hex color is half
  * typed, which there is no icon for.
  */
-export function useGeneratedIconPreview(app: AppId, color: string, enabled: boolean): string | null {
+export function useGeneratedIconPreview(app: AppId | '', color: string, enabled: boolean): string | null {
   const { data = null } = useQuery({
     queryKey: queryKeys.generatedIconPreview(app, color),
-    queryFn: async () => pngDataUrl(await generatedIconPreview(app, color)),
+    queryFn: async () => pngDataUrl(await generatedIconPreview(app as AppId, color)),
     placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[1] === app ? previous : undefined),
-    enabled: enabled && isValidHexColor(color),
+    enabled: enabled && app !== '' && isValidHexColor(color),
   })
   return data
 }
