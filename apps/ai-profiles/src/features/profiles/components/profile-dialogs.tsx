@@ -1,9 +1,11 @@
+import type { IconChange } from '@/features/profiles/lib/launcher-icon'
 import type { ProfileEditInput } from '@/features/profiles/lib/plan-profile-edit'
 import type { Profile } from '@/lib/types'
 
 import { useState } from 'react'
 
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
+import { useApplyIconChange, useCustomIcon } from '@/features/profiles/api/use-custom-icon'
 import { useProfiles } from '@/features/profiles/api/use-profiles'
 import { planProfileEdit } from '@/features/profiles/lib/plan-profile-edit'
 import { useAppState } from '@/lib/app-state/use-app-state'
@@ -49,6 +51,9 @@ export function ProfileDialogs({ createOpen, editOpen, deleteOpen, profile, onCl
   const appState = useAppState()
   const [submitting, setSubmitting] = useState(false)
   const dockIconAcknowledged = appState.state.dockIconAcknowledgedAt !== null
+  // Read only while the edit dialog is open, the one place it is shown.
+  const customIcon = useCustomIcon(profile?.id ?? null, editOpen)
+  const applyIconChange = useApplyIconChange()
 
   async function handleCreate(input: Parameters<typeof profiles.create>[0]) {
     setSubmitting(true)
@@ -60,7 +65,7 @@ export function ProfileDialogs({ createOpen, editOpen, deleteOpen, profile, onCl
     }
   }
 
-  async function handleEdit(input: ProfileEditInput) {
+  async function handleEdit(input: ProfileEditInput & { iconChange: IconChange | null }) {
     if (!profile) {
       return
     }
@@ -73,6 +78,10 @@ export function ProfileDialogs({ createOpen, editOpen, deleteOpen, profile, onCl
       for (const toggle of plan.toggles) {
         await profiles.toggle({ id: profile.id, ...toggle })
       }
+      // Last, so an edit that fails above leaves the icon as it was. The image
+      // was checked when it was picked, so this rarely fails itself. It
+      // rebuilds the launcher once more, unless the edit just removed it.
+      await applyIconChange({ profileId: profile.id, change: input.iconChange })
     } finally {
       setSubmitting(false)
     }
@@ -107,6 +116,7 @@ export function ProfileDialogs({ createOpen, editOpen, deleteOpen, profile, onCl
             profile={profile}
             dependencies={dependencies.deps}
             dockIconAcknowledged={dockIconAcknowledged}
+            customIcon={customIcon}
             submitting={submitting}
             onClose={onClose}
             onAcknowledgeDockIcon={acknowledgeDockIcon}

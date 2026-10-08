@@ -1,13 +1,22 @@
 import type { Dependencies, Profile } from '@/lib/types'
 
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ToastProvider } from '@/design'
+import { checkCustomIcon, generatedIconPreview } from '@/lib/commands'
 import { pressOutside } from '@/test/press-outside'
+import { renderWithQuery } from '@/test/render-with-query'
 
 import { EditProfileDialog } from './edit-profile-dialog'
+
+// The generated icon the launcher-icon preview shows: the bytes of 'gen'.
+vi.mock('@/lib/commands', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/commands')>()),
+  generatedIconPreview: vi.fn(async () => new Uint8Array([0x67, 0x65, 0x6e]).buffer),
+  checkCustomIcon: vi.fn(async () => {}),
+}))
 
 type DialogProps = Parameters<typeof EditProfileDialog>[0]
 
@@ -19,10 +28,11 @@ type RenderProps = Omit<DialogProps, 'dockIconAcknowledged' | 'onAcknowledgeDock
   Partial<Pick<DialogProps, 'dockIconAcknowledged' | 'onAcknowledgeDockIcon'>>
 
 function renderEdit(props: RenderProps) {
-  return render(
+  return renderWithQuery(
     <ToastProvider>
       <EditProfileDialog
         dockIconAcknowledged={false}
+        customIcon={null}
         onAcknowledgeDockIcon={vi.fn().mockResolvedValue(undefined)}
         {...props}
       />
@@ -77,7 +87,7 @@ describe('EditProfileDialog', () => {
   })
 
   it('resets form state when a different profile is opened', () => {
-    const { rerender } = render(
+    const { rerender } = renderWithQuery(
       <ToastProvider>
         <EditProfileDialog
           open
@@ -122,6 +132,7 @@ describe('EditProfileDialog', () => {
       color: '#d97757',
       surfaces: { gui: true, cli: true },
       distinctDockIcon: false,
+      iconChange: null,
     })
   })
 
@@ -142,6 +153,7 @@ describe('EditProfileDialog', () => {
       color: '#d97757',
       surfaces: { gui: true, cli: true },
       distinctDockIcon: false,
+      iconChange: null,
     })
   })
 
@@ -292,7 +304,7 @@ describe('EditProfileDialog — Dock icon', () => {
   })
 
   it('starts from the setting of whichever profile is opened', () => {
-    const { rerender } = render(
+    const { rerender } = renderWithQuery(
       <ToastProvider>
         <EditProfileDialog
           open
@@ -339,6 +351,165 @@ describe('EditProfileDialog — Dock icon', () => {
 
     expect(dockIconOption()).toBeDisabled()
     expect(dockIconOption()).not.toBeChecked()
+  })
+})
+
+describe('EditProfileDialog — launcher icon', () => {
+  const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'logo.png', { type: 'image/png' })
+  const generated = 'data:image/png;base64,Z2Vu'
+  const picked = 'data:image/png;base64,iVBORw=='
+  const own = 'data:image/png;base64,b3du'
+
+  function renderIcon(props: Partial<RenderProps> = {}) {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    renderEdit({ open: true, profile: fixture(), dependencies: DEPS, onClose: vi.fn(), onSave, ...props })
+    return { user: userEvent.setup(), onSave }
+  }
+
+  async function previewShows(src: string) {
+    await waitFor(() => {
+      expect(screen.getByRole('img', { name: 'Launcher icon preview' })).toHaveAttribute('src', src)
+    })
+  }
+
+  it('previews the generated icon in the profile’s color, with nothing to remove', async () => {
+    renderIcon()
+    await previewShows(generated)
+    expect(generatedIconPreview).toHaveBeenCalledWith('claude', '#d97757')
+    expect(screen.getByRole('button', { name: 'Choose custom icon' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'Reset to default' })).toBeNull()
+  })
+
+  it('previews the generated icon in a color typed but not saved yet, and only once it is one', async () => {
+    const { user } = renderIcon()
+    await previewShows(generated)
+    const hex = screen.getByLabelText('Custom hex color')
+    await user.clear(hex)
+    await user.type(hex, '#123456')
+    await waitFor(() => {
+      expect(generatedIconPreview).toHaveBeenLastCalledWith('claude', '#123456')
+    })
+    const colors = vi.mocked(generatedIconPreview).mock.calls.map(([, color]) => color)
+    expect(
+      colors.every((color) => /^#[0-9a-f]{6}$/i.test(color)),
+      colors.join(' '),
+    ).toBe(true)
+  })
+
+  it('opens the file picker from Choose custom icon', async () => {
+    const click = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
+    const { user } = renderIcon()
+    await user.click(screen.getByRole('button', { name: 'Choose custom icon' }))
+    expect(click).toHaveBeenCalledTimes(1)
+    click.mockRestore()
+  })
+
+  it('previews a picked image at once, and saves it only on Save', async () => {
+    const { user, onSave } = renderIcon()
+    await user.upload(screen.getByLabelText('Launcher icon image'), png)
+    await previewShows(picked)
+    expect(onSave).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: /^Save/ }))
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ iconChange: { kind: 'custom', file: png, preview: picked } }),
+    )
+  })
+
+  it('previews the profile’s own icon, and removes it for the generated one', async () => {
+    const { user, onSave } = renderIcon({ customIcon: own })
+    await previewShows(own)
+    expect(screen.getByRole('button', { name: /^Save/ })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Reset to default' }))
+    await previewShows(generated)
+
+    await user.click(screen.getByRole('button', { name: /^Save/ }))
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ iconChange: { kind: 'generated' } }))
+  })
+
+  it('drops a picked image without anything left to save when the profile has no icon of its own', async () => {
+    const { user } = renderIcon()
+    await user.upload(screen.getByLabelText('Launcher icon image'), png)
+    await user.click(await screen.findByRole('button', { name: 'Reset to default' }))
+    await previewShows(generated)
+    expect(screen.getByRole('button', { name: /^Save/ })).toBeDisabled()
+  })
+
+  it('checks a picked image at once, and turns one away with what is wrong with it', async () => {
+    vi.mocked(checkCustomIcon).mockRejectedValueOnce({
+      kind: 'Validation',
+      message: 'The icon has to be square, and this image is 1200 × 1024.',
+    })
+    const { user } = renderIcon()
+    await previewShows(generated)
+    await user.upload(screen.getByLabelText('Launcher icon image'), png)
+    expect(await screen.findByText('Could not use this image.')).toBeInTheDocument()
+    expect(screen.getByText('The icon has to be square, and this image is 1200 × 1024.')).toBeInTheDocument()
+    expect(checkCustomIcon).toHaveBeenCalledWith(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))
+    await previewShows(generated)
+    expect(screen.getByRole('button', { name: /^Save/ })).toBeDisabled()
+  })
+
+  it('shows why a save failed, and keeps the dialog and the picked image', async () => {
+    const onClose = vi.fn()
+    const { user } = renderIcon({
+      onClose,
+      onSave: vi.fn().mockRejectedValue({ kind: 'Validation', message: 'ChatGPT (Work) is running. Quit it first.' }),
+    })
+    await user.upload(screen.getByLabelText('Launcher icon image'), png)
+    await previewShows(picked)
+    await user.click(screen.getByRole('button', { name: /^Save/ }))
+    expect(await screen.findByText('ChatGPT (Work) is running. Quit it first.')).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+    await previewShows(picked)
+  })
+
+  it('drops a picked image on Cancel, so it doesn’t come back looking applied', async () => {
+    const onClose = vi.fn()
+    const { user } = renderIcon({ onClose })
+    await user.upload(screen.getByLabelText('Launcher icon image'), png)
+    await previewShows(picked)
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onClose).toHaveBeenCalled()
+    await previewShows(generated)
+    expect(screen.getByRole('button', { name: /^Save/ })).toBeDisabled()
+  })
+
+  it('shows a placeholder, not the generated icon, until the profile’s own icon is known', async () => {
+    renderIcon({ customIcon: undefined })
+    await waitFor(() => {
+      expect(generatedIconPreview).toHaveBeenCalled()
+    })
+    expect(screen.queryByRole('img', { name: 'Launcher icon preview' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Reset to default' })).toBeNull()
+  })
+
+  it('renders no preview while the dialog is closed', () => {
+    vi.mocked(generatedIconPreview).mockClear()
+    renderIcon({ open: false })
+    expect(generatedIconPreview).not.toHaveBeenCalled()
+  })
+
+  it('keeps a reset made while a picked image is still being read', async () => {
+    let finishReading: (png: ArrayBuffer) => void = () => {}
+    const slow = new File([new Uint8Array([0x89])], 'slow.png', { type: 'image/png' })
+    slow.arrayBuffer = () =>
+      new Promise((resolve) => {
+        finishReading = resolve
+      })
+    const { user } = renderIcon({ customIcon: own })
+    await previewShows(own)
+    await user.upload(screen.getByLabelText('Launcher icon image'), slow)
+    await user.click(screen.getByRole('button', { name: 'Reset to default' }))
+    finishReading(new Uint8Array([0x89]).buffer)
+    await previewShows(generated)
+    expect(screen.queryByRole('button', { name: 'Reset to default' })).toBeNull()
+  })
+
+  it('is unavailable while the desktop launcher is off', async () => {
+    const { user } = renderIcon()
+    await user.click(screen.getByRole('checkbox', { name: /Desktop App launcher/ }))
+    expect(screen.getByRole('button', { name: 'Choose custom icon' })).toBeDisabled()
   })
 })
 

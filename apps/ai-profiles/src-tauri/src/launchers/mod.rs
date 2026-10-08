@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod custom_icon;
 pub mod gui;
 pub mod icons;
 pub mod plist;

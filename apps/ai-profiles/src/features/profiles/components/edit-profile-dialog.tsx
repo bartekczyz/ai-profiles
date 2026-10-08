@@ -1,12 +1,15 @@
 import type { Dependencies, Profile, Surfaces } from '@/lib/types'
+import type { IconChange } from '../lib/launcher-icon'
 
 import { useEffect, useState } from 'react'
 
 import { Dialog, useToast } from '@/design'
 import { extractErrorMessage } from '@/lib/extract-error-message'
 
+import { changesAnything, planProfileEdit } from '../lib/plan-profile-edit'
 import { isProfileFormValid } from '../lib/profile-form'
 import { DockIconConsentDialog } from './dock-icon-consent-dialog'
+import { useLauncherIconChange } from './launcher-icon-controls'
 import { ProfileDialogFoot } from './profile-dialog-foot'
 import { ProfileFormFields } from './profile-form-fields'
 import { useDockIconConsent } from './use-dock-icon-consent'
@@ -20,10 +23,24 @@ type Props = {
    * its own involves. Until they have, turning it on explains itself first.
    */
   dockIconAcknowledged: boolean
+  /**
+   * The image the profile's launcher shows in place of the generated icon, as
+   * a data URL, or `null` for none; absent until that is known.
+   */
+  customIcon?: string | null
   submitting?: boolean
   onClose: () => void
   onAcknowledgeDockIcon: () => Promise<void>
-  onSave: (input: { name: string; color: string; surfaces: Surfaces; distinctDockIcon: boolean }) => Promise<void>
+  onSave: (input: {
+    name: string
+    color: string
+    surfaces: Surfaces
+    distinctDockIcon: boolean
+    /**
+     * A change to the launcher's icon, or `null` to leave it as it is.
+     */
+    iconChange: IconChange | null
+  }) => Promise<void>
 }
 
 export function EditProfileDialog({
@@ -31,6 +48,7 @@ export function EditProfileDialog({
   profile,
   dependencies,
   dockIconAcknowledged,
+  customIcon,
   submitting,
   onClose,
   onAcknowledgeDockIcon,
@@ -41,6 +59,7 @@ export function EditProfileDialog({
   const [color, setColor] = useState(profile.color)
   const [surfaces, setSurfaces] = useState<Surfaces>(profile.surfaces)
   const [distinctDockIcon, setDistinctDockIcon] = useState(profile.distinctDockIcon)
+  const launcherIcon = useLauncherIconChange({ profileId: profile.id, app: profile.app, color, customIcon, open })
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only when the profile identity changes
   useEffect(() => {
@@ -56,21 +75,24 @@ export function EditProfileDialog({
     onAcknowledge: onAcknowledgeDockIcon,
   })
 
-  const dirty =
-    name.trim() !== profile.name ||
-    color.toLowerCase() !== profile.color.toLowerCase() ||
-    surfaces.gui !== profile.surfaces.gui ||
-    surfaces.cli !== profile.surfaces.cli ||
-    distinctDockIcon !== profile.distinctDockIcon
-  const canSubmit = dirty && isProfileFormValid(name, color, surfaces)
+  // Dirty when saving would change anything: the same diff the save itself runs.
+  const plan = planProfileEdit(profile, { name: name.trim(), color, surfaces, distinctDockIcon })
+  const canSubmit = changesAnything(plan, launcherIcon.change) && isProfileFormValid(name, color, surfaces)
+
+  // An image picked but not saved goes with the dialog, so it can't come back
+  // looking applied when the dialog is opened again.
+  function close() {
+    launcherIcon.clear()
+    onClose()
+  }
 
   async function handleSubmit() {
     if (!canSubmit || submitting) {
       return
     }
     try {
-      await onSave({ name: name.trim(), color, surfaces, distinctDockIcon })
-      onClose()
+      await onSave({ name: name.trim(), color, surfaces, distinctDockIcon, iconChange: launcherIcon.change })
+      close()
     } catch (caught) {
       toast.error('Could not save profile.', extractErrorMessage(caught))
     }
@@ -88,7 +110,7 @@ export function EditProfileDialog({
         title="Edit profile"
         description="Rename, repaint, or toggle surfaces. Existing data on disk stays put."
         closeOnOutsideClick={false}
-        onClose={onClose}
+        onClose={close}
         onSubmit={handleSubmit}
         foot={
           <ProfileDialogFoot
@@ -96,7 +118,7 @@ export function EditProfileDialog({
             submitting={submitting}
             submitLabel="Save"
             submittingLabel="Saving…"
-            onCancel={onClose}
+            onCancel={close}
             onSubmit={handleSubmit}
           />
         }
@@ -114,6 +136,7 @@ export function EditProfileDialog({
           onSurfacesChange={setSurfaces}
           onDistinctDockIconChange={dockIconConsent.choose}
           onExplainDockIcon={dockIconConsent.explain}
+          launcherIcon={launcherIcon.field}
         />
       </Dialog>
       {/* A sibling rather than a child, so keys pressed in it are not taken for

@@ -1,4 +1,5 @@
 import type { Profile, ProfilePatch, Surface, Surfaces } from '@/lib/types'
+import type { IconChange } from './launcher-icon'
 
 /**
  * What the edit dialog submits.
@@ -60,4 +61,12 @@ export function planProfileEdit(profile: Profile, input: ProfileEditInput): Prof
     .filter((surface) => input.surfaces[surface] !== profile.surfaces[surface])
     .map((surface) => ({ surface, enabled: input.surfaces[surface] }))
   return { patch, toggles }
+}
+
+/**
+ * Pure: whether saving the edit would change anything — a call in `plan` to
+ * make, or a change to the launcher's icon, which is applied apart from them.
+ */
+export function changesAnything(plan: ProfileEditPlan, iconChange: IconChange | null): boolean {
+  return plan.patch !== null || plan.toggles.length > 0 || iconChange !== null
 }

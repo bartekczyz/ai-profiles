@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { AppId, Dependencies, Surfaces } from '@/lib/types'
+import type { LauncherIconField } from './launcher-icon-controls'
 
 import { Input } from '@/design/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/design/ui/select'
@@ -30,6 +31,10 @@ type Props = {
    * Opens the explanation of the Dock icon option, for reading.
    */
   onExplainDockIcon: () => void
+  /**
+   * The launcher-icon option, offered when editing a profile.
+   */
+  launcherIcon?: LauncherIconField
 }
 
 /**
@@ -76,6 +81,7 @@ export function ProfileFormFields({
   onSurfacesChange,
   onDistinctDockIconChange,
   onExplainDockIcon,
+  launcherIcon,
 }: Props) {
   return (
     <div className="space-y-4">
@@ -95,6 +101,7 @@ export function ProfileFormFields({
           onSurfacesChange={onSurfacesChange}
           onDistinctDockIconChange={onDistinctDockIconChange}
           onExplainDockIcon={onExplainDockIcon}
+          launcherIcon={launcherIcon}
         />
       </Field>
     </div>

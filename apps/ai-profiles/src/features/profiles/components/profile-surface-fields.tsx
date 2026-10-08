@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react'
 import type { AppId, Dependencies, Surfaces } from '@/lib/types'
 import type { SurfaceToggle } from '../lib/profile-form'
+import type { LauncherIconField } from './launcher-icon-controls'
 
 import { Check, Info } from 'lucide-react'
 
 import { Button, cn } from '@/design'
 
 import { availableSurfaces, dockIconDescription, surfaceToggle } from '../lib/profile-form'
+import { LauncherIconControls } from './launcher-icon-controls'
 
 type ProfileSurfaceFieldsProps = {
   /**
@@ -37,12 +39,17 @@ type ProfileSurfaceFieldsProps = {
    * Opens the explanation of the Dock icon option, for reading.
    */
   onExplainDockIcon: () => void
+  /**
+   * The launcher-icon controls, for a profile that exists. Absent, the Dock
+   * icon option has none under it.
+   */
+  launcherIcon?: LauncherIconField
 }
 
 /**
- * The two surface toggle cards, with the Dock icon option under the desktop
- * one. A card self-disables when its surface is not installed, and says where
- * to get it underneath.
+ * The two surface toggle cards, with the Dock icon option, and the launcher
+ * icon's controls under it, in the desktop one. A card self-disables when its
+ * surface is not installed, and says where to get it underneath.
  */
 export function ProfileSurfaceFields({
   app,
@@ -52,6 +59,7 @@ export function ProfileSurfaceFields({
   onSurfacesChange,
   onDistinctDockIconChange,
   onExplainDockIcon,
+  launcherIcon,
 }: ProfileSurfaceFieldsProps) {
   const available = availableSurfaces(dependencies, app)
   const gui = surfaceToggle('gui', app, available.gui, surfaces.gui)
@@ -71,7 +79,10 @@ export function ProfileSurfaceFields({
           description={dockIconDescription(app)}
           info={{ label: 'About the Dock icon', onClick: onExplainDockIcon }}
           onChange={onDistinctDockIconChange}
-        />
+        >
+          {/* Part of the Dock icon option's row: the icon is what its tile shows. */}
+          {launcherIcon !== undefined ? <LauncherIconControls {...launcherIcon} disabled={!desktopLauncher} /> : null}
+        </ToggleRow>
       </SurfaceOption>
       <SurfaceOption toggle={cli} onChange={(next) => onSurfacesChange({ ...surfaces, cli: next })} />
     </div>
@@ -156,12 +167,33 @@ type ToggleRowProps = {
    * option, and it works while the option is disabled.
    */
   info?: { label: string; onClick: () => void }
+  /**
+   * Further controls of the option, under its title and description and part
+   * of its row: the row's hover covers them too.
+   */
+  children?: ReactNode
   onChange: (next: boolean) => void
 }
 
-function ToggleRow({ checked, disabled, title, description, nested = false, info, onChange }: ToggleRowProps) {
+function ToggleRow({
+  checked,
+  disabled,
+  title,
+  description,
+  nested = false,
+  info,
+  children,
+  onChange,
+}: ToggleRowProps) {
   return (
-    <div className="relative">
+    // The row, not the checkbox, shows the hover, so it reaches any controls
+    // under the checkbox as well.
+    <div
+      className={cn(
+        'relative transition-colors duration-(--duration-snap) ease-(--ease-natural)',
+        'has-[>button[role=checkbox]:enabled:hover]:bg-black/[0.02] dark:has-[>button[role=checkbox]:enabled:hover]:bg-white/[0.03]',
+      )}
+    >
       {/* biome-ignore lint/a11y/useSemanticElements: rich row layout with description copy precludes a native <input type="checkbox"> */}
       <button
         type="button"
@@ -170,8 +202,7 @@ function ToggleRow({ checked, disabled, title, description, nested = false, info
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          'flex w-full items-start gap-3 p-3 text-left cursor-pointer transition-colors duration-(--duration-snap) ease-(--ease-natural)',
-          'hover:not-disabled:bg-black/[0.02] dark:hover:not-disabled:bg-white/[0.03]',
+          'flex w-full items-start gap-3 p-3 text-left cursor-pointer',
           // Inside the row, so the card's edge does not clip it.
           'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-orange/40',
           'disabled:cursor-not-allowed disabled:opacity-60',
@@ -207,6 +238,7 @@ function ToggleRow({ checked, disabled, title, description, nested = false, info
           onClick={info.onClick}
         />
       ) : null}
+      {children}
     </div>
   )
 }
