@@ -12,13 +12,13 @@ import { copyToClipboard, openDefaultGui, profilePaths } from '@/lib/commands'
 import { useProfileAccount } from '../api/use-profile-account'
 import { useProfilePaths } from '../api/use-profile-paths'
 import { accountLabel, accountTitle } from './account-line'
-import { BrandSwatch, ProfileDetailHeader } from './profile-detail-header'
+import { EditDefaultProfileDialog } from './edit-default-profile-dialog'
+import { BrandSwatch, ProfileDetailHeader, ProfileSwatch } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
 import { ProfileDetailMigrateAction } from './profile-detail-migrate-action'
 import { ProfileDetailOverflowMenu, ProfileDetailOverflowMenuFallback } from './profile-detail-overflow-menu'
 import { ProfileDetailSurfacesPanel } from './profile-detail-surfaces-panel'
 import { ProfileDetailUsageCard } from './profile-detail-usage-card'
-import { RenameDefaultProfileDialog } from './rename-default-profile-dialog'
 import { useGuiLaunch } from './use-gui-launch'
 
 type Props = {
@@ -32,8 +32,8 @@ type Props = {
  * by which slots get filled:
  *
  * - no Edit and no Delete, because nothing about a stock install is ours to
- *   change or remove. They are absent, not disabled. Only its label can be
- *   changed, via Rename in the overflow menu;
+ *   change or remove. They are absent, not disabled. Only its label, a name
+ *   and a color, can be changed, via the overflow menu;
  * - Import leads the header action group in Edit's seat, since bringing the
  *   install under management is this entry's one unique action;
  * - the terminal row carries the plain CLI binary, not a `claude-<slug>`
@@ -44,7 +44,7 @@ type Props = {
  */
 export function DefaultProfileDetail({ entry, onMigrate }: Props) {
   const [actionError, setActionError] = useState<string | null>(null)
-  const [renaming, setRenaming] = useState(false)
+  const [editing, setEditing] = useState(false)
   const appState = useAppState()
   const displayName = appSpecs[entry.app].displayName
   const account = useProfileAccount(entry.id)
@@ -59,7 +59,7 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
       header={
         <ProfileDetailHeader
           name={entry.customName ?? displayName}
-          swatch={<BrandSwatch app={entry.app} />}
+          swatch={entry.color ? <ProfileSwatch color={entry.color} /> : <BrandSwatch app={entry.app} />}
           action={<ProfileDetailMigrateAction onMigrate={onMigrate} />}
           subline={
             signedInAs ? (
@@ -82,7 +82,7 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
               <ProfileDetailOverflowMenu
                 profileId={entry.id}
                 onError={setActionError}
-                onRename={() => setRenaming(true)}
+                onEdit={() => setEditing(true)}
               />
             </Suspense>
           }
@@ -105,12 +105,15 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
         </p>
       ) : null}
 
-      <RenameDefaultProfileDialog
-        open={renaming}
+      <EditDefaultProfileDialog
+        open={editing}
         entry={entry}
-        onClose={() => setRenaming(false)}
-        onSave={async (name) => {
-          await appState.update({ defaultProfileName: { app: entry.app, name } })
+        onClose={() => setEditing(false)}
+        onSave={async ({ name, color }) => {
+          await appState.update({
+            ...(name === undefined ? {} : { defaultProfileName: { app: entry.app, name } }),
+            ...(color === undefined ? {} : { defaultProfileColor: { app: entry.app, color } }),
+          })
         }}
       />
     </PaneLayout>

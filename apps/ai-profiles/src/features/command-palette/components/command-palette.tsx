@@ -225,7 +225,7 @@ function DefaultRow({ entry, onSwitch }: DefaultRowProps) {
       keywords={['switch', 'select', 'default', entry.name]}
       kbd="→"
       onSelect={onSwitch}
-      leading={<OutlinedSwatch size={10} />}
+      leading={entry.color ? <ColorDot color={entry.color} /> : <OutlinedSwatch size={10} />}
     >
       Switch to {entry.name}
     </PaletteItem>
