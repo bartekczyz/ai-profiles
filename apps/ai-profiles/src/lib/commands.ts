@@ -2,6 +2,7 @@ import type { AppId } from './app-registry'
 import type {
   AccountStatus,
   ActionCheck,
+  ApiCost,
   AppMetadata,
   AppState,
   AppStatePatch,
@@ -144,6 +145,10 @@ export function openCliLogin(id: string): Promise<void> {
 
 export function getProfileUsage(profileId: string): Promise<ProfileUsage> {
   return invoke<ProfileUsage>('get_profile_usage', { profileId })
+}
+
+export function getProfileApiCost(profileId: string): Promise<ApiCost> {
+  return invoke<ApiCost>('get_profile_api_cost', { profileId })
 }
 
 /**

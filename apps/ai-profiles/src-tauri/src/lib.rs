@@ -11,6 +11,7 @@ mod error;
 mod inherited_env;
 mod launch;
 mod launchers;
+mod line_cache;
 mod migration;
 mod path_setup;
 mod paths;
@@ -135,6 +136,7 @@ pub fn run() {
             commands::update_app_state,
             commands::get_app_metadata,
             commands::get_profile_usage,
+            commands::get_profile_api_cost,
             commands::open_external_url,
             commands::open_cli_login,
             commands::list_sessions,

@@ -21,6 +21,7 @@ use crate::sessions::{
 };
 use crate::usage::{
     self,
+    api_cost::{self, ApiCost},
     codex::CodexQuotaProvider,
     quota::{ClaudeQuotaCache, ClaudeQuotaProvider},
     ProfileUsage,
@@ -589,6 +590,33 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
 /// The sessions profile `profile_id` (or `default:<app>`) owns. Async so a
 /// Codex listing can await `codex app-server`; a Claude listing walks every
 /// transcript of every profile of the app on a blocking thread.
+/// What profile `profile_id`'s Claude Code use over the last
+/// [`api_cost::WINDOW_DAYS`] days would have cost at Claude API prices, with
+/// the plan it is signed in on. On a blocking thread, as it walks every
+/// transcript.
+#[tauri::command]
+pub async fn get_profile_api_cost(profile_id: String) -> AppResult<ApiCost> {
+    let app = resolve_app(&profile_id)?;
+    if !spec(app).has_api_cost {
+        return Err(AppError::Validation(format!(
+            "{} has no API equivalent",
+            spec(app).display_name
+        )));
+    }
+    let config_dir = resolve_cli_config_dir(&profile_id)?;
+    tokio::task::spawn_blocking(move || {
+        // A plan that can't be read only leaves its price to the user.
+        let (plan, plan_tier) = match accounts::read(&profile_id) {
+            Ok(AccountStatus::SignedIn { account }) => (account.plan, account.plan_tier),
+            _ => (None, None),
+        };
+        let today = chrono::Local::now().date_naive();
+        api_cost::read(&config_dir, plan, plan_tier.as_deref(), today)
+    })
+    .await
+    .map_err(|error| AppError::Io(std::io::Error::other(error)))
+}
+
 #[tauri::command]
 pub async fn list_sessions(profile_id: String) -> AppResult<SessionList> {
     sessions::list_sessions(sessions::home_for(&profile_id)?).await

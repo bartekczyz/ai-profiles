@@ -63,6 +63,8 @@ export type AppSpec = {
    */
   cliDisplayName: string
   hasUsage: boolean
+  /** Whether this app's transcripts say what its use would cost at API prices. */
+  hasApiCost: boolean
   gui: AppSurfaceSpec
   cli: AppSurfaceSpec
   /**
@@ -96,6 +98,7 @@ const claude: AppSpec = {
   displayName: 'Claude',
   cliDisplayName: 'Claude',
   hasUsage: true,
+  hasApiCost: true,
   gui: {
     label: 'Desktop App launcher',
     description: 'Creates /Applications/Claude (Name).app with an isolated user-data directory.',
@@ -139,6 +142,7 @@ const codex: AppSpec = {
   displayName: 'ChatGPT',
   cliDisplayName: 'Codex',
   hasUsage: true,
+  hasApiCost: false,
   gui: {
     label: 'Desktop App launcher',
     description: 'Creates /Applications/ChatGPT (Name).app with an isolated user-data directory.',

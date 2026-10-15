@@ -50,6 +50,11 @@ pub struct AppState {
     /// stays away until a session not among them needs repair.
     #[serde(default)]
     pub dismissed_repair_sessions: BTreeMap<String, Vec<String>>,
+    /// What the user said they pay a month for each profile's plan, in US
+    /// cents, by profile id. The API equivalent compares against it in place
+    /// of the plan's list price.
+    #[serde(default)]
+    pub plan_prices: BTreeMap<String, u32>,
 }
 
 /// Renames one app's stock-install entry. An empty (or all-whitespace) name
@@ -70,6 +75,16 @@ const DEFAULT_PROFILE_NAME_MAX_CHARS: usize = 64;
 pub struct DismissedRepair {
     pub profile_id: String,
     pub session_ids: Vec<String>,
+}
+
+/// Sets what the user pays a month for a profile's plan. `None` forgets it,
+/// putting the plan's list price back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanPrice {
+    pub profile_id: String,
+    /// In US cents.
+    pub cents: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -99,6 +114,8 @@ pub struct AppStatePatch {
     pub default_profile_name: Option<DefaultProfileName>,
     #[serde(default)]
     pub dismissed_repair: Option<DismissedRepair>,
+    #[serde(default)]
+    pub plan_price: Option<PlanPrice>,
 }
 
 pub fn load() -> AppResult<AppState> {
@@ -170,6 +187,12 @@ pub fn apply(patch: AppStatePatch) -> AppResult<AppState> {
                 .insert(dismissed.profile_id, dismissed.session_ids);
         }
     }
+    if let Some(price) = patch.plan_price {
+        match price.cents {
+            Some(cents) => state.plan_prices.insert(price.profile_id, cents),
+            None => state.plan_prices.remove(&price.profile_id),
+        };
+    }
     save(&state)?;
     Ok(state)
 }
@@ -178,7 +201,9 @@ pub fn apply(patch: AppStatePatch) -> AppResult<AppState> {
 /// nothing when it keeps nothing.
 pub fn forget_profile(id: &str) -> AppResult<()> {
     let mut state = load()?;
-    if state.dismissed_repair_sessions.remove(id).is_none() {
+    let dismissed = state.dismissed_repair_sessions.remove(id).is_some();
+    let priced = state.plan_prices.remove(id).is_some();
+    if !dismissed && !priced {
         return Ok(());
     }
     save(&state)
@@ -271,6 +296,7 @@ mod tests {
             dock_icon_acknowledged_at: Some("2026-05-21T09:30:00Z".into()),
             default_profile_names: BTreeMap::from([(AppKind::Claude, "Personal".into())]),
             dismissed_repair_sessions: BTreeMap::from([("p1".into(), vec!["s1".into()])]),
+            plan_prices: BTreeMap::from([("p1".into(), 1_700)]),
         };
         save(&state).unwrap();
         let loaded = load().unwrap();
@@ -291,6 +317,7 @@ mod tests {
             dock_icon_acknowledged_at: Some("acknowledged".into()),
             default_profile_names: BTreeMap::new(),
             dismissed_repair_sessions: BTreeMap::new(),
+            plan_prices: BTreeMap::new(),
         })
         .unwrap();
 
@@ -321,6 +348,7 @@ mod tests {
             dock_icon_acknowledged_at: None,
             default_profile_names: BTreeMap::new(),
             dismissed_repair_sessions: BTreeMap::new(),
+            plan_prices: BTreeMap::new(),
         })
         .unwrap();
 
@@ -384,6 +412,7 @@ mod tests {
             dock_icon_acknowledged_at: None,
             default_profile_names: BTreeMap::new(),
             dismissed_repair_sessions: BTreeMap::new(),
+            plan_prices: BTreeMap::new(),
         })
         .unwrap();
         let after = apply(AppStatePatch {
@@ -531,6 +560,41 @@ mod tests {
         let state = load().unwrap();
         assert!(!state.dismissed_repair_sessions.contains_key("p1"));
         assert!(state.dismissed_repair_sessions.contains_key("p2"));
+        purge();
+    }
+
+    fn price(profile_id: &str, cents: Option<u32>) -> AppResult<AppState> {
+        apply(AppStatePatch {
+            plan_price: Some(PlanPrice {
+                profile_id: profile_id.to_string(),
+                cents,
+            }),
+            ..AppStatePatch::default()
+        })
+    }
+
+    #[test]
+    fn a_plan_price_is_kept_per_profile_and_forgotten_when_cleared() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        price("p1", Some(1_700)).unwrap();
+        price("p2", Some(10_000)).unwrap();
+        assert_eq!(load().unwrap().plan_prices.get("p1"), Some(&1_700));
+
+        let after = price("p1", None).unwrap();
+
+        assert!(!after.plan_prices.contains_key("p1"));
+        assert_eq!(after.plan_prices.get("p2"), Some(&10_000));
+        purge();
+    }
+
+    #[test]
+    fn forgetting_a_profile_drops_its_plan_price() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        price("p1", Some(1_700)).unwrap();
+        forget_profile("p1").unwrap();
+        assert!(load().unwrap().plan_prices.is_empty());
         purge();
     }
 
