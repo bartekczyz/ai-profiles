@@ -19,12 +19,16 @@ Download the latest `.dmg` from [Releases](https://github.com/bartekczyz/ai-prof
 
 ### Build from source
 
+You need Node.js 22+, pnpm, and Rust ([rust-lang.org](https://rust-lang.org/)).
+
 ```sh
 git clone https://github.com/bartekczyz/ai-profiles.git
 cd ai-profiles
 pnpm install
-pnpm --filter ai-profiles tauri build
+pnpm --filter ai-profiles tauri build --no-sign
 ```
+
+`--no-sign` skips signing the auto-update archive, which needs a private key in `TAURI_SIGNING_PRIVATE_KEY`. Without it the build fails at the end with `A public key has been found, but no private key`.
 
 The `.dmg` lands in `apps/ai-profiles/src-tauri/target/release/bundle/dmg/`. macOS will warn on first launch because the local build isn't notarized — right-click the `.app` → Open → Open to bypass Gatekeeper.
 
