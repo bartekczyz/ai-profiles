@@ -15,13 +15,19 @@ import { useAppState } from '@/lib/app-state/use-app-state'
 import { useProfileApiCost } from '../api/use-profile-api-cost'
 import { shortenHomePath } from './shorten-home-path'
 
-/** The days the backend covers. Mirrors `WINDOW_DAYS` in `usage/api_cost.rs`. */
+/**
+ * The days the backend covers. Mirrors `WINDOW_DAYS` in `usage/api_cost.rs`.
+ */
 const windowDays = 30
 
-/** Bar colours of the models, most expensive first. Past the last, it repeats. */
+/**
+ * Bar colours of the models, most expensive first. Past the last, it repeats.
+ */
 const modelColors = ['bg-profile-orange', 'bg-profile-steel', 'bg-profile-sage', 'bg-profile-mauve', 'bg-profile-amber']
 
-/** How many projects the breakdown names before summing up the rest. */
+/**
+ * How many projects the breakdown names before summing up the rest.
+ */
 const shownProjects = 8
 
 const eyebrowClasses = 'mb-2 font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted'
@@ -154,9 +160,13 @@ function PlanPrice({ profileId, plan, listCents, customCents }: PlanPriceProps) 
 
 type PlanPriceFormProps = {
   profileId: string
-  /** The price the form starts from. */
+  /**
+   * The price the form starts from.
+   */
   cents: number | null
-  /** Whether the user's price can be dropped for the list price. */
+  /**
+   * Whether the user's price can be dropped for the list price.
+   */
   canReset: boolean
   onDone: () => void
 }
@@ -214,7 +224,9 @@ function PlanPriceForm({ profileId, cents, canReset, onDone }: PlanPriceFormProp
   )
 }
 
-/** What the plan costs a month, as the breakdown names it. */
+/**
+ * What the plan costs a month, as the breakdown names it.
+ */
 function planPriceLabel(plan: string | null, cents: number | null, custom: boolean): string {
   if (cents === null) {
     return 'Add what you pay a month to compare.'
@@ -373,7 +385,9 @@ export function formatMultiple(multiple: number): string {
   return multiple >= 10 ? `${Math.round(multiple)}×` : `${multiple.toFixed(1)}×`
 }
 
-/** The line under the total: the days it covers and how it compares. */
+/**
+ * The line under the total: the days it covers and how it compares.
+ */
 export function summaryText(cost: Pick<ApiCost, 'coveredDays' | 'projectedUsd'>, multiple: number | null): string {
   const pays = multiple === null ? '' : `, ${formatMultiple(multiple)} what you pay`
   if (cost.projectedUsd === null) {
@@ -390,7 +404,9 @@ function planPhrase(plan: string | null): string {
   return plan ? `your ${plan} plan` : 'your plan'
 }
 
-/** Dollars and cents, without the cents from $100 up or on whole dollars. */
+/**
+ * Dollars and cents, without the cents from $100 up or on whole dollars.
+ */
 export function formatUsd(usd: number): string {
   const digits = usd >= 100 || Number.isInteger(usd) ? 0 : 2
   return new Intl.NumberFormat('en-US', {
@@ -401,7 +417,9 @@ export function formatUsd(usd: number): string {
   }).format(usd)
 }
 
-/** A share as a whole percent, with a share too small to round up as `<1%`. */
+/**
+ * A share as a whole percent, with a share too small to round up as `<1%`.
+ */
 export function formatShare(share: number): string {
   const percent = Math.round(share * 100)
   return percent === 0 && share > 0 ? '<1%' : `${percent}%`
@@ -411,7 +429,9 @@ function formatDay(date: string): string {
   return format(parseISO(date), 'MMM d')
 }
 
-/** The last part of `path`, a folder, or `~` for the home folder. */
+/**
+ * The last part of `path`, a folder, or `~` for the home folder.
+ */
 function folderName(path: string): string {
   const short = shortenHomePath(path)
   return short === '~' ? short : (path.split('/').filter(Boolean).pop() ?? path)
@@ -430,7 +450,9 @@ export function parseUsdToCents(text: string): number | null {
   return cents > 0 ? cents : null
 }
 
-/** The billed kinds with any cost, most expensive first. */
+/**
+ * The billed kinds with any cost, most expensive first.
+ */
 export function kindRows(byKind: ApiCost['byKind']): Array<{ label: string; usd: number }> {
   const rows = [
     { label: 'Input', usd: byKind.input },

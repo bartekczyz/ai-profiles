@@ -63,7 +63,9 @@ export type AppSpec = {
    */
   cliDisplayName: string
   hasUsage: boolean
-  /** Whether this app's transcripts say what its use would cost at API prices. */
+  /**
+   * Whether this app's transcripts say what its use would cost at API prices.
+   */
   hasApiCost: boolean
   gui: AppSurfaceSpec
   cli: AppSurfaceSpec

@@ -280,7 +280,9 @@ export type ProfileUsage = {
   fetchedAt: string
 }
 
-/** What one model cost, in USD. */
+/**
+ * What one model cost, in USD.
+ */
 export type ModelCost = { model: string; usd: number }
 
 /**
@@ -294,9 +296,14 @@ export type ApiCost = {
    * on disk cover only part of it.
    */
   projectedUsd: number | null
-  /** How many days the transcripts reach back to, today included: 0 when there are none. */
+  /**
+   * How many days the transcripts reach back to, today included: 0 when there
+   * are none.
+   */
   coveredDays: number
-  /** Each day of the window, oldest first. */
+  /**
+   * Each day of the window, oldest first.
+   */
   days: Array<{ date: string; totalUsd: number; byModel: Array<ModelCost> }>
   byKind: {
     input: number
@@ -306,17 +313,29 @@ export type ApiCost = {
     cacheRead: number
     webSearch: number
   }
-  /** Most expensive first. */
+  /**
+   * Most expensive first.
+   */
   byModel: Array<ModelCost>
-  /** By the folder each session started in, most expensive first. */
+  /**
+   * By the folder each session started in, most expensive first.
+   */
   projects: Array<{ path: string | null; usd: number }>
-  /** Models the app has no price for. Their tokens are in none of the costs. */
+  /**
+   * Models the app has no price for. Their tokens are in none of the costs.
+   */
   unpriced: Array<{ model: string; tokens: number }>
-  /** When the built-in prices were last checked, `YYYY-MM-DD`. */
+  /**
+   * When the built-in prices were last checked, `YYYY-MM-DD`.
+   */
   pricesAsOf: string
-  /** The plan the profile is signed in on, e.g. "Pro". */
+  /**
+   * The plan the profile is signed in on, e.g. "Pro".
+   */
   plan: string | null
-  /** The plan's list price a month in US cents, when the app knows it. */
+  /**
+   * The plan's list price a month in US cents, when the app knows it.
+   */
   planListPriceCents: number | null
 }
 
