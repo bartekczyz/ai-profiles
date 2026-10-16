@@ -588,24 +588,21 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
     }
 }
 
-/// An estimate of what profile `profile_id`'s Claude Code use over the last
-/// [`api_cost::WINDOW_DAYS`] days would cost at Claude API prices, at the
+/// An estimate of what profile `profile_id`'s Claude Code or Codex use over
+/// the last [`api_cost::WINDOW_DAYS`] days would cost at API prices, at the
 /// price list in use (refreshed in the background when it is over a day
 /// old). How the profile is billed isn't read: its account can't say how each
 /// request was paid for. On a blocking thread, as it walks every transcript.
 #[tauri::command]
 pub async fn get_profile_api_cost(profile_id: String) -> AppResult<ApiCost> {
-    let app = resolve_app(&profile_id)?;
-    if !spec(app).has_api_cost {
-        return Err(AppError::Validation(format!(
-            "{} has no estimated API cost",
-            spec(app).display_name
-        )));
-    }
+    let read = match resolve_app(&profile_id)? {
+        AppKind::Claude => api_cost::read,
+        AppKind::Codex => api_cost::codex::read,
+    };
     let config_dir = resolve_cli_config_dir(&profile_id)?;
     prices::refresh_if_stale();
     tokio::task::spawn_blocking(move || {
-        api_cost::read(
+        read(
             &config_dir,
             &prices::current(),
             chrono::Local::now().date_naive(),

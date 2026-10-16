@@ -112,6 +112,44 @@ impl<S: LineScan, T: Clone> LineCache<S, T> {
         Some(value)
     }
 
+    /// As [`LineCache::read`], for a file read through `decode`, such as a
+    /// compressed one, which can't be read on from where reading stopped: it
+    /// is read whole again whenever it changes. A path is only ever read one
+    /// way or the other.
+    pub fn read_whole<R: BufRead>(
+        &self,
+        path: &Path,
+        decode: impl FnOnce(File) -> std::io::Result<R>,
+        finish: impl FnOnce(&S, Option<&[u8]>, SystemTime) -> T,
+    ) -> Option<T> {
+        let file = File::open(path).ok()?;
+        let metadata = file.metadata().ok()?;
+        if !metadata.is_file() {
+            return None;
+        }
+        let (inode, len, modified) = (metadata.ino(), metadata.len(), metadata.modified().ok()?);
+        if let Some(cached) = self.lock().get(path) {
+            if cached.inode == inode && cached.len == len && cached.modified == modified {
+                return Some(cached.value.clone());
+            }
+        }
+        let mut scan = S::default();
+        let (_, _, tail) = read_lines(decode(file).ok()?, &mut scan);
+        let value = finish(&scan, tail.as_deref(), modified);
+        let read = CachedRead {
+            inode,
+            len,
+            modified,
+            offset: len,
+            last_line_start: 0,
+            fingerprint: None,
+            scan,
+            value: value.clone(),
+        };
+        self.lock().insert(path.to_path_buf(), read);
+        Some(value)
+    }
+
     /// Forget every file `keep` says no to.
     pub fn retain(&self, mut keep: impl FnMut(&Path) -> bool) {
         self.lock().retain(|path, _| keep(path));

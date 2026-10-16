@@ -116,10 +116,24 @@ describe('ProfileDetailApiCost', () => {
     expect(screen.queryByRole('button', { name: /Estimated API cost/ })).toBeNull()
   })
 
-  it('never asks for an app without transcripts to price', () => {
+  it('estimates Codex use at OpenAI API prices, without ChatGPT chats', async () => {
     renderWithQuery(<ProfileDetailApiCost app="codex" profileId="p1" />)
-    expect(getProfileApiCost).not.toHaveBeenCalled()
-    expect(screen.queryByRole('button', { name: /Estimated API cost/ })).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+
+    expect(await screen.findByText(/days of Codex on this profile would cost at OpenAI API prices/)).toBeTruthy()
+    expect(screen.getByText(/From this profile's Codex transcripts/)).toBeTruthy()
+    expect(screen.getByText(/Only Codex use is included.*ChatGPT chats keep no token counts/)).toBeTruthy()
+    expect(screen.getByText('Cache writes')).toBeTruthy()
+    expect(screen.queryByText(/Claude|claude\.ai/)).toBeNull()
+  })
+
+  it('estimates Claude Code use at Claude API prices, without claude.ai chats', async () => {
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
+    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+
+    expect(await screen.findByText(/days of Claude Code on this profile would cost at Claude API prices/)).toBeTruthy()
+    expect(screen.getByText(/on claude\.ai keep no token counts, so they aren't included/)).toBeTruthy()
+    expect(screen.queryByText(/ChatGPT|OpenAI/)).toBeNull()
   })
 
   it('opens the breakdown, which asks for no plan price', async () => {
@@ -182,8 +196,11 @@ describe('formatting', () => {
 
 describe('kindRows', () => {
   it('lists the kinds with any cost, most expensive first', () => {
-    const rows = kindRows({ input: 1, output: 3, cacheWrite5m: 0, cacheWrite1h: 2, cacheRead: 0, webSearch: 0 })
-    expect(rows.map((row) => row.label)).toEqual(['Output', 'Cache writes, 1 hour', 'Input'])
+    const rows = kindRows(
+      { input: 1, output: 3, cacheWrite5m: 0.5, cacheWrite1h: 2, cacheRead: 0, webSearch: 0 },
+      'Cache writes, 5 min',
+    )
+    expect(rows.map((row) => row.label)).toEqual(['Output', 'Cache writes, 1 hour', 'Input', 'Cache writes, 5 min'])
   })
 })
 

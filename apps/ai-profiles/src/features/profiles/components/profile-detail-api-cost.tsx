@@ -7,7 +7,6 @@ import { format, parseISO } from 'date-fns'
 import { ChevronRight } from 'lucide-react'
 
 import { Button, Dialog, Kbd } from '@/design'
-import { appSpecs } from '@/lib/app-registry'
 
 import { useProfileApiCost } from '../api/use-profile-api-cost'
 import { shortenHomePath } from './shorten-home-path'
@@ -27,6 +26,25 @@ const modelColors = ['bg-profile-orange', 'bg-profile-steel', 'bg-profile-sage',
  */
 const shownProjects = 8
 
+/**
+ * Per app: the tool whose transcripts the estimate reads, whose API prices it
+ * is at, what its cache writes are called, and the chats it can't see.
+ */
+const sources: Record<AppId, { tool: string; api: string; cacheWrites: string; leftOut: string }> = {
+  claude: {
+    tool: 'Claude Code',
+    api: 'Claude API',
+    cacheWrites: 'Cache writes, 5 min',
+    leftOut: "Chats in the Claude desktop app and on claude.ai keep no token counts, so they aren't included.",
+  },
+  codex: {
+    tool: 'Codex',
+    api: 'OpenAI API',
+    cacheWrites: 'Cache writes',
+    leftOut: 'Only Codex use is included, in the CLI and the desktop app: ChatGPT chats keep no token counts here.',
+  },
+}
+
 const eyebrowClasses = 'mb-2 font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted'
 
 type Props = {
@@ -35,25 +53,25 @@ type Props = {
 }
 
 /**
- * One line under the usage card estimating what the profile's Claude Code use
- * would cost at Claude API prices, which opens the breakdown. Nothing for an
- * app without transcripts to price, or a profile without any yet.
+ * One line under the usage card estimating what the profile's Claude Code or
+ * Codex use would cost at API prices, which opens the breakdown. Nothing for
+ * a profile without transcripts yet.
  *
  * It is an estimate of the recorded use, never the bill: the profile may pay
  * by API key, by subscription, or both over time, and nothing on disk says
  * which, so it isn't compared against a plan.
  */
 export function ProfileDetailApiCost({ app, profileId }: Props) {
-  const enabled = appSpecs[app].hasApiCost
-  const { data: cost } = useProfileApiCost(profileId, enabled)
-  if (!enabled || !cost || cost.coveredDays === 0) {
+  const { data: cost } = useProfileApiCost(profileId)
+  if (!cost || cost.coveredDays === 0) {
     return null
   }
-  return <ApiCostRow cost={cost} />
+  return <ApiCostRow app={app} cost={cost} />
 }
 
-function ApiCostRow({ cost }: { cost: ApiCost }) {
+function ApiCostRow({ app, cost }: { app: AppId; cost: ApiCost }) {
   const [open, setOpen] = useState(false)
+  const source = sources[app]
 
   return (
     <>
@@ -77,7 +95,7 @@ function ApiCostRow({ cost }: { cost: ApiCost }) {
       <Dialog
         open={open}
         title="Estimated API cost"
-        description={`What the last ${windowDays} days of Claude Code on this profile would cost at Claude API prices. An estimate, not your bill.`}
+        description={`What the last ${windowDays} days of ${source.tool} on this profile would cost at ${source.api} prices. An estimate, not your bill.`}
         className="w-[min(600px,calc(100%-64px))]"
         onClose={() => setOpen(false)}
         foot={
@@ -93,11 +111,11 @@ function ApiCostRow({ cost }: { cost: ApiCost }) {
         {cost.coverage === 'unpriced' ? null : (
           <>
             <DailyChart cost={cost} />
-            <KindBreakdown byKind={cost.byKind} />
+            <KindBreakdown byKind={cost.byKind} cacheWrites={source.cacheWrites} />
             <Projects projects={cost.projects} />
           </>
         )}
-        <Footnote cost={cost} />
+        <Footnote cost={cost} app={app} />
       </Dialog>
     </>
   )
@@ -187,8 +205,8 @@ function DailyChart({ cost }: { cost: ApiCost }) {
   )
 }
 
-function KindBreakdown({ byKind }: { byKind: ApiCost['byKind'] }) {
-  const rows = kindRows(byKind)
+function KindBreakdown({ byKind, cacheWrites }: { byKind: ApiCost['byKind']; cacheWrites: string }) {
+  const rows = kindRows(byKind, cacheWrites)
   const total = rows.reduce((sum, row) => sum + row.usd, 0)
   return (
     <section className="mb-5">
@@ -241,14 +259,13 @@ function CostRows({ rows }: { rows: Array<CostRow> }) {
   )
 }
 
-function Footnote({ cost }: { cost: ApiCost }) {
+function Footnote({ cost, app }: { cost: ApiCost; app: AppId }) {
   return (
     <section className="text-meta text-muted">
       <p className="m-0">
-        From this profile's Claude Code transcripts, at the API list prices in LiteLLM's price list as of{' '}
+        From this profile's {sources[app].tool} transcripts, at the API list prices in LiteLLM's price list as of{' '}
         {format(parseISO(cost.pricesAsOf), 'MMM d, yyyy')}, whenever the use happened. It estimates the use they record,
-        not what you were billed, whether you pay by API key or by subscription. Chats in the desktop app and on
-        claude.ai keep no token counts, so they aren't included.
+        not what you were billed, whether you pay by API key or by subscription. {sources[app].leftOut}
       </p>
     </section>
   )
@@ -309,13 +326,14 @@ function folderName(path: string): string {
 }
 
 /**
- * The billed kinds with any cost, most expensive first.
+ * The billed kinds with any cost, most expensive first, with the cache
+ * writes that aren't 1-hour ones called `cacheWrites`.
  */
-export function kindRows(byKind: ApiCost['byKind']): Array<{ label: string; usd: number }> {
+export function kindRows(byKind: ApiCost['byKind'], cacheWrites: string): Array<{ label: string; usd: number }> {
   const rows = [
     { label: 'Input', usd: byKind.input },
     { label: 'Output', usd: byKind.output },
-    { label: 'Cache writes, 5 min', usd: byKind.cacheWrite5m },
+    { label: cacheWrites, usd: byKind.cacheWrite5m },
     { label: 'Cache writes, 1 hour', usd: byKind.cacheWrite1h },
     { label: 'Cache reads', usd: byKind.cacheRead },
     { label: 'Web search', usd: byKind.webSearch },

@@ -1,15 +1,17 @@
-//! An estimate of what a profile's Claude Code use would cost at Claude API
+//! An estimate of what a profile's Claude Code or Codex use would cost at API
 //! prices. It is not the profile's bill: the transcripts don't say how each
 //! request was paid for (API key or subscription), so nothing is compared
-//! against a plan.
+//! against a plan. Ordinary chats in the Claude and ChatGPT apps and on the
+//! web keep no token counts on disk and aren't part of it.
 //!
-//! Read from the transcripts in the profile's config dir,
+//! Claude Code's use ([`read`]) is read from the transcripts in the profile's config dir,
 //! `projects/**/*.jsonl`, subagents' included: each response Claude Code
 //! records carries the `usage` the API reported for it. A response is written
 //! once per content block, each copy with the same message and request id, and
 //! a resumed or forked session copies earlier responses into its new
 //! transcript, so responses are counted once per profile. Transcripts left
 //! elsewhere (archived, moved to another profile) are not counted here.
+//! Codex's ([`codex::read`]) is read from its rollouts.
 //!
 //! Prices come from LiteLLM's price list ([`super::prices`]): nothing about
 //! the use leaves the machine. A request of a model the list doesn't have, or
@@ -27,13 +29,15 @@ use serde::{Deserialize, Serialize};
 use super::prices::{Catalog, Tier, Tokens};
 use crate::line_cache::{LineCache, LineScan};
 
+pub(crate) mod codex;
+
 /// How many days, today included, the estimate covers. Claude Code
 /// deletes transcripts after 30 days unless told otherwise
 /// (`cleanupPeriodDays`), so a longer window would mostly be empty.
 pub const WINDOW_DAYS: u32 = 30;
 
-/// What a profile's Claude Code use over the last [`WINDOW_DAYS`] would cost
-/// at Claude API list prices, in USD: an estimate of the recorded use, not
+/// What a profile's Claude Code or Codex use over the last [`WINDOW_DAYS`]
+/// would cost at API list prices, in USD: an estimate of the recorded use, not
 /// what the profile was billed, whether it pays by API key or by
 /// subscription.
 #[derive(Debug, Clone, Serialize)]
@@ -82,7 +86,8 @@ pub struct ModelCost {
     pub usd: f64,
 }
 
-/// What was billed, in USD.
+/// What was billed, in USD. Codex's cache writes, which have no duration, are
+/// in `cache_write_5m`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KindCosts {
@@ -156,7 +161,7 @@ pub struct UnpricedUse {
     pub tokens: u64,
 }
 
-/// One API response, as a transcript recorded it.
+/// One API request, as a transcript recorded it.
 #[derive(Debug, Clone)]
 struct Turn {
     at: DateTime<Utc>,
@@ -321,7 +326,11 @@ pub fn read(config_dir: &Path, prices: &Catalog, today: NaiveDate) -> ApiCost {
     USAGE_CACHE.forget_gone();
     let projects = config_dir.join("projects");
     let mut paths = Vec::new();
-    transcripts(&projects, &mut paths);
+    files(
+        &projects,
+        &|path| path.extension().is_some_and(|ext| ext == "jsonl"),
+        &mut paths,
+    );
     let scans: Vec<UsageScan> = paths
         .iter()
         .filter_map(|path| {
@@ -340,19 +349,17 @@ pub fn read(config_dir: &Path, prices: &Catalog, today: NaiveDate) -> ApiCost {
     tally(once_each(&scans), prices, today)
 }
 
-/// Every `.jsonl` file in `dir` and the folders in it, into `found`.
-/// Symlinked folders aren't followed.
-fn transcripts(dir: &Path, found: &mut Vec<PathBuf>) {
+/// Every file in `dir` and the folders in it that is `wanted`, into
+/// `found`. Symlinked folders aren't followed.
+fn files(dir: &Path, wanted: &dyn Fn(&Path) -> bool, found: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         match entry.file_type() {
-            Ok(kind) if kind.is_dir() => transcripts(&path, found),
-            Ok(kind) if kind.is_file() && path.extension().is_some_and(|ext| ext == "jsonl") => {
-                found.push(path);
-            }
+            Ok(kind) if kind.is_dir() => files(&path, wanted, found),
+            Ok(kind) if kind.is_file() && wanted(&path) => found.push(path),
             _ => {}
         }
     }

@@ -210,8 +210,14 @@ impl Tokens {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
     Standard,
+    /// OpenAI's priority processing (Codex's `fast` or `priority`).
+    Priority,
+    /// OpenAI's flex processing.
+    Flex,
     /// Claude's fast mode. LiteLLM has no rates for it.
     Fast,
+    /// A tier the app doesn't know.
+    Unknown,
 }
 
 /// One model's entry in the [`Catalog`].
@@ -230,7 +236,10 @@ impl Rates<'_> {
     ) -> Result<KindCosts, &'static str> {
         let tier_suffix = match tier {
             Tier::Standard => "",
+            Tier::Priority => "_priority",
+            Tier::Flex => "_flex",
             Tier::Fast => return Err("fast-mode rates"),
+            Tier::Unknown => return Err("rates for its service tier"),
         };
         let long_suffix = self.long_prompt_suffix(tokens.prompt());
         let usd = |name: &str, count: u64, missing: &'static str| {
@@ -243,6 +252,8 @@ impl Rates<'_> {
                 .and_then(Value::as_f64);
             match rate {
                 Some(rate) => Ok(count as f64 * rate),
+                None if tier == Tier::Priority => Err("priority rates"),
+                None if tier == Tier::Flex => Err("flex rates"),
                 None if !long_suffix.is_empty() => Err("long-prompt rates"),
                 None => Err(missing),
             }
@@ -601,6 +612,29 @@ pub(crate) mod tests {
 
         assert!((short.input - 0.01).abs() < 1e-12);
         assert!((long.input - 0.05).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_tier_is_priced_at_its_own_rates() {
+        let catalog = rates(json!({
+            "litellm_provider": "openai",
+            "input_cost_per_token": 1e-6,
+            "output_cost_per_token": 1e-5,
+            "input_cost_per_token_priority": 2e-6,
+            "output_cost_per_token_priority": 2e-5,
+        }));
+        let model = catalog.model("m").unwrap();
+
+        let priority = model
+            .cost(&tokens(1_000_000, 0), 0, Tier::Priority)
+            .unwrap();
+
+        assert!((priority.input - 2.0).abs() < 1e-12);
+        assert_eq!(model.cost(&tokens(1, 0), 0, Tier::Flex), Err("flex rates"));
+        assert_eq!(
+            model.cost(&tokens(1, 0), 0, Tier::Unknown),
+            Err("rates for its service tier")
+        );
     }
 
     #[test]

@@ -275,8 +275,8 @@ export type ProfileUsage = {
 export type ModelCost = { model: string; usd: number }
 
 /**
- * An estimate of what a profile's Claude Code use over the last 30 days would
- * cost at Claude API prices, in USD, read from its transcripts. Not the
+ * An estimate of what a profile's Claude Code or Codex use over the last 30
+ * days would cost at API prices, in USD, read from its transcripts. Not the
  * profile's bill.
  */
 export type ApiCost = {
@@ -295,6 +295,10 @@ export type ApiCost = {
    * Each day of the window, oldest first.
    */
   days: Array<{ date: string; totalUsd: number; byModel: Array<ModelCost> }>
+  /**
+   * By what was billed. Codex's cache writes, which have no duration, are in
+   * `cacheWrite5m`.
+   */
   byKind: {
     input: number
     output: number

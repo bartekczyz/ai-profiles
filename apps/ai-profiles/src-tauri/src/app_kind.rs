@@ -84,9 +84,6 @@ pub struct AppSpec {
     pub cli_stock_config_dir_name: &'static str,
     /// Whether this app exposes account usage/quota stats.
     pub has_usage: bool,
-    /// Whether this app's transcripts say what its use would cost at API
-    /// prices.
-    pub has_api_cost: bool,
     /// Config-dir entries a profile *inherits* from the stock install
     /// (`~/.claude`, `~/.codex`) instead of isolating, by way of a symlink
     /// created in the profile's `cli-config` dir.
@@ -123,7 +120,6 @@ pub const CLAUDE: AppSpec = AppSpec {
     cli_config_env: "CLAUDE_CONFIG_DIR",
     cli_stock_config_dir_name: ".claude",
     has_usage: true,
-    has_api_cost: true,
     shared_surfaces: &[
         "CLAUDE.md",
         "agents",
@@ -163,7 +159,6 @@ pub const CODEX: AppSpec = AppSpec {
     cli_config_env: "CODEX_HOME",
     cli_stock_config_dir_name: ".codex",
     has_usage: true,
-    has_api_cost: false,
     shared_surfaces: &["AGENTS.md", "rules", "skills"],
 };
 
