@@ -293,9 +293,13 @@ function dayCount(days: number): string {
 }
 
 /**
- * Dollars and cents, without the cents from $100 up or on whole dollars.
+ * Dollars and cents, without the cents from $100 up or on whole dollars, and
+ * `<$0.01` for an amount too small to show in cents.
  */
 export function formatUsd(usd: number): string {
+  if (usd > 0 && usd < 0.005) {
+    return '<$0.01'
+  }
   const digits = usd >= 100 || Number.isInteger(usd) ? 0 : 2
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
