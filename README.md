@@ -169,7 +169,10 @@ Profiles link to the skills in your main install, so anything you install there 
 Claude Code reads `AGENTS.md` at project scope only; its user-scope instructions file is `CLAUDE.md`. Codex is the other way round and reads `~/.codex/AGENTS.md`. That's why the table above names a different file per app.
 
 **Does this send any of my data anywhere?**
-No. The app is local-only and has no analytics, no telemetry, no remote logging. Auto-update checks the GitHub Releases manifest and that's the only outbound request.
+No. The app is local-only and has no analytics, no telemetry, no remote logging. It makes only these outbound requests:
+- Auto-update checks the GitHub Releases manifest.
+- The usage card asks Anthropic for a Claude profile's quota, signed in as that profile. Codex profiles ask through the `codex` CLI.
+- The estimated API cost downloads [LiteLLM's public price list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) from GitHub, at most once a day and only once you view an estimate. It's a plain download that carries nothing about your profiles, transcripts or accounts; the estimate itself is worked out on your machine.
 
 **Can I migrate later if I skipped the first-run prompt?**
 Yes — Settings → Data → "Detect and import…".
