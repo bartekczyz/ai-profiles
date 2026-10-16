@@ -269,6 +269,69 @@ export type ProfileUsage = {
   fetchedAt: string
 }
 
+/**
+ * What one model cost, in USD.
+ */
+export type ModelCost = { model: string; usd: number }
+
+/**
+ * An estimate of what a profile's Claude Code or Codex use over the last 30
+ * days would cost at API prices, in USD, read from its transcripts. Not the
+ * profile's bill.
+ */
+export type ApiCost = {
+  totalUsd: number
+  /**
+   * What the whole window would cost at the same pace, when the transcripts
+   * on disk cover only part of it, and at least a week.
+   */
+  projectedUsd: number | null
+  /**
+   * How many days the transcripts reach back to, today included: 0 when there
+   * are none.
+   */
+  coveredDays: number
+  /**
+   * Each day of the window, oldest first.
+   */
+  days: Array<{ date: string; totalUsd: number; byModel: Array<ModelCost> }>
+  /**
+   * By what was billed. Codex's cache writes, which have no duration, are in
+   * `cacheWrite5m`.
+   */
+  byKind: {
+    input: number
+    output: number
+    cacheWrite5m: number
+    cacheWrite1h: number
+    cacheRead: number
+    webSearch: number
+  }
+  /**
+   * Most expensive first.
+   */
+  byModel: Array<ModelCost>
+  /**
+   * By the folder each session started in, most expensive first.
+   */
+  projects: Array<{ path: string | null; usd: number }>
+  /**
+   * Use the price list has no rates for, by model (named as in `byModel`)
+   * and by what it lacks (`null` for the model itself, else e.g. "fast-mode
+   * rates"). Its tokens are in none of the costs.
+   */
+  unpriced: Array<{ model: string; missing: string | null; tokens: number }>
+  /**
+   * How much of the use the costs cover: `partial` when some of it has no
+   * price, `unpriced` when none of it does, so the total means nothing.
+   */
+  coverage: 'complete' | 'partial' | 'unpriced'
+  /**
+   * The day the price list is of, `YYYY-MM-DD`.
+   */
+  pricesAsOf: string
+}
+
 /** The account a profile is signed in under, from what its CLI keeps on disk. */
 export type ProfileAccount = {
   email: string | null

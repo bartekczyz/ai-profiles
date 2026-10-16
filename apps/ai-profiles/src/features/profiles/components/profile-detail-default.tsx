@@ -12,6 +12,7 @@ import { copyToClipboard, openDefaultGui, profilePaths } from '@/lib/commands'
 import { useProfileAccount } from '../api/use-profile-account'
 import { useProfilePaths } from '../api/use-profile-paths'
 import { accountLabel, accountTitle } from './account-line'
+import { ProfileDetailApiCost } from './profile-detail-api-cost'
 import { BrandSwatch, ProfileDetailHeader } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
 import { ProfileDetailMigrateAction } from './profile-detail-migrate-action'
@@ -90,6 +91,7 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
       }
     >
       <ProfileDetailUsageCard app={entry.app} profileId={entry.id} cliEnabled={entry.surfaces.cli} />
+      <ProfileDetailApiCost app={entry.app} profileId={entry.id} />
 
       {/* Stacked, the sessions card follows 14px below, as the cards above
           space themselves; beside it, this ends the column. */}

@@ -14,6 +14,7 @@ import { useProfileLastUsed } from '../api/use-profile-last-used'
 import { useProfilePaths } from '../api/use-profile-paths'
 import { accountLabel, accountTitle } from './account-line'
 import { formatLastUsed } from './format-last-used'
+import { ProfileDetailApiCost } from './profile-detail-api-cost'
 import { ProfileDetailHeader, ProfileSwatch } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
 import { ProfileDetailOverflowMenu, ProfileDetailOverflowMenuFallback } from './profile-detail-overflow-menu'
@@ -80,6 +81,7 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
         cliEnabled={profile.surfaces.cli}
         profileId={profile.id}
       />
+      <ProfileDetailApiCost app={profile.app} profileId={profile.id} />
 
       {/* Only the two row descriptions wait on per-profile data, so the
           fallback is the same panel with its description slots empty: the

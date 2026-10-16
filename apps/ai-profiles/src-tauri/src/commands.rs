@@ -21,7 +21,9 @@ use crate::sessions::{
 };
 use crate::usage::{
     self,
+    api_cost::{self, ApiCost},
     codex::CodexQuotaProvider,
+    prices,
     quota::{ClaudeQuotaCache, ClaudeQuotaProvider},
     ProfileUsage,
 };
@@ -584,6 +586,30 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
             Ok(usage::build(&config_dir, &CodexQuotaProvider).await)
         }
     }
+}
+
+/// An estimate of what profile `profile_id`'s Claude Code or Codex use over
+/// the last [`api_cost::WINDOW_DAYS`] days would cost at API prices, at the
+/// price list in use (refreshed in the background when it is over a day
+/// old). How the profile is billed isn't read: its account can't say how each
+/// request was paid for. On a blocking thread, as it walks every transcript.
+#[tauri::command]
+pub async fn get_profile_api_cost(profile_id: String) -> AppResult<ApiCost> {
+    let read = match resolve_app(&profile_id)? {
+        AppKind::Claude => api_cost::read,
+        AppKind::Codex => api_cost::codex::read,
+    };
+    let config_dir = resolve_cli_config_dir(&profile_id)?;
+    prices::refresh_if_stale();
+    tokio::task::spawn_blocking(move || {
+        read(
+            &config_dir,
+            &prices::current(),
+            chrono::Local::now().date_naive(),
+        )
+    })
+    .await
+    .map_err(|error| AppError::Io(std::io::Error::other(error)))
 }
 
 /// The sessions profile `profile_id` (or `default:<app>`) owns. Async so a
