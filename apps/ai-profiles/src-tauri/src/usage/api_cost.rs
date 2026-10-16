@@ -398,13 +398,16 @@ fn label_of(model: &str) -> String {
         })
     };
     if let Some(rest) = model.strip_prefix("claude-") {
-        let mut parts = rest.split('-');
-        let family = parts.next().map(capitalized).unwrap_or_default();
-        let version: Vec<&str> = parts
-            .take_while(|part| part.len() <= 2 && part.bytes().all(|byte| byte.is_ascii_digit()))
-            .collect();
-        return format!("{family} {}", version.join("."))
-            .trim_end()
+        // The version comes after the family (`opus-4-5`) or, in older ids,
+        // before it (`3-5-sonnet`); a date at the end is left out.
+        let is_number = |part: &&str| part.bytes().all(|byte| byte.is_ascii_digit());
+        let (version, family): (Vec<&str>, Vec<&str>) = rest
+            .split('-')
+            .filter(|part| !is_number(part) || (1..=2).contains(&part.len()))
+            .partition(is_number);
+        let family: Vec<String> = family.into_iter().map(capitalized).collect();
+        return format!("{} {}", family.join(" "), version.join("."))
+            .trim()
             .to_string();
     }
     if let Some(rest) = model.strip_prefix("gpt-") {
@@ -872,6 +875,8 @@ mod tests {
         assert_eq!(label_of("claude-opus-5-5"), "Opus 5.5");
         assert_eq!(label_of("claude-haiku-4-5-20251001"), "Haiku 4.5");
         assert_eq!(label_of("claude-opus-5"), "Opus 5");
+        assert_eq!(label_of("claude-3-5-sonnet-20241022"), "Sonnet 3.5");
+        assert_eq!(label_of("claude-mythos-preview"), "Mythos Preview");
         assert_eq!(label_of("gpt-5.6-terra"), "GPT-5.6 Terra");
         assert_eq!(label_of("gpt-5.3-codex"), "GPT-5.3 Codex");
         assert_eq!(label_of("gpt-6"), "GPT-6");
