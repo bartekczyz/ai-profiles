@@ -5,8 +5,8 @@
 //! nothing about the profiles, their transcripts or their accounts. What the
 //! app keeps of it, the rates of Anthropic's and OpenAI's own models, is
 //! cached in the app's data dir. A cache over a day old is refreshed in the
-//! background, at startup and when an estimate is read, and a download only
-//! replaces it once it validates. A failed refresh keeps the last valid cache,
+//! background when an estimate is read, and a download only replaces it once
+//! it validates. A failed refresh keeps the last valid cache,
 //! and without one the app uses the snapshot it was built with
 //! (`price-snapshot.json`). Either way an estimate is at that day's rates, not
 //! what was billed when the use happened.
@@ -33,6 +33,10 @@ const MAX_AGE: TimeDelta = TimeDelta::hours(24);
 const RETRY_AFTER: TimeDelta = TimeDelta::hours(1);
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The most of a download that is read: LiteLLM's list is a few MB, so one
+/// far bigger isn't it.
+const MAX_DOWNLOAD_BYTES: usize = 20 * 1024 * 1024;
 
 /// The providers whose own models' rates are kept.
 const PROVIDERS: &[&str] = &["anthropic", "openai"];
@@ -121,7 +125,8 @@ impl Catalog {
 /// What is kept of LiteLLM's entry for model `id`: its provider and rates,
 /// when it is one of [`PROVIDERS`]' own models (not one served by another
 /// platform, `bedrock/…`) with input and output rates (not an image or
-/// embedding model).
+/// embedding model), all of them amounts. An entry with a rate that isn't
+/// one is left out, so one bad entry upstream costs that model, not the list.
 fn kept(id: &str, entry: Value) -> Option<Value> {
     let Value::Object(entry) = entry else {
         return None;
@@ -130,11 +135,7 @@ fn kept(id: &str, entry: Value) -> Option<Value> {
     if id.contains('/') || !PROVIDERS.contains(&provider) {
         return None;
     }
-    let has = |rate: &str| entry.get(rate).is_some_and(Value::is_number);
-    if !has("input_cost_per_token") || !has("output_cost_per_token") {
-        return None;
-    }
-    let kept = entry
+    let kept: Map<String, Value> = entry
         .into_iter()
         .filter(|(name, _)| {
             name == "litellm_provider"
@@ -142,7 +143,7 @@ fn kept(id: &str, entry: Value) -> Option<Value> {
                 || RATE_NAMES.iter().any(|rate| name.starts_with(rate))
         })
         .collect();
-    Some(Value::Object(kept))
+    valid(&kept).then_some(Value::Object(kept))
 }
 
 /// Whether a kept entry has a provider, input and output rates, and only
@@ -360,14 +361,20 @@ async fn download() -> Result<Vec<u8>, String> {
         .user_agent(concat!("ai-profiles/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| error.to_string())?;
-    let response = client
+    let mut response = client
         .get(SOURCE_URL)
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
         .map_err(|error| error.to_string())?;
-    let body = response.bytes().await.map_err(|error| error.to_string())?;
-    Ok(body.to_vec())
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+        if body.len() + chunk.len() > MAX_DOWNLOAD_BYTES {
+            return Err(format!("over {MAX_DOWNLOAD_BYTES} bytes"));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 /// The list in `downloaded`, fetched at `now`, once it validates, written to
@@ -489,12 +496,22 @@ pub(crate) mod tests {
         assert!(refused(
             &json!({ "claude-opus-5-5": litellm()["claude-opus-5-5"] }).to_string()
         ));
-        let mut negative = litellm();
-        negative["gpt-5.6"]["cache_read_input_token_cost"] = json!(-1.0);
-        assert!(refused(&negative.to_string()));
-        let mut text = litellm();
-        text["claude-opus-5-5"][WEB_SEARCH_RATES]["search_context_size_medium"] = json!("0.01");
-        assert!(refused(&text.to_string()));
+    }
+
+    #[test]
+    fn a_model_with_a_rate_that_isnt_an_amount_is_left_out_not_the_list() {
+        let mut models = litellm();
+        models["gpt-5.6-mini"] = openai_model();
+        models["gpt-5.6-mini"]["cache_read_input_token_cost"] = json!(-1.0);
+        models["claude-sonnet-5-5"] = litellm()["claude-opus-5-5"].clone();
+        models["claude-sonnet-5-5"][WEB_SEARCH_RATES]["search_context_size_medium"] = json!("0.01");
+        models["claude-haiku-5-5"] = litellm()["claude-opus-5-5"].clone();
+        models["claude-haiku-5-5"]["cache_read_input_token_cost"] = Value::Null;
+
+        let catalog = catalog_of(models, FETCHED);
+
+        let ids: Vec<&String> = catalog.models.keys().collect();
+        assert_eq!(ids, ["claude-opus-5-5", "gpt-5.6"]);
     }
 
     #[test]
