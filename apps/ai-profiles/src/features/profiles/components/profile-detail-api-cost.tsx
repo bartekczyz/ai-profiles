@@ -245,10 +245,10 @@ function Footnote({ cost }: { cost: ApiCost }) {
   return (
     <section className="text-meta text-muted">
       <p className="m-0">
-        From this profile's Claude Code transcripts, at Claude API list prices as of{' '}
-        {format(parseISO(cost.pricesAsOf), 'MMM d, yyyy')}. It estimates the use they record, not what you were billed,
-        whether you pay by API key or by subscription. Chats in the desktop app and on claude.ai keep no token counts,
-        so they aren't included.
+        From this profile's Claude Code transcripts, at the API list prices in LiteLLM's price list as of{' '}
+        {format(parseISO(cost.pricesAsOf), 'MMM d, yyyy')}, whenever the use happened. It estimates the use they record,
+        not what you were billed, whether you pay by API key or by subscription. Chats in the desktop app and on
+        claude.ai keep no token counts, so they aren't included.
       </p>
     </section>
   )
@@ -323,8 +323,12 @@ export function kindRows(byKind: ApiCost['byKind']): Array<{ label: string; usd:
   return rows.filter((row) => row.usd > 0).sort((left, right) => right.usd - left.usd)
 }
 
+/**
+ * What the price list has no rates for, each model in a sentence of its own.
+ */
 export function unpricedNote(unpriced: ApiCost['unpriced']): string {
-  const models = unpriced.map((model) => model.model).join(', ')
-  const tokens = unpriced.reduce((sum, model) => sum + model.tokens, 0)
-  return `No price for ${models} (${tokens.toLocaleString('en-US')} tokens), so they aren't counted. A newer ai-profiles may know it.`
+  const lacking = unpriced.map(
+    (use) => `No ${use.missing ?? 'price'} for ${use.model} (${use.tokens.toLocaleString('en-US')} tokens).`,
+  )
+  return `${lacking.join(' ')} They aren't counted. LiteLLM's price list may add them; it's checked daily.`
 }

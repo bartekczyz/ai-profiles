@@ -74,7 +74,7 @@ describe('ProfileDetailApiCost', () => {
         projectedUsd: 0,
         byModel: [],
         projects: [],
-        unpriced: [{ model: 'claude-opus-9', tokens: 1_200 }],
+        unpriced: [{ model: 'claude-opus-9', missing: null, tokens: 1_200 }],
         coverage: 'unpriced',
       }),
     )
@@ -91,7 +91,7 @@ describe('ProfileDetailApiCost', () => {
 
   it('labels a total that leaves use without a price out as partial', async () => {
     vi.mocked(getProfileApiCost).mockResolvedValue(
-      makeCost({ unpriced: [{ model: 'claude-opus-9', tokens: 1_200 }], coverage: 'partial' }),
+      makeCost({ unpriced: [{ model: 'claude-opus-9', missing: null, tokens: 1_200 }], coverage: 'partial' }),
     )
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
     const row = await screen.findByRole('button', { name: /Estimated API cost/ })
@@ -132,6 +132,7 @@ describe('ProfileDetailApiCost', () => {
     expect(screen.getByText('Unknown folder')).toBeTruthy()
     expect(screen.getByText('peak $12.50/day')).toBeTruthy()
     expect(screen.getByText(/not what you were billed/)).toBeTruthy()
+    expect(screen.getByText(/LiteLLM's price list as of Oct 15, 2026/)).toBeTruthy()
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.queryByText(/your plan|what you pay/i)).toBeNull()
   })
@@ -187,9 +188,14 @@ describe('kindRows', () => {
 })
 
 describe('unpricedNote', () => {
-  it('names the models and how many tokens went uncounted', () => {
-    expect(unpricedNote([{ model: 'claude-opus-9', tokens: 1_200_000 }])).toBe(
-      "No price for claude-opus-9 (1,200,000 tokens), so they aren't counted. A newer ai-profiles may know it.",
+  it('names the models, what the price list lacks for each and how many tokens went uncounted', () => {
+    expect(
+      unpricedNote([
+        { model: 'claude-opus-9', missing: null, tokens: 1_200_000 },
+        { model: 'claude-opus-5-5', missing: 'fast-mode rates', tokens: 3_400 },
+      ]),
+    ).toBe(
+      "No price for claude-opus-9 (1,200,000 tokens). No fast-mode rates for claude-opus-5-5 (3,400 tokens). They aren't counted. LiteLLM's price list may add them; it's checked daily.",
     )
   })
 })

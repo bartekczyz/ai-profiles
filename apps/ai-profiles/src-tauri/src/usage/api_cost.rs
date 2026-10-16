@@ -11,9 +11,10 @@
 //! transcript, so responses are counted once per profile. Transcripts left
 //! elsewhere (archived, moved to another profile) are not counted here.
 //!
-//! Prices come from [`PRICES`], a table built into the app and updated with
-//! its releases: nothing is fetched and nothing leaves the machine. A model
-//! the table doesn't know is reported as unpriced, never counted as free.
+//! Prices come from LiteLLM's price list ([`super::prices`]): nothing about
+//! the use leaves the machine. A request of a model the list doesn't have, or
+//! that used something it has no rate for (fast mode, say), is reported as
+//! unpriced, never counted as free.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -23,180 +24,13 @@ use std::sync::{Arc, LazyLock};
 use chrono::{DateTime, Days, Local, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::prices::{Catalog, Tier, Tokens};
 use crate::line_cache::{LineCache, LineScan};
 
 /// How many days, today included, the estimate covers. Claude Code
 /// deletes transcripts after 30 days unless told otherwise
 /// (`cleanupPeriodDays`), so a longer window would mostly be empty.
 pub const WINDOW_DAYS: u32 = 30;
-
-/// When [`PRICES`] was last checked against Anthropic's pricing page,
-/// <https://docs.claude.com/en/docs/about-claude/pricing>.
-const PRICES_AS_OF: &str = "2026-10-15";
-
-/// What one web search costs, in USD.
-const WEB_SEARCH_USD: f64 = 0.01;
-
-/// USD per million tokens.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Rates {
-    input: f64,
-    output: f64,
-    cache_write_5m: f64,
-    cache_write_1h: f64,
-    cache_read: f64,
-}
-
-const fn rates(
-    input: f64,
-    output: f64,
-    cache_write_5m: f64,
-    cache_write_1h: f64,
-    cache_read: f64,
-) -> Rates {
-    Rates {
-        input,
-        output,
-        cache_write_5m,
-        cache_write_1h,
-        cache_read,
-    }
-}
-
-/// What one model costs on the Claude API.
-#[derive(Debug)]
-struct ModelPrice {
-    /// The model's id, without the date suffix some ids carry.
-    id: &'static str,
-    /// The model's name as people know it.
-    label: &'static str,
-    rates: Rates,
-    /// The higher rates a request pays when its prompt (input, cache writes
-    /// and cache reads together) is over this many tokens.
-    long_prompt: Option<(u64, Rates)>,
-    /// What fast mode multiplies every rate by: 1 where it is billed at
-    /// standard rates or isn't offered.
-    fast: f64,
-}
-
-/// What a model with only standard rates costs.
-const fn standard(id: &'static str, label: &'static str, rates: Rates) -> ModelPrice {
-    ModelPrice {
-        id,
-        label,
-        rates,
-        long_prompt: None,
-        fast: 1.0,
-    }
-}
-
-/// What a model whose fast mode doubles every rate costs.
-const fn with_fast_mode(id: &'static str, label: &'static str, rates: Rates) -> ModelPrice {
-    ModelPrice {
-        fast: 2.0,
-        ..standard(id, label, rates)
-    }
-}
-
-/// The models Claude Code runs, by id. Checked [`PRICES_AS_OF`].
-const PRICES: &[ModelPrice] = &[
-    standard(
-        "claude-fable-5-1",
-        "Fable 5.1",
-        rates(10.0, 50.0, 12.5, 20.0, 0.25),
-    ),
-    standard(
-        "claude-fable-5",
-        "Fable 5",
-        rates(10.0, 50.0, 12.5, 20.0, 1.0),
-    ),
-    with_fast_mode(
-        "claude-opus-5-5",
-        "Opus 5.5",
-        rates(4.0, 20.0, 5.0, 8.0, 0.2),
-    ),
-    with_fast_mode("claude-opus-5", "Opus 5", rates(5.0, 25.0, 6.25, 10.0, 0.5)),
-    with_fast_mode(
-        "claude-opus-4-8",
-        "Opus 4.8",
-        rates(5.0, 25.0, 6.25, 10.0, 0.5),
-    ),
-    standard(
-        "claude-opus-4-7",
-        "Opus 4.7",
-        rates(5.0, 25.0, 6.25, 10.0, 0.5),
-    ),
-    standard(
-        "claude-opus-4-6",
-        "Opus 4.6",
-        rates(5.0, 25.0, 6.25, 10.0, 0.5),
-    ),
-    standard(
-        "claude-opus-4-5",
-        "Opus 4.5",
-        rates(5.0, 25.0, 6.25, 10.0, 0.5),
-    ),
-    standard(
-        "claude-opus-4-1",
-        "Opus 4.1",
-        rates(15.0, 75.0, 18.75, 30.0, 1.5),
-    ),
-    standard(
-        "claude-opus-4",
-        "Opus 4",
-        rates(15.0, 75.0, 18.75, 30.0, 1.5),
-    ),
-    standard(
-        "claude-sonnet-5-5",
-        "Sonnet 5.5",
-        rates(2.0, 10.0, 2.5, 4.0, 0.1),
-    ),
-    standard(
-        "claude-sonnet-5",
-        "Sonnet 5",
-        rates(2.0, 10.0, 2.5, 4.0, 0.2),
-    ),
-    standard(
-        "claude-sonnet-4-6",
-        "Sonnet 4.6",
-        rates(3.0, 15.0, 3.75, 6.0, 0.3),
-    ),
-    standard(
-        "claude-sonnet-4-5",
-        "Sonnet 4.5",
-        rates(3.0, 15.0, 3.75, 6.0, 0.3),
-    ),
-    standard(
-        "claude-sonnet-4",
-        "Sonnet 4",
-        rates(3.0, 15.0, 3.75, 6.0, 0.3),
-    ),
-    ModelPrice {
-        long_prompt: Some((100_000, rates(0.5, 2.5, 0.625, 1.0, 0.05))),
-        ..standard(
-            "claude-haiku-5-5",
-            "Haiku 5.5",
-            rates(0.1, 0.5, 0.125, 0.2, 0.01),
-        )
-    },
-    standard(
-        "claude-haiku-4-5",
-        "Haiku 4.5",
-        rates(1.0, 5.0, 1.25, 2.0, 0.1),
-    ),
-];
-
-/// The price of `model`, an id as a transcript records it: with or without
-/// a `-YYYYMMDD` date suffix.
-fn price_of(model: &str) -> Option<&'static ModelPrice> {
-    let undated = match model.rsplit_once('-') {
-        Some((head, date)) if date.len() == 8 && date.bytes().all(|byte| byte.is_ascii_digit()) => {
-            head
-        }
-        _ => model,
-    };
-    PRICES.iter().find(|price| price.id == undated)
-}
 
 /// What a profile's Claude Code use over the last [`WINDOW_DAYS`] would cost
 /// at Claude API list prices, in USD: an estimate of the recorded use, not
@@ -220,13 +54,13 @@ pub struct ApiCost {
     pub by_model: Vec<ModelCost>,
     /// By the folder each session started in, most expensive first.
     pub projects: Vec<ProjectCost>,
-    /// Models the price table doesn't know, by tokens used, most first. Their
+    /// Use the price list has no rates for, by tokens used, most first. Its
     /// tokens are in none of the costs.
-    pub unpriced: Vec<UnpricedModel>,
+    pub unpriced: Vec<UnpricedUse>,
     /// How much of the use in the window the costs cover.
     pub coverage: Coverage,
-    /// When the prices were last checked, `YYYY-MM-DD`.
-    pub prices_as_of: &'static str,
+    /// The day the price list is of, `YYYY-MM-DD`.
+    pub prices_as_of: NaiveDate,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -244,7 +78,7 @@ pub struct DayCost {
 #[serde(rename_all = "camelCase")]
 pub struct ModelCost {
     /// The model's name, e.g. "Opus 5.5".
-    pub model: &'static str,
+    pub model: String,
     pub usd: f64,
 }
 
@@ -310,11 +144,15 @@ impl Coverage {
     }
 }
 
+/// Requests of one model left unpriced for one reason.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UnpricedModel {
+pub struct UnpricedUse {
     /// The model's id, as the transcripts record it.
     pub model: String,
+    /// What the price list has no rate for, e.g. "fast-mode rates". `None`
+    /// when it doesn't have the model.
+    pub missing: Option<&'static str>,
     pub tokens: u64,
 }
 
@@ -325,28 +163,7 @@ struct Turn {
     model: String,
     tokens: Tokens,
     web_searches: u64,
-    /// Run in fast mode.
-    fast: bool,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct Tokens {
-    input: u64,
-    output: u64,
-    cache_write_5m: u64,
-    cache_write_1h: u64,
-    cache_read: u64,
-}
-
-impl Tokens {
-    /// The prompt's length, as long-prompt pricing counts it.
-    fn prompt(&self) -> u64 {
-        self.input + self.cache_write_5m + self.cache_write_1h + self.cache_read
-    }
-
-    fn total(&self) -> u64 {
-        self.prompt() + self.output
-    }
+    tier: Tier,
 }
 
 /// What a transcript's lines say so far.
@@ -486,7 +303,10 @@ fn turn_of(record: Record) -> Option<(String, Turn)> {
             model: message.model.unwrap_or_default(),
             tokens,
             web_searches,
-            fast: usage.speed.as_deref() == Some("fast"),
+            tier: match usage.speed.as_deref() {
+                Some("fast") => Tier::Fast,
+                _ => Tier::Standard,
+            },
         },
     ))
 }
@@ -495,8 +315,9 @@ fn turn_of(record: Record) -> Option<(String, Turn)> {
 static USAGE_CACHE: LazyLock<LineCache<UsageScan, UsageScan>> = LazyLock::new(LineCache::default);
 
 /// The estimated API cost of the Claude Code use recorded in `config_dir`, as
-/// of `today`. Walks every transcript, so it belongs on a blocking thread.
-pub fn read(config_dir: &Path, today: NaiveDate) -> ApiCost {
+/// of `today`, at `prices`. Walks every transcript, so it belongs on a
+/// blocking thread.
+pub fn read(config_dir: &Path, prices: &Catalog, today: NaiveDate) -> ApiCost {
     USAGE_CACHE.forget_gone();
     let projects = config_dir.join("projects");
     let mut paths = Vec::new();
@@ -516,7 +337,7 @@ pub fn read(config_dir: &Path, today: NaiveDate) -> ApiCost {
         .collect();
     let read: HashSet<PathBuf> = paths.into_iter().collect();
     USAGE_CACHE.retain(|path| !path.starts_with(&projects) || read.contains(path));
-    tally(&scans, today)
+    tally(once_each(&scans), prices, today)
 }
 
 /// Every `.jsonl` file in `dir` and the folders in it, into `found`.
@@ -542,28 +363,10 @@ fn local_day(at: DateTime<Utc>) -> NaiveDate {
     at.with_timezone(&Local).date_naive()
 }
 
-/// What `turn` cost at `price`.
-fn cost(price: &ModelPrice, turn: &Turn) -> KindCosts {
-    let rates = match price.long_prompt {
-        Some((threshold, long)) if turn.tokens.prompt() > threshold => long,
-        _ => price.rates,
-    };
-    let scale = if turn.fast { price.fast } else { 1.0 } / 1_000_000.0;
-    let usd = |tokens: u64, rate: f64| tokens as f64 * rate * scale;
-    KindCosts {
-        input: usd(turn.tokens.input, rates.input),
-        output: usd(turn.tokens.output, rates.output),
-        cache_write_5m: usd(turn.tokens.cache_write_5m, rates.cache_write_5m),
-        cache_write_1h: usd(turn.tokens.cache_write_1h, rates.cache_write_1h),
-        cache_read: usd(turn.tokens.cache_read, rates.cache_read),
-        web_search: turn.web_searches as f64 * WEB_SEARCH_USD,
-    }
-}
-
-/// The estimated API cost of the responses in `scans` over the window ending
-/// `today`. A response in more than one transcript counts once, from the copy
-/// with the most output.
-fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
+/// The responses in `scans`, each with the folder its session started in. A
+/// response in more than one transcript counts once, from the copy with the
+/// most output.
+fn once_each(scans: &[UsageScan]) -> Vec<(&Turn, Option<&str>)> {
     let mut kept: HashMap<&str, (&Turn, Option<&str>)> = HashMap::new();
     for scan in scans {
         for (key, turn) in scan.turns.iter() {
@@ -575,35 +378,79 @@ fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
             }
         }
     }
+    kept.into_values().collect()
+}
 
+/// The name people know `model` by: "Opus 5.5" for `claude-opus-5-5`,
+/// "GPT-5.6 Terra" for `gpt-5.6-terra`. Any other id as it is.
+fn label_of(model: &str) -> String {
+    let capitalized = |word: &str| {
+        let mut chars = word.chars();
+        chars.next().map_or_else(String::new, |first| {
+            first.to_uppercase().chain(chars).collect()
+        })
+    };
+    if let Some(rest) = model.strip_prefix("claude-") {
+        let mut parts = rest.split('-');
+        let family = parts.next().map(capitalized).unwrap_or_default();
+        let version: Vec<&str> = parts
+            .take_while(|part| part.len() <= 2 && part.bytes().all(|byte| byte.is_ascii_digit()))
+            .collect();
+        return format!("{family} {}", version.join("."))
+            .trim_end()
+            .to_string();
+    }
+    if let Some(rest) = model.strip_prefix("gpt-") {
+        let mut parts = rest.split('-');
+        let version = parts.next().unwrap_or_default();
+        let variant: Vec<String> = parts.map(capitalized).collect();
+        return format!("GPT-{version} {}", variant.join(" "))
+            .trim_end()
+            .to_string();
+    }
+    model.to_string()
+}
+
+/// The estimated API cost at `prices` of the requests in `turns`, each with
+/// the folder its session started in, over the window ending `today`.
+fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, today: NaiveDate) -> ApiCost {
     let start = today - Days::new(u64::from(WINDOW_DAYS - 1));
     let mut oldest: Option<NaiveDate> = None;
     let mut by_kind = KindCosts::default();
-    let mut by_day: HashMap<NaiveDate, HashMap<&'static str, f64>> = HashMap::new();
-    let mut by_model: HashMap<&'static str, f64> = HashMap::new();
+    let mut by_day: HashMap<NaiveDate, HashMap<String, f64>> = HashMap::new();
+    let mut by_model: HashMap<String, f64> = HashMap::new();
     let mut by_project: HashMap<Option<&str>, f64> = HashMap::new();
-    let mut unpriced: HashMap<&str, u64> = HashMap::new();
+    let mut unpriced: HashMap<(&str, Option<&'static str>), u64> = HashMap::new();
     let mut priced_any = false;
-    for (turn, project) in kept.into_values() {
+    for (turn, project) in turns {
         let day = local_day(turn.at);
         oldest = Some(oldest.map_or(day, |oldest| oldest.min(day)));
         if day < start || day > today {
             continue;
         }
-        let Some(price) = price_of(&turn.model) else {
-            *unpriced.entry(turn.model.as_str()).or_default() += turn.tokens.total();
-            continue;
+        let costs = match prices.model(&turn.model) {
+            Some(rates) => rates
+                .cost(&turn.tokens, turn.web_searches, turn.tier)
+                .map_err(Some),
+            None => Err(None),
+        };
+        let costs = match costs {
+            Ok(costs) => costs,
+            Err(missing) => {
+                *unpriced.entry((turn.model.as_str(), missing)).or_default() += turn.tokens.total();
+                continue;
+            }
         };
         priced_any = true;
-        let costs = cost(price, turn);
         let usd = costs.total();
+        let label = label_of(&turn.model);
         by_kind.add(costs);
         *by_day
             .entry(day)
             .or_default()
-            .entry(price.label)
+            .entry(label.clone())
             .or_default() += usd;
-        *by_model.entry(price.label).or_default() += usd;
+        *by_model.entry(label).or_default() += usd;
         *by_project.entry(project).or_default() += usd;
     }
 
@@ -615,7 +462,7 @@ fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
         right
             .usd
             .total_cmp(&left.usd)
-            .then(left.model.cmp(right.model))
+            .then(left.model.cmp(&right.model))
     });
     let days = start
         .iter_days()
@@ -626,8 +473,8 @@ fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
                 .iter()
                 .filter_map(|model| {
                     Some(ModelCost {
-                        model: model.model,
-                        usd: *spent.get(model.model)?,
+                        model: model.model.clone(),
+                        usd: *spent.get(&model.model)?,
                     })
                 })
                 .collect();
@@ -651,10 +498,11 @@ fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
             .total_cmp(&left.usd)
             .then(left.path.cmp(&right.path))
     });
-    let mut unpriced: Vec<UnpricedModel> = unpriced
+    let mut unpriced: Vec<UnpricedUse> = unpriced
         .into_iter()
-        .map(|(model, tokens)| UnpricedModel {
+        .map(|((model, missing), tokens)| UnpricedUse {
             model: model.to_owned(),
+            missing,
             tokens,
         })
         .collect();
@@ -663,6 +511,7 @@ fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
             .tokens
             .cmp(&left.tokens)
             .then(left.model.cmp(&right.model))
+            .then(left.missing.cmp(&right.missing))
     });
 
     let covered_days = oldest.map_or(0, |oldest| {
@@ -682,7 +531,7 @@ fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
         projects,
         unpriced,
         coverage,
-        prices_as_of: PRICES_AS_OF,
+        prices_as_of: prices.as_of(),
     }
 }
 
@@ -694,6 +543,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::usage::prices::tests::{catalog_of, openai_model};
 
     /// Noon UTC on the tests' today, which is the same day in any time zone
     /// a test is likely to run in.
@@ -724,8 +574,35 @@ mod tests {
         fs::write(path, body).unwrap();
     }
 
+    /// A model's LiteLLM entry, with rates in USD per million tokens.
+    fn anthropic(input: f64, output: f64, write_5m: f64, write_1h: f64, read: f64) -> Value {
+        let per_token = |rate: f64| rate / 1_000_000.0;
+        json!({
+            "litellm_provider": "anthropic",
+            "input_cost_per_token": per_token(input),
+            "output_cost_per_token": per_token(output),
+            "cache_creation_input_token_cost": per_token(write_5m),
+            "cache_creation_input_token_cost_above_1hr": per_token(write_1h),
+            "cache_read_input_token_cost": per_token(read),
+            "search_context_cost_per_query": { "search_context_size_medium": 0.01 },
+            "supports_fast_mode": true,
+        })
+    }
+
+    fn prices() -> Catalog {
+        catalog_of(
+            json!({
+                "claude-opus-5-5": anthropic(4.0, 20.0, 5.0, 8.0, 0.2),
+                "claude-sonnet-5-5": anthropic(2.0, 10.0, 2.5, 4.0, 0.1),
+                "claude-haiku-4-5": anthropic(1.0, 5.0, 1.25, 2.0, 0.1),
+                "gpt-5.6": openai_model(),
+            }),
+            "2026-10-14T08:00:00Z",
+        )
+    }
+
     fn cost_of(config: &Path) -> ApiCost {
-        read(config, today())
+        read(config, &prices(), today())
     }
 
     fn assert_usd(actual: f64, expected: f64) {
@@ -824,7 +701,7 @@ mod tests {
         let models: Vec<(&str, f64)> = cost
             .by_model
             .iter()
-            .map(|model| (model.model, model.usd))
+            .map(|model| (model.model.as_str(), model.usd))
             .collect();
         assert_eq!(models, [("Sonnet 5.5", 20.0), ("Haiku 4.5", 5.0)]);
         assert_eq!(cost.projects.len(), 1);
@@ -832,50 +709,45 @@ mod tests {
     }
 
     #[test]
-    fn fast_mode_and_web_searches_cost_extra() {
+    fn web_searches_cost_extra_and_fast_mode_without_rates_is_unpriced() {
         let config = tempdir().unwrap();
-        write(
-            config.path(),
-            "-work-app/s1.jsonl",
-            &[response(
-                NOW,
-                "msg_1",
-                "claude-opus-5-5",
-                json!({
-                    "input_tokens": 1_000_000,
-                    "speed": "fast",
-                    "server_tool_use": { "web_search_requests": 3 },
-                }),
-            )],
-        );
-
-        let cost = cost_of(config.path());
-
-        assert_usd(cost.by_kind.input, 8.0);
-        assert_usd(cost.by_kind.web_search, 0.03);
-    }
-
-    #[test]
-    fn a_long_haiku_5_5_prompt_pays_the_higher_rates() {
-        let config = tempdir().unwrap();
-        let usage = |input: u64, cache_read: u64| json!({ "input_tokens": input, "cache_read_input_tokens": cache_read });
         write(
             config.path(),
             "-work-app/s1.jsonl",
             &[
-                response(NOW, "msg_1", "claude-haiku-5-5", usage(100_000, 0)),
-                // Over the threshold once its cache reads count.
-                response(NOW, "msg_2", "claude-haiku-5-5", usage(100_000, 1)),
+                response(
+                    NOW,
+                    "msg_1",
+                    "claude-opus-5-5",
+                    json!({
+                        "input_tokens": 1_000_000,
+                        "server_tool_use": { "web_search_requests": 3 },
+                    }),
+                ),
+                // LiteLLM has no fast-mode rates, so this isn't priced at
+                // the standard ones.
+                response(
+                    NOW,
+                    "msg_2",
+                    "claude-opus-5-5",
+                    json!({ "input_tokens": 1_000_000, "speed": "fast" }),
+                ),
             ],
         );
 
         let cost = cost_of(config.path());
 
-        assert_usd(cost.by_kind.input, 0.01 + 0.05);
+        assert_usd(cost.by_kind.input, 4.0);
+        assert_usd(cost.by_kind.web_search, 0.03);
+        assert_eq!(cost.coverage, Coverage::Partial);
+        assert_eq!(cost.unpriced.len(), 1);
+        assert_eq!(cost.unpriced[0].model, "claude-opus-5-5");
+        assert_eq!(cost.unpriced[0].missing, Some("fast-mode rates"));
+        assert_eq!(cost.unpriced[0].tokens, 1_000_000);
     }
 
     #[test]
-    fn a_model_the_table_doesnt_know_is_unpriced_not_free() {
+    fn a_model_the_price_list_doesnt_have_is_unpriced_not_free() {
         let config = tempdir().unwrap();
         write(
             config.path(),
@@ -898,11 +770,12 @@ mod tests {
         assert_eq!(cost.coverage, Coverage::Unpriced);
         assert_eq!(cost.unpriced.len(), 1);
         assert_eq!(cost.unpriced[0].model, "claude-opus-9");
+        assert_eq!(cost.unpriced[0].missing, None);
         assert_eq!(cost.unpriced[0].tokens, 100);
     }
 
     #[test]
-    fn use_partly_of_a_model_the_table_doesnt_know_is_partial() {
+    fn use_partly_of_a_model_the_price_list_doesnt_have_is_partial() {
         let config = tempdir().unwrap();
         let usage = json!({ "output_tokens": 1_000_000 });
         write(
@@ -969,7 +842,7 @@ mod tests {
         // 29 days on, the first response has left the window, which the
         // second still covers in full.
         let later = today() + Days::new(29);
-        let cost = read(config.path(), later);
+        let cost = read(config.path(), &prices(), later);
         assert_usd(cost.total_usd, 2.0);
         assert_eq!(cost.covered_days, WINDOW_DAYS);
         assert_eq!(cost.projected_usd, None);
@@ -988,14 +861,24 @@ mod tests {
     }
 
     #[test]
-    fn dated_model_ids_are_priced_as_their_model() {
+    fn models_are_named_as_people_know_them() {
+        assert_eq!(label_of("claude-opus-5-5"), "Opus 5.5");
+        assert_eq!(label_of("claude-haiku-4-5-20251001"), "Haiku 4.5");
+        assert_eq!(label_of("claude-opus-5"), "Opus 5");
+        assert_eq!(label_of("gpt-5.6-terra"), "GPT-5.6 Terra");
+        assert_eq!(label_of("gpt-5.3-codex"), "GPT-5.3 Codex");
+        assert_eq!(label_of("gpt-6"), "GPT-6");
+        assert_eq!(label_of("o4-mini"), "o4-mini");
+    }
+
+    #[test]
+    fn the_estimate_says_what_day_its_prices_are_of() {
+        let config = tempdir().unwrap();
+
         assert_eq!(
-            price_of("claude-haiku-4-5-20251001").unwrap().label,
-            "Haiku 4.5"
+            cost_of(config.path()).prices_as_of.to_string(),
+            "2026-10-14"
         );
-        assert_eq!(price_of("claude-opus-5-5").unwrap().label, "Opus 5.5");
-        assert_eq!(price_of("claude-opus-5").unwrap().label, "Opus 5");
-        assert!(price_of("claude-opus-5-55").is_none());
     }
 
     #[test]

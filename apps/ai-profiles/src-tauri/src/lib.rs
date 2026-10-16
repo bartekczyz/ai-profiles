@@ -43,6 +43,9 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
+            // Bring the API price list up to date before an estimate asks.
+            usage::prices::refresh_if_stale();
+
             // Bring the desktop launchers an earlier version built up to this
             // one, so every profile changes over now rather than whenever it
             // next happens to be rebuilt. Off the main thread: a wrapper takes

@@ -312,16 +312,18 @@ export type ApiCost = {
    */
   projects: Array<{ path: string | null; usd: number }>
   /**
-   * Models the app has no price for. Their tokens are in none of the costs.
+   * Use the price list has no rates for, by model and by what it lacks
+   * (`null` for the model itself, else e.g. "fast-mode rates"). Its tokens
+   * are in none of the costs.
    */
-  unpriced: Array<{ model: string; tokens: number }>
+  unpriced: Array<{ model: string; missing: string | null; tokens: number }>
   /**
    * How much of the use the costs cover: `partial` when some of it has no
    * price, `unpriced` when none of it does, so the total means nothing.
    */
   coverage: 'complete' | 'partial' | 'unpriced'
   /**
-   * When the built-in prices were last checked, `YYYY-MM-DD`.
+   * The day the price list is of, `YYYY-MM-DD`.
    */
   pricesAsOf: string
 }
