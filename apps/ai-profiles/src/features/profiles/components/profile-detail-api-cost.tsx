@@ -71,7 +71,12 @@ export function ProfileDetailApiCost({ app, profileId }: Props) {
         {isError ? (
           <span className="text-muted">Couldn't read the transcripts</span>
         ) : (
-          <Skeleton shape="text" className="w-28" />
+          // The zero-width space gives the row the line height of the text
+          // that replaces the skeleton, so the row keeps its height.
+          <>
+            <Skeleton shape="text" className="w-28" />
+            &#8203;
+          </>
         )}
       </div>
     )
