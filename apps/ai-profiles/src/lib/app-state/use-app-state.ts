@@ -71,27 +71,7 @@ export function computeOptimisticAppState(previous: AppState, patch: AppStatePat
     dockIconAcknowledgedAt: patch.dockIconAcknowledgedAt ?? previous.dockIconAcknowledgedAt,
     defaultProfileNames: withDefaultProfileName(previous.defaultProfileNames, patch.defaultProfileName),
     dismissedRepairSessions: withDismissedRepair(previous.dismissedRepairSessions, patch.dismissedRepair),
-    planPrices: withPlanPrice(previous.planPrices, patch.planPrice),
   }
-}
-
-/**
- * Mirrors the Rust side: a null price forgets the profile's.
- */
-function withPlanPrice(
-  prices: AppState['planPrices'] | undefined,
-  patch: AppStatePatch['planPrice'],
-): AppState['planPrices'] {
-  const next = { ...(prices ?? {}) }
-  if (patch === undefined) {
-    return next
-  }
-  if (patch.cents === null) {
-    delete next[patch.profileId]
-  } else {
-    next[patch.profileId] = patch.cents
-  }
-  return next
 }
 
 /** Mirrors the Rust side: trims, and an empty name drops the custom name. */

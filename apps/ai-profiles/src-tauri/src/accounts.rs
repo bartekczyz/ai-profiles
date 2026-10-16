@@ -32,11 +32,6 @@ pub struct ProfileAccount {
     pub organization: Option<String>,
     /// The subscription, e.g. "Max" or "Pro".
     pub plan: Option<String>,
-    /// Which size of the plan, as Claude names its rate limits, e.g.
-    /// `default_claude_max_20x`. Only Claude has one, and only the API
-    /// equivalent's plan price reads it.
-    #[serde(skip)]
-    pub plan_tier: Option<String>,
 }
 
 impl ProfileAccount {
@@ -255,7 +250,6 @@ fn account_from_claude_json(document: &Value) -> Option<ProfileAccount> {
         name: text("displayName").or_else(|| text("fullName")),
         organization: text("organizationName"),
         plan: text("organizationType").as_deref().map(pretty_plan),
-        plan_tier: text("organizationRateLimitTier"),
     };
     (!account.is_empty()).then_some(account)
 }
@@ -304,7 +298,6 @@ fn account_from_codex_auth(document: &Value) -> Option<ProfileAccount> {
         plan: text(openai.and_then(|auth| auth.get("chatgpt_plan_type")))
             .as_deref()
             .map(pretty_plan),
-        plan_tier: None,
     };
     (!account.is_empty()).then_some(account)
 }
@@ -365,7 +358,6 @@ mod tests {
                 "fullName": "Ada Lovelace",
                 "organizationName": "Ada's Organization",
                 "organizationType": "claude_max",
-                "organizationRateLimitTier": "default_claude_max_20x",
             },
             "projects": {},
         });
@@ -376,7 +368,6 @@ mod tests {
                 name: Some("Ada".into()),
                 organization: Some("Ada's Organization".into()),
                 plan: Some("Max".into()),
-                plan_tier: Some("default_claude_max_20x".into()),
             })
         );
     }
@@ -709,7 +700,6 @@ mod tests {
                 name: Some("Ada Lovelace".into()),
                 organization: Some("Personal".into()),
                 plan: Some("Prolite".into()),
-                plan_tier: None,
             })
         );
     }

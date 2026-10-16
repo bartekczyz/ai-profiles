@@ -1,4 +1,7 @@
-//! What a profile's Claude Code use would have cost at Claude API prices.
+//! An estimate of what a profile's Claude Code use would cost at Claude API
+//! prices. It is not the profile's bill: the transcripts don't say how each
+//! request was paid for (API key or subscription), so nothing is compared
+//! against a plan.
 //!
 //! Read from the transcripts in the profile's config dir,
 //! `projects/**/*.jsonl`, subagents' included: each response Claude Code
@@ -22,7 +25,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::line_cache::{LineCache, LineScan};
 
-/// How many days, today included, the API equivalent covers. Claude Code
+/// How many days, today included, the estimate covers. Claude Code
 /// deletes transcripts after 30 days unless told otherwise
 /// (`cleanupPeriodDays`), so a longer window would mostly be empty.
 pub const WINDOW_DAYS: u32 = 30;
@@ -195,8 +198,10 @@ fn price_of(model: &str) -> Option<&'static ModelPrice> {
     PRICES.iter().find(|price| price.id == undated)
 }
 
-/// What a profile's Claude Code use over the last [`WINDOW_DAYS`] would have
-/// cost on the Claude API, in USD.
+/// What a profile's Claude Code use over the last [`WINDOW_DAYS`] would cost
+/// at Claude API list prices, in USD: an estimate of the recorded use, not
+/// what the profile was billed, whether it pays by API key or by
+/// subscription.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiCost {
@@ -220,11 +225,6 @@ pub struct ApiCost {
     pub unpriced: Vec<UnpricedModel>,
     /// When the prices were last checked, `YYYY-MM-DD`.
     pub prices_as_of: &'static str,
-    /// The profile's plan, e.g. "Pro".
-    pub plan: Option<String>,
-    /// What the plan costs a month at list price, in US cents, when it has
-    /// one the app knows.
-    pub plan_list_price_cents: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -470,15 +470,9 @@ fn turn_of(record: Record) -> Option<(String, Turn)> {
 /// Transcripts already read, by path.
 static USAGE_CACHE: LazyLock<LineCache<UsageScan, UsageScan>> = LazyLock::new(LineCache::default);
 
-/// The API equivalent of the Claude Code use recorded in `config_dir`, as of
-/// `today`, for a profile on `plan` (of size `plan_tier`). Walks every
-/// transcript, so it belongs on a blocking thread.
-pub fn read(
-    config_dir: &Path,
-    plan: Option<String>,
-    plan_tier: Option<&str>,
-    today: NaiveDate,
-) -> ApiCost {
+/// The estimated API cost of the Claude Code use recorded in `config_dir`, as
+/// of `today`. Walks every transcript, so it belongs on a blocking thread.
+pub fn read(config_dir: &Path, today: NaiveDate) -> ApiCost {
     USAGE_CACHE.forget_gone();
     let projects = config_dir.join("projects");
     let mut paths = Vec::new();
@@ -498,12 +492,7 @@ pub fn read(
         .collect();
     let read: HashSet<PathBuf> = paths.into_iter().collect();
     USAGE_CACHE.retain(|path| !path.starts_with(&projects) || read.contains(path));
-    let plan_list_price_cents = list_price_cents(plan.as_deref(), plan_tier);
-    ApiCost {
-        plan,
-        plan_list_price_cents,
-        ..tally(&scans, today)
-    }
+    tally(&scans, today)
 }
 
 /// Every `.jsonl` file in `dir` and the folders in it, into `found`.
@@ -521,20 +510,6 @@ fn transcripts(dir: &Path, found: &mut Vec<PathBuf>) {
             }
             _ => {}
         }
-    }
-}
-
-/// What the plan named `plan` (e.g. "Max", as [`crate::accounts`] labels
-/// it), of size `tier`, costs a month at list price, in US cents.
-fn list_price_cents(plan: Option<&str>, tier: Option<&str>) -> Option<u32> {
-    match plan? {
-        "Pro" => Some(2_000),
-        "Max" => match tier? {
-            tier if tier.ends_with("_20x") => Some(20_000),
-            tier if tier.ends_with("_5x") => Some(10_000),
-            _ => None,
-        },
-        _ => None,
     }
 }
 
@@ -561,9 +536,9 @@ fn cost(price: &ModelPrice, turn: &Turn) -> KindCosts {
     }
 }
 
-/// The API equivalent of the responses in `scans` over the window ending
-/// `today`, without the plan. A response in more than one transcript counts
-/// once, from the copy with the most output.
+/// The estimated API cost of the responses in `scans` over the window ending
+/// `today`. A response in more than one transcript counts once, from the copy
+/// with the most output.
 fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
     let mut kept: HashMap<&str, (&Turn, Option<&str>)> = HashMap::new();
     for scan in scans {
@@ -680,8 +655,6 @@ fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
         projects,
         unpriced,
         prices_as_of: PRICES_AS_OF,
-        plan: None,
-        plan_list_price_cents: None,
     }
 }
 
@@ -724,7 +697,7 @@ mod tests {
     }
 
     fn cost_of(config: &Path) -> ApiCost {
-        read(config, None, None, today())
+        read(config, today())
     }
 
     fn assert_usd(actual: f64, expected: f64) {
@@ -946,7 +919,7 @@ mod tests {
         // 29 days on, the first response has left the window, which the
         // second still covers in full.
         let later = today() + Days::new(29);
-        let cost = read(config.path(), None, None, later);
+        let cost = read(config.path(), later);
         assert_usd(cost.total_usd, 2.0);
         assert_eq!(cost.covered_days, WINDOW_DAYS);
         assert_eq!(cost.projected_usd, None);
@@ -975,28 +948,46 @@ mod tests {
     }
 
     #[test]
-    fn the_plan_list_price_comes_from_the_plan_and_its_size() {
-        assert_eq!(list_price_cents(Some("Pro"), None), Some(2_000));
-        assert_eq!(
-            list_price_cents(Some("Max"), Some("default_claude_max_5x")),
-            Some(10_000)
+    fn an_api_key_profile_and_one_beside_a_desktop_subscription_get_the_same_estimate() {
+        // The same recorded use, once by a profile signed in with an API key
+        // and once by one whose desktop app is on a Max plan: neither is
+        // compared against a plan, and both get the same estimate.
+        let api_key = tempdir().unwrap();
+        let subscribed = tempdir().unwrap();
+        fs::write(
+            api_key.path().join(".claude.json"),
+            json!({ "primaryApiKey": "sk-ant-test" }).to_string(),
+        )
+        .unwrap();
+        fs::write(
+            subscribed.path().join(".claude.json"),
+            json!({ "oauthAccount": { "organizationType": "claude_max" } }).to_string(),
+        )
+        .unwrap();
+        for config in [&api_key, &subscribed] {
+            write(
+                config.path(),
+                "-work-app/s1.jsonl",
+                &[response(
+                    NOW,
+                    "msg_1",
+                    "claude-opus-5-5",
+                    json!({ "output_tokens": 1_000_000 }),
+                )],
+            );
+        }
+
+        let estimates = [api_key.path(), subscribed.path()]
+            .map(|config| serde_json::to_value(cost_of(config)).unwrap());
+
+        assert_eq!(estimates[0], estimates[1]);
+        assert_eq!(estimates[0]["totalUsd"], json!(20.0));
+        let fields: Vec<&String> = estimates[0].as_object().unwrap().keys().collect();
+        assert!(
+            fields
+                .iter()
+                .all(|field| !field.to_lowercase().contains("plan")),
+            "an estimate carries no plan: {fields:?}"
         );
-        assert_eq!(
-            list_price_cents(Some("Max"), Some("default_claude_max_20x")),
-            Some(20_000)
-        );
-        assert_eq!(list_price_cents(Some("Max"), None), None);
-        assert_eq!(list_price_cents(Some("Team"), None), None);
-        assert_eq!(list_price_cents(None, None), None);
-    }
-
-    #[test]
-    fn the_plan_is_passed_through_with_its_list_price() {
-        let config = tempdir().unwrap();
-
-        let cost = read(config.path(), Some("Pro".into()), None, today());
-
-        assert_eq!(cost.plan.as_deref(), Some("Pro"));
-        assert_eq!(cost.plan_list_price_cents, Some(2_000));
     }
 }

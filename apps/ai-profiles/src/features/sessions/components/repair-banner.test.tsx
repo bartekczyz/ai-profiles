@@ -32,7 +32,6 @@ function appState(dismissedRepairSessions: AppState['dismissedRepairSessions'] =
     dockIconAcknowledgedAt: null,
     defaultProfileNames: {},
     dismissedRepairSessions,
-    planPrices: {},
   }
 }
 

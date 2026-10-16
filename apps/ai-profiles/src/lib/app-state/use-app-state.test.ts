@@ -18,7 +18,6 @@ function makeAppState(overrides: Partial<AppState> = {}): AppState {
     dockIconAcknowledgedAt: null,
     defaultProfileNames: {},
     dismissedRepairSessions: {},
-    planPrices: {},
     ...overrides,
   }
 }
@@ -176,13 +175,5 @@ describe('computeOptimisticAppState', () => {
       dismissedRepair: { profileId: 'p1', sessionIds: [] },
     })
     expect(forgotten.dismissedRepairSessions).toEqual({})
-  })
-
-  it('sets a plan price and forgets it for null', () => {
-    const previous = makeAppState({ planPrices: {} })
-    const priced = computeOptimisticAppState(previous, { planPrice: { profileId: 'p1', cents: 1_700 } })
-    expect(priced.planPrices).toEqual({ p1: 1_700 })
-    const forgotten = computeOptimisticAppState(priced, { planPrice: { profileId: 'p1', cents: null } })
-    expect(forgotten.planPrices).toEqual({})
   })
 })

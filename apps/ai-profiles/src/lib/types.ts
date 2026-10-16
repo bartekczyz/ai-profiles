@@ -155,12 +155,6 @@ export type AppState = {
    * session not among them needs repair.
    */
   dismissedRepairSessions: Record<string, Array<string>>
-  /**
-   * What the user said they pay a month for each profile's plan, in US cents,
-   * by profile id. The API equivalent compares against it in place of the
-   * plan's list price.
-   */
-  planPrices: Record<string, number>
 }
 
 export type AppStatePatch = {
@@ -185,11 +179,6 @@ export type AppStatePatch = {
    * list forgets the dismissal.
    */
   dismissedRepair?: { profileId: string; sessionIds: Array<string> }
-  /**
-   * Sets what the user pays a month for a profile's plan, in US cents. `null`
-   * forgets it, putting the plan's list price back.
-   */
-  planPrice?: { profileId: string; cents: number | null }
 }
 
 /**
@@ -286,8 +275,9 @@ export type ProfileUsage = {
 export type ModelCost = { model: string; usd: number }
 
 /**
- * What a profile's Claude Code use over the last 30 days would have cost at
- * Claude API prices, in USD, read from its transcripts.
+ * An estimate of what a profile's Claude Code use over the last 30 days would
+ * cost at Claude API prices, in USD, read from its transcripts. Not the
+ * profile's bill.
  */
 export type ApiCost = {
   totalUsd: number
@@ -329,14 +319,6 @@ export type ApiCost = {
    * When the built-in prices were last checked, `YYYY-MM-DD`.
    */
   pricesAsOf: string
-  /**
-   * The plan the profile is signed in on, e.g. "Pro".
-   */
-  plan: string | null
-  /**
-   * The plan's list price a month in US cents, when the app knows it.
-   */
-  planListPriceCents: number | null
 }
 
 /** The account a profile is signed in under, from what its CLI keeps on disk. */

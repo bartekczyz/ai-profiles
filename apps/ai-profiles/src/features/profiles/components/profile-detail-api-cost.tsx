@@ -1,16 +1,13 @@
-import type { FormEvent } from 'react'
 import type { AppId } from '@/lib/app-registry'
 import type { ApiCost } from '@/lib/types'
 
-import { Suspense, useState } from 'react'
+import { useState } from 'react'
 
 import { format, parseISO } from 'date-fns'
 import { ChevronRight } from 'lucide-react'
 
 import { Button, Dialog, Kbd } from '@/design'
-import { Input } from '@/design/ui/input'
 import { appSpecs } from '@/lib/app-registry'
-import { useAppState } from '@/lib/app-state/use-app-state'
 
 import { useProfileApiCost } from '../api/use-profile-api-cost'
 import { shortenHomePath } from './shorten-home-path'
@@ -38,9 +35,13 @@ type Props = {
 }
 
 /**
- * One line under the usage card saying what the profile's Claude Code use
- * would have cost at Claude API prices, which opens the breakdown. Nothing
- * for an app without transcripts to price, or a profile without any yet.
+ * One line under the usage card estimating what the profile's Claude Code use
+ * would cost at Claude API prices, which opens the breakdown. Nothing for an
+ * app without transcripts to price, or a profile without any yet.
+ *
+ * It is an estimate of the recorded use, never the bill: the profile may pay
+ * by API key, by subscription, or both over time, and nothing on disk says
+ * which, so it isn't compared against a plan.
  */
 export function ProfileDetailApiCost({ app, profileId }: Props) {
   const enabled = appSpecs[app].hasApiCost
@@ -48,21 +49,11 @@ export function ProfileDetailApiCost({ app, profileId }: Props) {
   if (!enabled || !cost || cost.coveredDays === 0) {
     return null
   }
-  // Its own boundary, so the pane never waits on the app state the plan
-  // price is kept in.
-  return (
-    <Suspense fallback={null}>
-      <ApiCostRow cost={cost} profileId={profileId} />
-    </Suspense>
-  )
+  return <ApiCostRow cost={cost} />
 }
 
-function ApiCostRow({ cost, profileId }: { cost: ApiCost; profileId: string }) {
-  const { state } = useAppState()
+function ApiCostRow({ cost }: { cost: ApiCost }) {
   const [open, setOpen] = useState(false)
-  const customCents = state.planPrices[profileId] ?? null
-  const planCents = customCents ?? cost.planListPriceCents
-  const multiple = planMultiple(cost, planCents)
 
   return (
     <>
@@ -72,22 +63,16 @@ function ApiCostRow({ cost, profileId }: { cost: ApiCost; profileId: string }) {
         className="mb-3.5 flex w-full cursor-pointer items-center gap-2 rounded-[10px] border border-border-soft bg-white/30 px-[13px] py-[9px] text-left text-meta transition-colors hover:bg-white/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:bg-white/[0.02] dark:hover:bg-white/[0.05]"
       >
         <span className="font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong">
-          API equivalent
+          Estimated API cost
         </span>
         <span className="font-mono text-mono text-muted-strong">last {cost.coveredDays}d</span>
         <span className="font-medium text-ink tabular-nums">{formatUsd(cost.totalUsd)}</span>
-        {multiple !== null ? (
-          <span className="truncate text-muted">
-            · {cost.projectedUsd !== null ? 'on pace for ' : null}
-            {formatMultiple(multiple)} {planPhrase(cost.plan)}
-          </span>
-        ) : null}
         <ChevronRight aria-hidden size={14} className="ml-auto shrink-0 text-muted-strong" />
       </button>
       <Dialog
         open={open}
-        title="API equivalent"
-        description={`What the last ${windowDays} days of Claude Code on this profile would have cost at Claude API prices.`}
+        title="Estimated API cost"
+        description={`What the last ${windowDays} days of Claude Code on this profile would cost at Claude API prices. An estimate, not your bill.`}
         className="w-[min(600px,calc(100%-64px))]"
         onClose={() => setOpen(false)}
         foot={
@@ -96,13 +81,7 @@ function ApiCostRow({ cost, profileId }: { cost: ApiCost; profileId: string }) {
           </Button>
         }
       >
-        <Summary cost={cost} multiple={multiple} />
-        <PlanPrice
-          profileId={profileId}
-          plan={cost.plan}
-          listCents={cost.planListPriceCents}
-          customCents={customCents}
-        />
+        <Summary cost={cost} />
         <DailyChart cost={cost} />
         <KindBreakdown byKind={cost.byKind} />
         <Projects projects={cost.projects} />
@@ -112,127 +91,15 @@ function ApiCostRow({ cost, profileId }: { cost: ApiCost; profileId: string }) {
   )
 }
 
-function Summary({ cost, multiple }: { cost: ApiCost; multiple: number | null }) {
+function Summary({ cost }: { cost: ApiCost }) {
   return (
     <section className="mb-4">
       <p className="m-0 text-[28px] font-semibold tracking-[-0.02em] text-ink tabular-nums">
         {formatUsd(cost.totalUsd)}
       </p>
-      <p className="m-0 text-meta text-muted">{summaryText(cost, multiple)}</p>
+      <p className="m-0 text-meta text-muted">{summaryText(cost)}</p>
     </section>
   )
-}
-
-type PlanPriceProps = {
-  profileId: string
-  plan: string | null
-  listCents: number | null
-  customCents: number | null
-}
-
-/**
- * What the plan costs a month, which the multiple compares against: the
- * plan's list price, or what the user said they pay instead (an annual plan,
- * local currency, tax), kept per profile.
- */
-function PlanPrice({ profileId, plan, listCents, customCents }: PlanPriceProps) {
-  const cents = customCents ?? listCents
-  const [editing, setEditing] = useState(false)
-  if (editing) {
-    return (
-      <PlanPriceForm
-        profileId={profileId}
-        cents={cents}
-        canReset={customCents !== null && listCents !== null}
-        onDone={() => setEditing(false)}
-      />
-    )
-  }
-  return (
-    <div className="mb-5 flex items-center gap-2 text-meta text-muted">
-      <span>{planPriceLabel(plan, cents, customCents !== null)}</span>
-      <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-        {cents === null ? 'Add price' : 'Edit'}
-      </Button>
-    </div>
-  )
-}
-
-type PlanPriceFormProps = {
-  profileId: string
-  /**
-   * The price the form starts from.
-   */
-  cents: number | null
-  /**
-   * Whether the user's price can be dropped for the list price.
-   */
-  canReset: boolean
-  onDone: () => void
-}
-
-function PlanPriceForm({ profileId, cents, canReset, onDone }: PlanPriceFormProps) {
-  const { update } = useAppState()
-  const [draft, setDraft] = useState(cents === null ? '' : String(cents / 100))
-  const [saving, setSaving] = useState(false)
-  const draftCents = parseUsdToCents(draft)
-
-  async function save(next: number | null) {
-    setSaving(true)
-    try {
-      await update({ planPrice: { profileId, cents: next } })
-      onDone()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  function submit(event: FormEvent) {
-    event.preventDefault()
-    if (draftCents !== null) {
-      void save(draftCents)
-    }
-  }
-
-  return (
-    <form onSubmit={submit} className="mb-5 flex items-center gap-2">
-      <label htmlFor="plan-price" className="shrink-0 text-meta text-muted">
-        You pay a month, USD
-      </label>
-      <Input
-        autoFocus
-        id="plan-price"
-        inputMode="decimal"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        placeholder="20"
-        autoComplete="off"
-        className="w-24 py-1.5"
-      />
-      <Button type="submit" variant="primary" size="sm" disabled={draftCents === null || saving}>
-        Save
-      </Button>
-      {canReset ? (
-        <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={() => save(null)}>
-          Use list price
-        </Button>
-      ) : null}
-      <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={onDone}>
-        Cancel
-      </Button>
-    </form>
-  )
-}
-
-/**
- * What the plan costs a month, as the breakdown names it.
- */
-function planPriceLabel(plan: string | null, cents: number | null, custom: boolean): string {
-  if (cents === null) {
-    return 'Add what you pay a month to compare.'
-  }
-  const name = plan ? `${plan} plan` : 'Your plan'
-  return `${name}: ${formatUsd(cents / 100)}/mo${custom ? ', as you set it' : ''}`
 }
 
 /**
@@ -359,49 +226,27 @@ function Footnote({ cost }: { cost: ApiCost }) {
       {cost.unpriced.length > 0 ? <p className="m-0 mb-2 text-amber">{unpricedNote(cost.unpriced)}</p> : null}
       <p className="m-0">
         From this profile's Claude Code transcripts, at Claude API list prices as of{' '}
-        {format(parseISO(cost.pricesAsOf), 'MMM d, yyyy')}. Chats in the desktop app and on claude.ai keep no token
-        counts, so they aren't included.
+        {format(parseISO(cost.pricesAsOf), 'MMM d, yyyy')}. It estimates the use they record, not what you were billed,
+        whether you pay by API key or by subscription. Chats in the desktop app and on claude.ai keep no token counts,
+        so they aren't included.
       </p>
     </section>
   )
 }
 
 /**
- * How many times what the plan costs a month the use comes to over the
- * window: at the pace so far when the transcripts cover only part of it.
- * `null` without a price to compare against.
+ * The line under the total: the days it covers, and the pace when that is
+ * only part of the window.
  */
-export function planMultiple(
-  cost: Pick<ApiCost, 'totalUsd' | 'projectedUsd'>,
-  planCents: number | null,
-): number | null {
-  if (planCents === null || planCents <= 0) {
-    return null
-  }
-  return (cost.projectedUsd ?? cost.totalUsd) / (planCents / 100)
-}
-
-export function formatMultiple(multiple: number): string {
-  return multiple >= 10 ? `${Math.round(multiple)}×` : `${multiple.toFixed(1)}×`
-}
-
-/**
- * The line under the total: the days it covers and how it compares.
- */
-export function summaryText(cost: Pick<ApiCost, 'coveredDays' | 'projectedUsd'>, multiple: number | null): string {
-  const pays = multiple === null ? '' : `, ${formatMultiple(multiple)} what you pay`
+export function summaryText(cost: Pick<ApiCost, 'coveredDays' | 'projectedUsd'>): string {
   if (cost.projectedUsd === null) {
-    return `Over the last ${windowDays} days${pays}.`
+    return `Over the last ${windowDays} days.`
   }
-  return `Over the ${dayCount(cost.coveredDays)} your transcripts cover. On pace for ${formatUsd(cost.projectedUsd)} over ${windowDays} days${pays}.`
+  return `Over the ${dayCount(cost.coveredDays)} your transcripts cover. On pace for ${formatUsd(cost.projectedUsd)} over ${windowDays} days.`
 }
 
 function dayCount(days: number): string {
   return days === 1 ? '1 day' : `${days} days`
-}
-
-function planPhrase(plan: string | null): string {
-  return plan ? `your ${plan} plan` : 'your plan'
 }
 
 /**
@@ -435,19 +280,6 @@ function formatDay(date: string): string {
 function folderName(path: string): string {
   const short = shortenHomePath(path)
   return short === '~' ? short : (path.split('/').filter(Boolean).pop() ?? path)
-}
-
-/**
- * A price typed in dollars, `$` or not, in cents: `null` for anything that
- * isn't a positive amount.
- */
-export function parseUsdToCents(text: string): number | null {
-  const trimmed = text.trim().replace(/^\$/, '').trim()
-  if (!/^\d+(\.\d{0,2})?$/.test(trimmed)) {
-    return null
-  }
-  const cents = Math.round(Number(trimmed) * 100)
-  return cents > 0 ? cents : null
 }
 
 /**

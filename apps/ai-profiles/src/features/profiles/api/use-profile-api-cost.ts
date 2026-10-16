@@ -4,8 +4,8 @@ import { getProfileApiCost } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 
 /**
- * What a profile's Claude Code use over the last 30 days would have cost at
- * Claude API prices.
+ * An estimate of what a profile's Claude Code use over the last 30 days would
+ * cost at Claude API prices.
  *
  * Transcripts grow outside the app, so it is read again every time the window
  * regains focus, as the sessions list is. That stays cheap: the backend reads
