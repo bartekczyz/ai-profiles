@@ -2,7 +2,7 @@ import type { Profile } from '@/lib/types'
 
 import { describe, expect, it } from 'vitest'
 
-import { planProfileEdit } from './plan-profile-edit'
+import { changesAnything, planProfileEdit } from './plan-profile-edit'
 
 const profile: Profile = {
   id: 'p1',
@@ -66,5 +66,19 @@ describe('planProfileEdit', () => {
       patch: null,
       toggles: [{ surface: 'cli', enabled: true }],
     })
+  })
+})
+
+describe('changesAnything', () => {
+  it('is false when the form matches the profile and the icon is left alone', () => {
+    expect(changesAnything(planProfileEdit(profile, unchanged), null)).toBe(false)
+  })
+
+  it('is true for a patch, a surface switched, or an icon change alone', () => {
+    expect(changesAnything(planProfileEdit(profile, { ...unchanged, name: 'Home' }), null)).toBe(true)
+    expect(changesAnything(planProfileEdit(profile, { ...unchanged, surfaces: { gui: true, cli: true } }), null)).toBe(
+      true,
+    )
+    expect(changesAnything(planProfileEdit(profile, unchanged), { kind: 'generated' })).toBe(true)
   })
 })

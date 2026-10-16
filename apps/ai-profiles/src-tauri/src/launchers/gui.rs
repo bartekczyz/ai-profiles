@@ -6,7 +6,7 @@ use std::sync::{Mutex, PoisonError};
 use crate::app_kind::AppSpec;
 use crate::error::{AppError, AppResult};
 use crate::launchers::wrapper::{self, WrapperRequest};
-use crate::launchers::{icons, plist, script};
+use crate::launchers::{custom_icon, plist, script};
 use crate::paths::{
     cli_config_dir, gui_launcher_path, gui_launcher_path_with_prefix, profile_dir, resolve_gui_app,
     stock_cli_config_dir, ResolvedGuiApp,
@@ -198,7 +198,7 @@ fn build_script_launcher(
     perms.set_mode(0o755);
     fs::set_permissions(&launcher_path, perms)?;
 
-    let icns_bytes = icons::render_icns(&profile.color, &app.bundle_path)?;
+    let icns_bytes = custom_icon::launcher_icns(profile, &app.bundle_path)?;
     fs::write(resources.join("AppIcon.icns"), icns_bytes)?;
     Ok(())
 }
@@ -214,7 +214,7 @@ fn build_wrapper(
     bundle: &Path,
 ) -> AppResult<()> {
     let spec = profile.app.spec();
-    let icon = icons::render_icns(&profile.color, &app.bundle_path)?;
+    let icon = custom_icon::launcher_icns(profile, &app.bundle_path)?;
     let user_data_dir = profile_dir(&profile.id)?.join("gui-data");
     let config_home = cli_config_dir(&profile.id)?;
 

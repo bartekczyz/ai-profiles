@@ -2,15 +2,24 @@ import type { Dependencies } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ToastProvider } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
+import { checkCustomIcon, generatedIconPreview } from '@/lib/commands'
 import { pressOutside } from '@/test/press-outside'
+import { renderWithQuery } from '@/test/render-with-query'
 
 import { CreateProfileDialog } from './create-profile-dialog'
+
+// The generated icon the launcher-icon preview shows: the bytes of 'gen'.
+vi.mock('@/lib/commands', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/commands')>()),
+  generatedIconPreview: vi.fn(async () => new Uint8Array([0x67, 0x65, 0x6e]).buffer),
+  checkCustomIcon: vi.fn(async () => {}),
+}))
 
 const ONLY_CLAUDE_INSTALLED: Dependencies = {
   apps: {
@@ -40,7 +49,7 @@ function setup(overrides: Partial<Parameters<typeof CreateProfileDialog>[0]> = {
   const onClose = vi.fn()
   const onCreate = vi.fn().mockResolvedValue(undefined)
   const onAcknowledgeDockIcon = vi.fn().mockResolvedValue(undefined)
-  render(
+  renderWithQuery(
     <ToastProvider>
       <CreateProfileDialog
         open
@@ -92,6 +101,7 @@ describe('CreateProfileDialog', () => {
       color: '#d97757',
       surfaces: { gui: true, cli: true },
       distinctDockIcon: false,
+      iconChange: null,
     })
     expect(onClose).toHaveBeenCalled()
   })
@@ -106,6 +116,7 @@ describe('CreateProfileDialog', () => {
       color: '#d97757',
       surfaces: { gui: true, cli: true },
       distinctDockIcon: false,
+      iconChange: null,
     })
   })
 
@@ -125,6 +136,7 @@ describe('CreateProfileDialog', () => {
       // Enter handler stops the checkbox from toggling itself off.
       surfaces: { gui: true, cli: true },
       distinctDockIcon: false,
+      iconChange: null,
     })
   })
 
@@ -137,7 +149,7 @@ describe('CreateProfileDialog', () => {
   it('shows a toast (not an inline message) when the backend rejects, and keeps the dialog open', async () => {
     const onCreate = vi.fn().mockRejectedValue({ kind: 'Validation', message: 'slug already exists' })
     const onClose = vi.fn()
-    render(
+    renderWithQuery(
       <ToastProvider>
         <CreateProfileDialog
           open
@@ -161,7 +173,7 @@ describe('CreateProfileDialog', () => {
 describe('CreateProfileDialog — dependency awareness', () => {
   function renderWith(deps: Dependencies) {
     const onCreate = vi.fn().mockResolvedValue(undefined)
-    render(
+    renderWithQuery(
       <ToastProvider>
         <CreateProfileDialog
           open
@@ -212,7 +224,7 @@ describe('CreateProfileDialog — dependency awareness', () => {
 
   it('submits only the available surface when one is missing', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined)
-    render(
+    renderWithQuery(
       <ToastProvider>
         <CreateProfileDialog
           open
@@ -239,6 +251,7 @@ describe('CreateProfileDialog — dependency awareness', () => {
       color: '#d97757',
       surfaces: { gui: false, cli: true },
       distinctDockIcon: false,
+      iconChange: null,
     })
   })
 })
@@ -246,7 +259,7 @@ describe('CreateProfileDialog — dependency awareness', () => {
 describe('CreateProfileDialog — app-type picker behaviour', () => {
   it('pre-selects codex and calls onCreate with app: codex when only Codex is installed', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined)
-    render(
+    renderWithQuery(
       <ToastProvider>
         <CreateProfileDialog
           open
@@ -272,7 +285,7 @@ describe('CreateProfileDialog — app-type picker behaviour', () => {
 
   it('blocks submit with both apps installed until the user picks one', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined)
-    render(
+    renderWithQuery(
       <ToastProvider>
         <CreateProfileDialog
           open
@@ -292,7 +305,7 @@ describe('CreateProfileDialog — app-type picker behaviour', () => {
   })
 
   it('renders the Codex GUI install link when Codex is selected and GUI is missing', async () => {
-    render(
+    renderWithQuery(
       <ToastProvider>
         <CreateProfileDialog
           open
@@ -421,7 +434,7 @@ describe('CreateProfileDialog — Dock icon', () => {
         </ToastProvider>
       )
     }
-    render(<Harness />)
+    renderWithQuery(<Harness />)
     const user = userEvent.setup()
     await user.click(dockIconOption())
     const explanation = await screen.findByRole('dialog')
@@ -513,5 +526,46 @@ describe('CreateProfileDialog — leaving it', () => {
     const { onClose, user } = setup()
     await user.keyboard('{Escape}')
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('CreateProfileDialog — launcher icon', () => {
+  const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'logo.png', { type: 'image/png' })
+
+  async function previewShows(src: string) {
+    await waitFor(() => {
+      expect(screen.getByRole('img', { name: 'Launcher icon preview' })).toHaveAttribute('src', src)
+    })
+  }
+
+  it('previews the generated icon of the app and color chosen, under the Dock icon option', async () => {
+    setup()
+    await previewShows('data:image/png;base64,Z2Vu')
+    expect(generatedIconPreview).toHaveBeenLastCalledWith('claude', '#d97757')
+    expect(screen.queryByRole('button', { name: 'Reset to default' })).toBeNull()
+  })
+
+  it('creates the profile with a picked image, checked when it was picked', async () => {
+    const { onCreate, user } = setup()
+    await user.type(screen.getByLabelText('Name'), 'Personal')
+    await user.upload(screen.getByLabelText('Launcher icon image'), png)
+    await previewShows('data:image/png;base64,iVBORw==')
+    expect(checkCustomIcon).toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: /^Create profile/ }))
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Personal',
+        iconChange: { kind: 'custom', file: png, preview: 'data:image/png;base64,iVBORw==' },
+      }),
+    )
+  })
+
+  it('starts the next profile without the image picked for the last', async () => {
+    const { user } = setup()
+    await user.type(screen.getByLabelText('Name'), 'Personal')
+    await user.upload(screen.getByLabelText('Launcher icon image'), png)
+    await previewShows('data:image/png;base64,iVBORw==')
+    await user.click(screen.getByRole('button', { name: /^Create profile/ }))
+    await previewShows('data:image/png;base64,Z2Vu')
   })
 })

@@ -12,7 +12,7 @@ use crate::error::{AppError, AppResult};
 const ICON_SIZES: [u32; 7] = [16, 32, 64, 128, 256, 512, 1024];
 
 /// The size every other size is cut from.
-const LARGEST_ICON_SIZE: u32 = ICON_SIZES[ICON_SIZES.len() - 1];
+pub const LARGEST_ICON_SIZE: u32 = ICON_SIZES[ICON_SIZES.len() - 1];
 
 /// Color of the ring around the badge, so the badge reads against any artwork.
 const BADGE_RING_COLOR: (u8, u8, u8) = (255, 255, 255);
@@ -105,6 +105,26 @@ pub fn render_icns(color_hex: &str, vendor_bundle: &Path) -> AppResult<Vec<u8>> 
     )
 }
 
+/// The `size`² representation of what [`render_icns`] renders, as PNG bytes:
+/// a preview the UI can show, which is the launcher's icon to the pixel.
+/// `size` must be one of `ICON_SIZES`.
+pub fn render_png(color_hex: &str, vendor_bundle: &Path, size: u32) -> AppResult<Vec<u8>> {
+    let icns = render_icns(color_hex, vendor_bundle)?;
+    let family = IconFamily::read(Cursor::new(icns))
+        .map_err(|err| AppError::Validation(format!("icns read failed: {err}")))?;
+    let icon_type = family
+        .available_icons()
+        .into_iter()
+        .find(|icon_type| icon_type.pixel_width() == size)
+        .ok_or_else(|| AppError::Validation(format!("no {size}px icon")))?;
+    let image = family
+        .get_icon_with_type(icon_type)
+        .map_err(|err| AppError::Validation(format!("icon decode failed: {err}")))?;
+    let mut png = Vec::new();
+    image.write_png(&mut png)?;
+    Ok(png)
+}
+
 /// [`render_icns`] for artwork that has already been chosen.
 fn render_icns_from(color_hex: &str, artwork: Option<Artwork>) -> AppResult<Vec<u8>> {
     let color = parse_hex_color(color_hex)?;
@@ -113,12 +133,32 @@ fn render_icns_from(color_hex: &str, artwork: Option<Artwork>) -> AppResult<Vec<
     // rather than mixing sources.
     let artwork = artwork.filter(|artwork| artwork.size >= LARGEST_ICON_SIZE);
 
+    encode_icns(|size| match &artwork {
+        Some(artwork) => badged_artwork(artwork, size, color),
+        None => render_rounded_square(size, color),
+    })
+}
+
+/// Render a complete `.icns` from `rgba`, a square `size`² image the user chose
+/// for a launcher: every size in `ICON_SIZES` cut from it, and nothing added.
+/// It carries no badge, since a picture the user picked tells the profiles
+/// apart well enough, and anything drawn over it would be drawn over their
+/// artwork. `size` must be at least the largest icon size.
+pub fn render_plain_icns(rgba: &[u8], size: u32) -> AppResult<Vec<u8>> {
+    if size < LARGEST_ICON_SIZE {
+        return Err(AppError::Validation(format!(
+            "an icon needs to be at least {LARGEST_ICON_SIZE}px, got {size}px"
+        )));
+    }
+    encode_icns(|icon_size| downsample(rgba, size, icon_size))
+}
+
+/// Encode one RGBA representation per entry of `ICON_SIZES`, each made by
+/// `pixels_at(size)`, into the bytes of an `.icns` file.
+fn encode_icns(mut pixels_at: impl FnMut(u32) -> Vec<u8>) -> AppResult<Vec<u8>> {
     let mut family = IconFamily::new();
     for &size in &ICON_SIZES {
-        let pixels = match &artwork {
-            Some(artwork) => badged_artwork(artwork, size, color),
-            None => render_rounded_square(size, color),
-        };
+        let pixels = pixels_at(size);
         let image = Image::from_data(PixelFormat::RGBA, size, size, pixels)
             .map_err(|err| AppError::Validation(format!("image build failed: {err}")))?;
         family
@@ -849,6 +889,64 @@ mod tests {
     #[test]
     fn render_icns_fails_for_invalid_color() {
         assert!(render_icns_from("not-a-color", None).is_err());
+    }
+
+    #[test]
+    fn the_preview_is_the_launcher_icon_at_that_size() {
+        let nowhere = Path::new("/nonexistent/Vendor.app");
+        let png = render_png(PROFILE_COLOR, nowhere, 128).unwrap();
+
+        let preview = Image::read_png(Cursor::new(png)).unwrap();
+        let icns = render_icns(PROFILE_COLOR, nowhere).unwrap();
+        assert_eq!((preview.width(), preview.height()), (128, 128));
+        assert_eq!(
+            preview.convert_to(PixelFormat::RGBA).data(),
+            icon_at(&icns, 128).data()
+        );
+        assert!(
+            render_png(PROFILE_COLOR, nowhere, 100).is_err(),
+            "not an icon size"
+        );
+    }
+
+    #[test]
+    fn a_plain_icon_has_every_size_and_no_badge() {
+        // Larger than the largest icon size, so every size is cut down from it.
+        let size = 2048;
+        let icns = render_plain_icns(&ARTWORK_PIXEL.repeat((size * size) as usize), size).unwrap();
+
+        let present = widths(&icns);
+        for icon_size in ICON_SIZES {
+            assert!(present.contains(&icon_size), "missing {icon_size}px");
+            let icon = icon_at(&icns, icon_size);
+            // Where the badge would be is the artwork, as everywhere else.
+            let (x, y) = badge_geometry(full_canvas_tile(icon_size)).center;
+            assert_eq!(
+                pixel_at(&icon, x as u32, y as u32),
+                ARTWORK_PIXEL,
+                "{icon_size}px"
+            );
+            assert_eq!(pixel_at(&icon, 0, 0), ARTWORK_PIXEL, "{icon_size}px");
+        }
+    }
+
+    #[test]
+    fn a_plain_icon_keeps_the_artwork_at_the_largest_size() {
+        let size = LARGEST_ICON_SIZE;
+        let rgba: Vec<u8> = (0..size * size)
+            .flat_map(|index| [(index % 251) as u8, (index % 241) as u8, 7, 255])
+            .collect();
+
+        let icns = render_plain_icns(&rgba, size).unwrap();
+
+        assert_eq!(icon_at(&icns, size).data(), rgba.as_slice());
+    }
+
+    #[test]
+    fn a_plain_icon_refuses_artwork_smaller_than_the_largest_size() {
+        let size = LARGEST_ICON_SIZE / 2;
+        let result = render_plain_icns(&ARTWORK_PIXEL.repeat((size * size) as usize), size);
+        assert!(matches!(result, Err(AppError::Validation(_))));
     }
 
     /// Opt-in: renders against whichever vendor apps are installed, so it

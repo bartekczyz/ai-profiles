@@ -145,6 +145,11 @@ pub fn run() {
             commands::move_session,
             commands::check_session_repair,
             commands::repair_sessions,
+            launchers::custom_icon::custom_icon,
+            launchers::custom_icon::generated_icon_preview,
+            launchers::custom_icon::check_custom_icon,
+            launchers::custom_icon::set_custom_icon,
+            launchers::custom_icon::clear_custom_icon,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

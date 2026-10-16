@@ -97,7 +97,7 @@ pub fn delete_profile(id: String, move_to_trash: bool) -> AppResult<()> {
 ///
 /// Deleting a profile is not refused: it goes away on purpose, and its data goes
 /// out from under a running app either way, wrapper or not.
-fn ensure_wrapper_not_running(id: &str) -> AppResult<()> {
+pub(crate) fn ensure_wrapper_not_running(id: &str) -> AppResult<()> {
     let all = profiles::load()?;
     let Some(profile) = all.iter().find(|candidate| candidate.id == id) else {
         return Ok(());

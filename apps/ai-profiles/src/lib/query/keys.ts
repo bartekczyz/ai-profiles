@@ -13,6 +13,7 @@ export const queryKeys = {
     detail: (id: string) => ['profiles', id] as const,
     paths: (id: string) => ['profiles', id, 'paths'] as const,
     account: (id: string) => ['profiles', id, 'account'] as const,
+    customIcon: (id: string) => ['profiles', id, 'custom-icon'] as const,
   },
   // Per-profile Anthropic usage stats. Deliberately OUTSIDE the
   // `profiles` subtree so a prefix invalidation of `['profiles']`
@@ -42,6 +43,9 @@ export const queryKeys = {
   // Outside the `sessions` subtree for the same reason: a repair that was
   // just done must not refetch its check.
   sessionRepairCheck: (profileId: string) => ['session-repair-check', profileId] as const,
+  // Outside the `profiles` subtree: it depends on the app and a color, which
+  // may be one picked in the edit form and not saved yet, not on a profile.
+  generatedIconPreview: (app: string, color: string) => ['generated-icon-preview', app, color.toLowerCase()] as const,
   appState: ['app-state'] as const,
   shell: ['shell'] as const,
 } as const

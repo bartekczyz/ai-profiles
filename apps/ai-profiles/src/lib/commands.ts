@@ -86,6 +86,44 @@ export function profileAccount(id: string): Promise<AccountStatus> {
   return invoke<AccountStatus>('profile_account', { id })
 }
 
+/**
+ * The PNG profile `id` picked for its launcher, as it was given; empty when it
+ * has none.
+ */
+export function customIcon(id: string): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>('custom_icon', { id })
+}
+
+/**
+ * The icon a launcher of `app` gets in `color` without a picked image, as a
+ * small PNG.
+ */
+export function generatedIconPreview(app: AppId, color: string): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>('generated_icon_preview', { app, color })
+}
+
+/**
+ * Whether `png` can be a launcher icon; rejects with what is wrong with it.
+ * Sent as the request's raw body, like `setCustomIcon`.
+ */
+export function checkCustomIcon(png: Uint8Array): Promise<void> {
+  return invoke('check_custom_icon', png)
+}
+
+/**
+ * Sends the PNG as the request's raw body, with the profile's id in a header.
+ * As a named argument a `Uint8Array` would reach Rust as an object keyed by
+ * index rather than as bytes, and as a plain array it would be several times
+ * the size of the file.
+ */
+export function setCustomIcon(id: string, png: Uint8Array): Promise<void> {
+  return invoke('set_custom_icon', png, { headers: { 'profile-id': id } })
+}
+
+export function clearCustomIcon(id: string): Promise<void> {
+  return invoke('clear_custom_icon', { id })
+}
+
 export function copyToClipboard(text: string): Promise<void> {
   return writeText(text)
 }
