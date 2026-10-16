@@ -670,7 +670,7 @@ mod tests {
             .collect();
         assert_eq!(models, [("GPT-5.6", 4.0 + 8.0), ("GPT-6 Luna", 1.0)]);
         assert_eq!(cost.coverage, Coverage::Partial);
-        assert_eq!(cost.unpriced[0].model, "gpt-6-luna");
+        assert_eq!(cost.unpriced[0].model, "GPT-6 Luna");
         assert_eq!(cost.unpriced[0].missing, Some("rates for its service tier"));
     }
 

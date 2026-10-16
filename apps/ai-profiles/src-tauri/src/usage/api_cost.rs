@@ -36,6 +36,10 @@ pub(crate) mod codex;
 /// (`cleanupPeriodDays`), so a longer window would mostly be empty.
 pub const WINDOW_DAYS: u32 = 30;
 
+/// The fewest days a pace is projected from: over fewer, one busy or quiet
+/// day sets it.
+const MIN_PROJECTED_DAYS: u32 = 7;
+
 /// What a profile's Claude Code or Codex use over the last [`WINDOW_DAYS`]
 /// would cost at API list prices, in USD: an estimate of the recorded use, not
 /// what the profile was billed, whether it pays by API key or by
@@ -45,7 +49,8 @@ pub const WINDOW_DAYS: u32 = 30;
 pub struct ApiCost {
     pub total_usd: f64,
     /// What the whole window would cost at the same pace, when the
-    /// transcripts on disk cover only part of it.
+    /// transcripts on disk cover only part of it, and at least
+    /// [`MIN_PROJECTED_DAYS`].
     pub projected_usd: Option<f64>,
     /// How many days of the window the transcripts on disk reach back to,
     /// today included: 0 when there are none.
@@ -153,7 +158,7 @@ impl Coverage {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UnpricedUse {
-    /// The model's id, as the transcripts record it.
+    /// The model's name, as [`ApiCost::by_model`] gives it.
     pub model: String,
     /// What the price list has no rate for, e.g. "fast-mode rates". `None`
     /// when it doesn't have the model.
@@ -430,7 +435,7 @@ fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, today: NaiveDate) 
     let mut by_day: HashMap<NaiveDate, HashMap<String, f64>> = HashMap::new();
     let mut by_model: HashMap<String, f64> = HashMap::new();
     let mut by_project: HashMap<Option<&str>, f64> = HashMap::new();
-    let mut unpriced: HashMap<(&str, Option<&'static str>), u64> = HashMap::new();
+    let mut unpriced: HashMap<(String, Option<&'static str>), u64> = HashMap::new();
     let mut priced_any = false;
     for (turn, project) in turns {
         let day = local_day(turn.at);
@@ -447,7 +452,9 @@ fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, today: NaiveDate) 
         let costs = match costs {
             Ok(costs) => costs,
             Err(missing) => {
-                *unpriced.entry((turn.model.as_str(), missing)).or_default() += turn.tokens.total();
+                *unpriced
+                    .entry((label_of(&turn.model), missing))
+                    .or_default() += turn.tokens.total();
                 continue;
             }
         };
@@ -511,7 +518,7 @@ fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, today: NaiveDate) 
     let mut unpriced: Vec<UnpricedUse> = unpriced
         .into_iter()
         .map(|((model, missing), tokens)| UnpricedUse {
-            model: model.to_owned(),
+            model,
             missing,
             tokens,
         })
@@ -532,7 +539,8 @@ fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, today: NaiveDate) 
     let coverage = Coverage::of(priced_any, !unpriced.is_empty());
     ApiCost {
         total_usd,
-        projected_usd: (covered_days > 0 && covered_days < WINDOW_DAYS)
+        projected_usd: (MIN_PROJECTED_DAYS..WINDOW_DAYS)
+            .contains(&covered_days)
             .then(|| total_usd / f64::from(covered_days) * f64::from(WINDOW_DAYS)),
         covered_days,
         days,
@@ -751,7 +759,7 @@ mod tests {
         assert_usd(cost.by_kind.web_search, 0.03);
         assert_eq!(cost.coverage, Coverage::Partial);
         assert_eq!(cost.unpriced.len(), 1);
-        assert_eq!(cost.unpriced[0].model, "claude-opus-5-5");
+        assert_eq!(cost.unpriced[0].model, "Opus 5.5");
         assert_eq!(cost.unpriced[0].missing, Some("fast-mode rates"));
         assert_eq!(cost.unpriced[0].tokens, 1_000_000);
     }
@@ -779,7 +787,7 @@ mod tests {
         assert_usd(cost.total_usd, 0.0);
         assert_eq!(cost.coverage, Coverage::Unpriced);
         assert_eq!(cost.unpriced.len(), 1);
-        assert_eq!(cost.unpriced[0].model, "claude-opus-9");
+        assert_eq!(cost.unpriced[0].model, "Opus 9");
         assert_eq!(cost.unpriced[0].missing, None);
         assert_eq!(cost.unpriced[0].tokens, 100);
     }
@@ -801,7 +809,7 @@ mod tests {
 
         assert_usd(cost.total_usd, 20.0);
         assert_eq!(cost.coverage, Coverage::Partial);
-        assert_eq!(cost.unpriced[0].model, "claude-opus-9");
+        assert_eq!(cost.unpriced[0].model, "Opus 9");
     }
 
     #[test]
@@ -856,6 +864,30 @@ mod tests {
         assert_usd(cost.total_usd, 2.0);
         assert_eq!(cost.covered_days, WINDOW_DAYS);
         assert_eq!(cost.projected_usd, None);
+    }
+
+    #[test]
+    fn a_history_of_under_a_week_is_not_projected() {
+        let config = tempdir().unwrap();
+        write(
+            config.path(),
+            "-work-app/s1.jsonl",
+            &[response(
+                "2026-10-10T12:00:00Z",
+                "msg_1",
+                "claude-opus-5-5",
+                json!({ "output_tokens": 100_000 }),
+            )],
+        );
+
+        let cost = cost_of(config.path());
+
+        assert_eq!(cost.covered_days, 6);
+        assert_eq!(cost.projected_usd, None);
+        // A day on, it covers a week, enough to project from.
+        let later = read(config.path(), &prices(), today() + Days::new(1));
+        assert_eq!(later.covered_days, 7);
+        assert!(later.projected_usd.is_some());
     }
 
     #[test]

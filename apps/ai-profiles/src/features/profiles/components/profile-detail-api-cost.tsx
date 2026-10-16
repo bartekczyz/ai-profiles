@@ -6,15 +6,10 @@ import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { ChevronRight } from 'lucide-react'
 
-import { Button, Dialog, Kbd } from '@/design'
+import { Button, Dialog, Kbd, Skeleton } from '@/design'
 
 import { useProfileApiCost } from '../api/use-profile-api-cost'
 import { shortenHomePath } from './shorten-home-path'
-
-/**
- * The days the backend covers. Mirrors `WINDOW_DAYS` in `usage/api_cost.rs`.
- */
-const windowDays = 30
 
 /**
  * Bar colours of the models, most expensive first. Past the last, it repeats.
@@ -47,6 +42,11 @@ const sources: Record<AppId, { tool: string; api: string; cacheWrites: string; l
 
 const eyebrowClasses = 'mb-2 font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted'
 
+const rowClasses =
+  'mb-3.5 flex w-full items-center gap-2 rounded-[10px] border border-border-soft bg-white/30 px-[13px] py-[9px] text-left text-meta dark:bg-white/[0.02]'
+
+const rowLabelClasses = 'font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong'
+
 type Props = {
   app: AppId
   profileId: string
@@ -55,15 +55,28 @@ type Props = {
 /**
  * One line under the usage card estimating what the profile's Claude Code or
  * Codex use would cost at API prices, which opens the breakdown. Nothing for
- * a profile without transcripts yet.
+ * a profile without transcripts yet. Until the transcripts are read, the line
+ * holds its place, so what follows doesn't jump down when it arrives.
  *
  * It is an estimate of the recorded use, never the bill: the profile may pay
  * by API key, by subscription, or both over time, and nothing on disk says
  * which, so it isn't compared against a plan.
  */
 export function ProfileDetailApiCost({ app, profileId }: Props) {
-  const { data: cost } = useProfileApiCost(profileId)
-  if (!cost || cost.coveredDays === 0) {
+  const { data: cost, isError } = useProfileApiCost(profileId)
+  if (!cost) {
+    return (
+      <div className={rowClasses}>
+        <span className={rowLabelClasses}>Estimated API cost</span>
+        {isError ? (
+          <span className="text-muted">Couldn't read the transcripts</span>
+        ) : (
+          <Skeleton shape="text" className="w-28" />
+        )}
+      </div>
+    )
+  }
+  if (cost.coveredDays === 0) {
     return null
   }
   return <ApiCostRow app={app} cost={cost} />
@@ -78,11 +91,9 @@ function ApiCostRow({ app, cost }: { app: AppId; cost: ApiCost }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mb-3.5 flex w-full cursor-pointer items-center gap-2 rounded-[10px] border border-border-soft bg-white/30 px-[13px] py-[9px] text-left text-meta transition-colors hover:bg-white/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:bg-white/[0.02] dark:hover:bg-white/[0.05]"
+        className={`${rowClasses} cursor-pointer transition-colors hover:bg-white/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-white/[0.05]`}
       >
-        <span className="font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong">
-          Estimated API cost
-        </span>
+        <span className={rowLabelClasses}>Estimated API cost</span>
         <span className="font-mono text-mono text-muted-strong">last {cost.coveredDays}d</span>
         {cost.coverage === 'unpriced' ? (
           <span className="font-medium text-amber">Unpriced</span>
@@ -95,7 +106,7 @@ function ApiCostRow({ app, cost }: { app: AppId; cost: ApiCost }) {
       <Dialog
         open={open}
         title="Estimated API cost"
-        description={`What the last ${windowDays} days of ${source.tool} on this profile would cost at ${source.api} prices. An estimate, not your bill.`}
+        description={`What ${source.tool} use on this profile would cost at ${source.api} prices. An estimate, not your bill.`}
         className="w-[min(600px,calc(100%-64px))]"
         onClose={() => setOpen(false)}
         foot={
@@ -211,7 +222,7 @@ function KindBreakdown({ byKind, cacheWrites }: { byKind: ApiCost['byKind']; cac
   return (
     <section className="mb-5">
       <h3 className={eyebrowClasses}>By what was billed</h3>
-      <CostRows rows={rows.map((row) => ({ ...row, share: total > 0 ? row.usd / total : 0 }))} />
+      <CostRows rows={rows.map((row) => ({ ...row, key: row.label, share: total > 0 ? row.usd / total : 0 }))} />
     </section>
   )
 }
@@ -219,13 +230,20 @@ function KindBreakdown({ byKind, cacheWrites }: { byKind: ApiCost['byKind']; cac
 function Projects({ projects }: { projects: ApiCost['projects'] }) {
   const shown = projects.slice(0, shownProjects)
   const rest = projects.slice(shownProjects)
-  const rows = shown.map((project) => ({
-    label: project.path === null ? 'Unknown folder' : folderName(project.path),
-    title: project.path === null ? undefined : shortenHomePath(project.path),
-    usd: project.usd,
-  }))
+  const names = shown.map((project) => (project.path === null ? 'Unknown folder' : folderName(project.path)))
+  const rows: Array<CostRow> = shown.map((project, index) => {
+    const name = names[index]
+    if (project.path === null) {
+      return { key: 'unknown', label: name, usd: project.usd }
+    }
+    // Folders that share a name are told apart by their paths.
+    const path = shortenHomePath(project.path)
+    const shared = names.indexOf(name) !== names.lastIndexOf(name)
+    return { key: project.path, label: shared ? path : name, title: path, usd: project.usd }
+  })
   if (rest.length > 0) {
     rows.push({
+      key: 'more',
       label: `${rest.length} more`,
       title: undefined,
       usd: rest.reduce((sum, project) => sum + project.usd, 0),
@@ -239,13 +257,13 @@ function Projects({ projects }: { projects: ApiCost['projects'] }) {
   )
 }
 
-type CostRow = { label: string; title?: string; usd: number; share?: number }
+type CostRow = { key: string; label: string; title?: string; usd: number; share?: number }
 
 function CostRows({ rows }: { rows: Array<CostRow> }) {
   return (
     <ul className="m-0 list-none p-0 text-meta">
       {rows.map((row) => (
-        <li key={row.label} className="flex items-baseline gap-2 border-b border-border-soft py-1.5 last:border-b-0">
+        <li key={row.key} className="flex items-baseline gap-2 border-b border-border-soft py-1.5 last:border-b-0">
           <span title={row.title} className="min-w-0 flex-1 truncate text-ink-soft">
             {row.label}
           </span>
@@ -273,13 +291,15 @@ function Footnote({ cost, app }: { cost: ApiCost; app: AppId }) {
 
 /**
  * The line under the total: the days it covers, the pace when that is only
- * part of the window, and whether the total leaves use without a price out.
+ * part of the window (from a week up), and whether the total leaves use
+ * without a price out.
  */
-export function summaryText(cost: Pick<ApiCost, 'coveredDays' | 'projectedUsd' | 'coverage'>): string {
+export function summaryText(cost: Pick<ApiCost, 'days' | 'coveredDays' | 'projectedUsd' | 'coverage'>): string {
+  const windowDays = cost.days.length
   const days =
-    cost.projectedUsd === null
-      ? `the last ${windowDays} days`
-      : `the ${dayCount(cost.coveredDays)} your transcripts cover`
+    cost.coveredDays < windowDays
+      ? `the ${dayCount(cost.coveredDays)} your transcripts cover`
+      : `the last ${windowDays} days`
   if (cost.coverage === 'unpriced') {
     return `None of the use over ${days} has a price.`
   }
@@ -347,10 +367,15 @@ export function kindRows(byKind: ApiCost['byKind'], cacheWrites: string): Array<
 
 /**
  * What the price list has no rates for, each model in a sentence of its own.
+ * Only a model the list lacks is said to be coming: a new one usually gets
+ * its rates soon, while a missing rate, like fast mode's, may never come.
  */
 export function unpricedNote(unpriced: ApiCost['unpriced']): string {
   const lacking = unpriced.map(
     (use) => `No ${use.missing ?? 'price'} for ${use.model} (${use.tokens.toLocaleString('en-US')} tokens).`,
   )
-  return `${lacking.join(' ')} They aren't counted. LiteLLM's price list may add them; it's checked daily.`
+  const coming = unpriced.some((use) => use.missing === null)
+    ? " LiteLLM's price list may add the models it lacks; it's checked daily."
+    : ''
+  return `${lacking.join(' ')} They aren't counted.${coming}`
 }

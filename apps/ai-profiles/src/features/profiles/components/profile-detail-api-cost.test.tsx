@@ -1,6 +1,7 @@
 import type { ApiCost } from '@/lib/types'
 
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { addDays, format, parseISO } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { getProfileApiCost } from '@/lib/commands'
@@ -24,8 +25,13 @@ function makeCost(overrides: Partial<ApiCost> = {}): ApiCost {
     totalUsd: 559.07,
     projectedUsd: 698.84,
     coveredDays: 24,
+    // The 30-day window, up to Oct 15.
     days: [
-      { date: '2026-10-14', totalUsd: 0, byModel: [] },
+      ...Array.from({ length: 29 }, (_, index) => ({
+        date: format(addDays(parseISO('2026-09-16'), index), 'yyyy-MM-dd'),
+        totalUsd: 0,
+        byModel: [],
+      })),
       {
         date: '2026-10-15',
         totalUsd: 12.5,
@@ -74,7 +80,7 @@ describe('ProfileDetailApiCost', () => {
         projectedUsd: 0,
         byModel: [],
         projects: [],
-        unpriced: [{ model: 'claude-opus-9', missing: null, tokens: 1_200 }],
+        unpriced: [{ model: 'Opus 9', missing: null, tokens: 1_200 }],
         coverage: 'unpriced',
       }),
     )
@@ -85,13 +91,13 @@ describe('ProfileDetailApiCost', () => {
 
     fireEvent.click(row)
     expect(await screen.findByText(/None of the use over the 24 days/)).toBeTruthy()
-    expect(screen.getByText(/No price for claude-opus-9/)).toBeTruthy()
+    expect(screen.getByText(/No price for Opus 9/)).toBeTruthy()
     expect(screen.queryByRole('img', { name: /Cost per day/ })).toBeNull()
   })
 
   it('labels a total that leaves use without a price out as partial', async () => {
     vi.mocked(getProfileApiCost).mockResolvedValue(
-      makeCost({ unpriced: [{ model: 'claude-opus-9', missing: null, tokens: 1_200 }], coverage: 'partial' }),
+      makeCost({ unpriced: [{ model: 'Opus 9', missing: null, tokens: 1_200 }], coverage: 'partial' }),
     )
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
     const row = await screen.findByRole('button', { name: /Estimated API cost/ })
@@ -99,7 +105,7 @@ describe('ProfileDetailApiCost', () => {
     expect(row.textContent).toContain('partial')
 
     fireEvent.click(row)
-    expect(await screen.findByText(/No price for claude-opus-9/)).toBeTruthy()
+    expect(await screen.findByText(/No price for Opus 9/)).toBeTruthy()
     expect(screen.getByText(/Partial: use without a price is left out/)).toBeTruthy()
   })
 
@@ -112,15 +118,27 @@ describe('ProfileDetailApiCost', () => {
   it('shows nothing for a profile without transcripts', async () => {
     vi.mocked(getProfileApiCost).mockResolvedValue(makeCost({ coveredDays: 0, totalUsd: 0, projectedUsd: null }))
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    await waitFor(() => expect(getProfileApiCost).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByText('Estimated API cost')).toBeNull())
+  })
+
+  it('holds its place while the transcripts are read', () => {
+    vi.mocked(getProfileApiCost).mockReturnValue(new Promise(() => {}))
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
+    expect(screen.getByText('Estimated API cost')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Estimated API cost/ })).toBeNull()
+  })
+
+  it("says when the transcripts couldn't be read", async () => {
+    vi.mocked(getProfileApiCost).mockRejectedValue(new Error('profile not found'))
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
+    expect(await screen.findByText("Couldn't read the transcripts")).toBeTruthy()
   })
 
   it('estimates Codex use at OpenAI API prices, without ChatGPT chats', async () => {
     renderWithQuery(<ProfileDetailApiCost app="codex" profileId="p1" />)
     fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
 
-    expect(await screen.findByText(/days of Codex on this profile would cost at OpenAI API prices/)).toBeTruthy()
+    expect(await screen.findByText(/Codex use on this profile would cost at OpenAI API prices/)).toBeTruthy()
     expect(screen.getByText(/From this profile's Codex transcripts/)).toBeTruthy()
     expect(screen.getByText(/Only Codex use is included.*ChatGPT chats keep no token counts/)).toBeTruthy()
     expect(screen.getByText('Cache writes')).toBeTruthy()
@@ -131,7 +149,7 @@ describe('ProfileDetailApiCost', () => {
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
     fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
 
-    expect(await screen.findByText(/days of Claude Code on this profile would cost at Claude API prices/)).toBeTruthy()
+    expect(await screen.findByText(/Claude Code use on this profile would cost at Claude API prices/)).toBeTruthy()
     expect(screen.getByText(/on claude\.ai keep no token counts, so they aren't included/)).toBeTruthy()
     expect(screen.queryByText(/ChatGPT|OpenAI/)).toBeNull()
   })
@@ -150,6 +168,24 @@ describe('ProfileDetailApiCost', () => {
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.queryByText(/your plan|what you pay/i)).toBeNull()
   })
+
+  it('tells projects of the same name apart by their paths', async () => {
+    vi.mocked(getProfileApiCost).mockResolvedValue(
+      makeCost({
+        projects: [
+          { path: '/Users/ada/client-a/api', usd: 3 },
+          { path: '/Users/ada/client-b/api', usd: 2 },
+          { path: '/Users/ada/web', usd: 1 },
+        ],
+      }),
+    )
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
+    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+
+    expect(await screen.findByText('~/client-a/api')).toBeTruthy()
+    expect(screen.getByText('~/client-b/api')).toBeTruthy()
+    expect(screen.getByText('web')).toBeTruthy()
+  })
 })
 
 it('charts only the days the transcripts cover', async () => {
@@ -161,20 +197,26 @@ it('charts only the days the transcripts cover', async () => {
 
 describe('summaryText', () => {
   it('says how far the transcripts go back and the pace when they cover only part of the window', () => {
-    expect(summaryText({ coveredDays: 24, projectedUsd: 702, coverage: 'complete' })).toBe(
+    expect(summaryText(makeCost({ coveredDays: 24, projectedUsd: 702 }))).toBe(
       'Over the 24 days your transcripts cover. On pace for $702 over 30 days.',
     )
   })
 
+  it('gives no pace for under a week', () => {
+    expect(summaryText(makeCost({ coveredDays: 3, projectedUsd: null }))).toBe(
+      'Over the 3 days your transcripts cover.',
+    )
+  })
+
   it('says the window alone when the transcripts cover all of it', () => {
-    expect(summaryText({ coveredDays: 30, projectedUsd: null, coverage: 'complete' })).toBe('Over the last 30 days.')
+    expect(summaryText(makeCost({ coveredDays: 30, projectedUsd: null }))).toBe('Over the last 30 days.')
   })
 
   it('says when the total is partial or nothing has a price', () => {
-    expect(summaryText({ coveredDays: 30, projectedUsd: null, coverage: 'partial' })).toBe(
+    expect(summaryText(makeCost({ coveredDays: 30, projectedUsd: null, coverage: 'partial' }))).toBe(
       'Over the last 30 days. Partial: use without a price is left out.',
     )
-    expect(summaryText({ coveredDays: 3, projectedUsd: 0, coverage: 'unpriced' })).toBe(
+    expect(summaryText(makeCost({ coveredDays: 3, projectedUsd: null, coverage: 'unpriced' }))).toBe(
       'None of the use over the 3 days your transcripts cover has a price.',
     )
   })
@@ -214,11 +256,17 @@ describe('unpricedNote', () => {
   it('names the models, what the price list lacks for each and how many tokens went uncounted', () => {
     expect(
       unpricedNote([
-        { model: 'claude-opus-9', missing: null, tokens: 1_200_000 },
-        { model: 'claude-opus-5-5', missing: 'fast-mode rates', tokens: 3_400 },
+        { model: 'Opus 9', missing: null, tokens: 1_200_000 },
+        { model: 'Opus 5.5', missing: 'fast-mode rates', tokens: 3_400 },
       ]),
     ).toBe(
-      "No price for claude-opus-9 (1,200,000 tokens). No fast-mode rates for claude-opus-5-5 (3,400 tokens). They aren't counted. LiteLLM's price list may add them; it's checked daily.",
+      "No price for Opus 9 (1,200,000 tokens). No fast-mode rates for Opus 5.5 (3,400 tokens). They aren't counted. LiteLLM's price list may add the models it lacks; it's checked daily.",
+    )
+  })
+
+  it("doesn't promise rates the price list may never have", () => {
+    expect(unpricedNote([{ model: 'Opus 5.5', missing: 'fast-mode rates', tokens: 3_400 }])).toBe(
+      "No fast-mode rates for Opus 5.5 (3,400 tokens). They aren't counted.",
     )
   })
 })

@@ -283,7 +283,7 @@ export type ApiCost = {
   totalUsd: number
   /**
    * What the whole window would cost at the same pace, when the transcripts
-   * on disk cover only part of it.
+   * on disk cover only part of it, and at least a week.
    */
   projectedUsd: number | null
   /**
@@ -316,9 +316,9 @@ export type ApiCost = {
    */
   projects: Array<{ path: string | null; usd: number }>
   /**
-   * Use the price list has no rates for, by model and by what it lacks
-   * (`null` for the model itself, else e.g. "fast-mode rates"). Its tokens
-   * are in none of the costs.
+   * Use the price list has no rates for, by model (named as in `byModel`)
+   * and by what it lacks (`null` for the model itself, else e.g. "fast-mode
+   * rates"). Its tokens are in none of the costs.
    */
   unpriced: Array<{ model: string; missing: string | null; tokens: number }>
   /**
