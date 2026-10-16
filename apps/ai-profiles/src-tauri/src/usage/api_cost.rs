@@ -223,6 +223,8 @@ pub struct ApiCost {
     /// Models the price table doesn't know, by tokens used, most first. Their
     /// tokens are in none of the costs.
     pub unpriced: Vec<UnpricedModel>,
+    /// How much of the use in the window the costs cover.
+    pub coverage: Coverage,
     /// When the prices were last checked, `YYYY-MM-DD`.
     pub prices_as_of: &'static str,
 }
@@ -284,6 +286,28 @@ pub struct ProjectCost {
     /// The folder, `None` for sessions that don't say.
     pub path: Option<String>,
     pub usd: f64,
+}
+
+/// How much of the use in the window has a price.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Coverage {
+    /// All of it, or there was none.
+    Complete,
+    /// Some of it: the total leaves the rest out.
+    Partial,
+    /// None of it: the total of $0 means nothing.
+    Unpriced,
+}
+
+impl Coverage {
+    fn of(priced: bool, unpriced: bool) -> Self {
+        match (priced, unpriced) {
+            (_, false) => Coverage::Complete,
+            (true, true) => Coverage::Partial,
+            (false, true) => Coverage::Unpriced,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -559,6 +583,7 @@ fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
     let mut by_model: HashMap<&'static str, f64> = HashMap::new();
     let mut by_project: HashMap<Option<&str>, f64> = HashMap::new();
     let mut unpriced: HashMap<&str, u64> = HashMap::new();
+    let mut priced_any = false;
     for (turn, project) in kept.into_values() {
         let day = local_day(turn.at);
         oldest = Some(oldest.map_or(day, |oldest| oldest.min(day)));
@@ -569,6 +594,7 @@ fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
             *unpriced.entry(turn.model.as_str()).or_default() += turn.tokens.total();
             continue;
         };
+        priced_any = true;
         let costs = cost(price, turn);
         let usd = costs.total();
         by_kind.add(costs);
@@ -644,6 +670,7 @@ fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
         u32::try_from((today - from).num_days() + 1).unwrap_or(WINDOW_DAYS)
     });
     let total_usd = by_kind.total();
+    let coverage = Coverage::of(priced_any, !unpriced.is_empty());
     ApiCost {
         total_usd,
         projected_usd: (covered_days > 0 && covered_days < WINDOW_DAYS)
@@ -654,6 +681,7 @@ fn tally(scans: &[UsageScan], today: NaiveDate) -> ApiCost {
         by_model,
         projects,
         unpriced,
+        coverage,
         prices_as_of: PRICES_AS_OF,
     }
 }
@@ -726,6 +754,7 @@ mod tests {
         assert_usd(cost.by_kind.input, 4.0);
         assert_usd(cost.by_kind.output, 20.0);
         assert_usd(cost.total_usd, 24.0);
+        assert_eq!(cost.coverage, Coverage::Complete);
     }
 
     #[test]
@@ -866,9 +895,30 @@ mod tests {
         let cost = cost_of(config.path());
 
         assert_usd(cost.total_usd, 0.0);
+        assert_eq!(cost.coverage, Coverage::Unpriced);
         assert_eq!(cost.unpriced.len(), 1);
         assert_eq!(cost.unpriced[0].model, "claude-opus-9");
         assert_eq!(cost.unpriced[0].tokens, 100);
+    }
+
+    #[test]
+    fn use_partly_of_a_model_the_table_doesnt_know_is_partial() {
+        let config = tempdir().unwrap();
+        let usage = json!({ "output_tokens": 1_000_000 });
+        write(
+            config.path(),
+            "-work-app/s1.jsonl",
+            &[
+                response(NOW, "msg_1", "claude-opus-5-5", usage.clone()),
+                response(NOW, "msg_2", "claude-opus-9", usage),
+            ],
+        );
+
+        let cost = cost_of(config.path());
+
+        assert_usd(cost.total_usd, 20.0);
+        assert_eq!(cost.coverage, Coverage::Partial);
+        assert_eq!(cost.unpriced[0].model, "claude-opus-9");
     }
 
     #[test]
@@ -934,6 +984,7 @@ mod tests {
         assert_eq!(cost.covered_days, 0);
         assert_eq!(cost.projected_usd, None);
         assert_usd(cost.total_usd, 0.0);
+        assert_eq!(cost.coverage, Coverage::Complete);
     }
 
     #[test]

@@ -46,6 +46,7 @@ function makeCost(overrides: Partial<ApiCost> = {}): ApiCost {
       { path: null, usd: 4.24 },
     ],
     unpriced: [],
+    coverage: 'complete',
     pricesAsOf: '2026-10-15',
     ...overrides,
   }
@@ -64,6 +65,48 @@ describe('ProfileDetailApiCost', () => {
     expect(row.textContent).toContain('$559')
     expect(row.textContent).not.toMatch(/×|plan|save/i)
     expect(getProfileApiCost).toHaveBeenCalledWith('p1')
+  })
+
+  it('says the use is unpriced, not $0, when none of it has a price', async () => {
+    vi.mocked(getProfileApiCost).mockResolvedValue(
+      makeCost({
+        totalUsd: 0,
+        projectedUsd: 0,
+        byModel: [],
+        projects: [],
+        unpriced: [{ model: 'claude-opus-9', tokens: 1_200 }],
+        coverage: 'unpriced',
+      }),
+    )
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
+    const row = await screen.findByRole('button', { name: /Estimated API cost/ })
+    expect(row.textContent).toContain('Unpriced')
+    expect(row.textContent).not.toContain('$')
+
+    fireEvent.click(row)
+    expect(await screen.findByText(/None of the use over the 24 days/)).toBeTruthy()
+    expect(screen.getByText(/No price for claude-opus-9/)).toBeTruthy()
+    expect(screen.queryByRole('img', { name: /Cost per day/ })).toBeNull()
+  })
+
+  it('labels a total that leaves use without a price out as partial', async () => {
+    vi.mocked(getProfileApiCost).mockResolvedValue(
+      makeCost({ unpriced: [{ model: 'claude-opus-9', tokens: 1_200 }], coverage: 'partial' }),
+    )
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
+    const row = await screen.findByRole('button', { name: /Estimated API cost/ })
+    expect(row.textContent).toContain('$559')
+    expect(row.textContent).toContain('partial')
+
+    fireEvent.click(row)
+    expect(await screen.findByText(/No price for claude-opus-9/)).toBeTruthy()
+    expect(screen.getByText(/Partial: use without a price is left out/)).toBeTruthy()
+  })
+
+  it('leaves a complete total unlabelled', async () => {
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
+    const row = await screen.findByRole('button', { name: /Estimated API cost/ })
+    expect(row.textContent).not.toMatch(/partial|unpriced/i)
   })
 
   it('shows nothing for a profile without transcripts', async () => {
@@ -103,13 +146,22 @@ it('charts only the days the transcripts cover', async () => {
 
 describe('summaryText', () => {
   it('says how far the transcripts go back and the pace when they cover only part of the window', () => {
-    expect(summaryText({ coveredDays: 24, projectedUsd: 702 })).toBe(
+    expect(summaryText({ coveredDays: 24, projectedUsd: 702, coverage: 'complete' })).toBe(
       'Over the 24 days your transcripts cover. On pace for $702 over 30 days.',
     )
   })
 
   it('says the window alone when the transcripts cover all of it', () => {
-    expect(summaryText({ coveredDays: 30, projectedUsd: null })).toBe('Over the last 30 days.')
+    expect(summaryText({ coveredDays: 30, projectedUsd: null, coverage: 'complete' })).toBe('Over the last 30 days.')
+  })
+
+  it('says when the total is partial or nothing has a price', () => {
+    expect(summaryText({ coveredDays: 30, projectedUsd: null, coverage: 'partial' })).toBe(
+      'Over the last 30 days. Partial: use without a price is left out.',
+    )
+    expect(summaryText({ coveredDays: 3, projectedUsd: 0, coverage: 'unpriced' })).toBe(
+      'None of the use over the 3 days your transcripts cover has a price.',
+    )
   })
 })
 

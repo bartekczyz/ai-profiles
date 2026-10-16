@@ -316,6 +316,11 @@ export type ApiCost = {
    */
   unpriced: Array<{ model: string; tokens: number }>
   /**
+   * How much of the use the costs cover: `partial` when some of it has no
+   * price, `unpriced` when none of it does, so the total means nothing.
+   */
+  coverage: 'complete' | 'partial' | 'unpriced'
+  /**
    * When the built-in prices were last checked, `YYYY-MM-DD`.
    */
   pricesAsOf: string

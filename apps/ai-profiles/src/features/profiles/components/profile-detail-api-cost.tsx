@@ -66,7 +66,12 @@ function ApiCostRow({ cost }: { cost: ApiCost }) {
           Estimated API cost
         </span>
         <span className="font-mono text-mono text-muted-strong">last {cost.coveredDays}d</span>
-        <span className="font-medium text-ink tabular-nums">{formatUsd(cost.totalUsd)}</span>
+        {cost.coverage === 'unpriced' ? (
+          <span className="font-medium text-amber">Unpriced</span>
+        ) : (
+          <span className="font-medium text-ink tabular-nums">{formatUsd(cost.totalUsd)}</span>
+        )}
+        {cost.coverage === 'partial' ? <span className="font-mono text-mono text-amber">partial</span> : null}
         <ChevronRight aria-hidden size={14} className="ml-auto shrink-0 text-muted-strong" />
       </button>
       <Dialog
@@ -82,9 +87,16 @@ function ApiCostRow({ cost }: { cost: ApiCost }) {
         }
       >
         <Summary cost={cost} />
-        <DailyChart cost={cost} />
-        <KindBreakdown byKind={cost.byKind} />
-        <Projects projects={cost.projects} />
+        {cost.unpriced.length > 0 ? (
+          <p className="m-0 mb-5 text-meta text-amber">{unpricedNote(cost.unpriced)}</p>
+        ) : null}
+        {cost.coverage === 'unpriced' ? null : (
+          <>
+            <DailyChart cost={cost} />
+            <KindBreakdown byKind={cost.byKind} />
+            <Projects projects={cost.projects} />
+          </>
+        )}
         <Footnote cost={cost} />
       </Dialog>
     </>
@@ -94,9 +106,18 @@ function ApiCostRow({ cost }: { cost: ApiCost }) {
 function Summary({ cost }: { cost: ApiCost }) {
   return (
     <section className="mb-4">
-      <p className="m-0 text-[28px] font-semibold tracking-[-0.02em] text-ink tabular-nums">
-        {formatUsd(cost.totalUsd)}
-      </p>
+      {cost.coverage === 'unpriced' ? (
+        <p className="m-0 text-[28px] font-semibold tracking-[-0.02em] text-amber">Unpriced</p>
+      ) : (
+        <p className="m-0 text-[28px] font-semibold tracking-[-0.02em] text-ink tabular-nums">
+          {formatUsd(cost.totalUsd)}
+          {cost.coverage === 'partial' ? (
+            <span className="ml-2 align-middle font-mono text-mono font-medium tracking-normal text-amber">
+              partial
+            </span>
+          ) : null}
+        </p>
+      )}
       <p className="m-0 text-meta text-muted">{summaryText(cost)}</p>
     </section>
   )
@@ -223,7 +244,6 @@ function CostRows({ rows }: { rows: Array<CostRow> }) {
 function Footnote({ cost }: { cost: ApiCost }) {
   return (
     <section className="text-meta text-muted">
-      {cost.unpriced.length > 0 ? <p className="m-0 mb-2 text-amber">{unpricedNote(cost.unpriced)}</p> : null}
       <p className="m-0">
         From this profile's Claude Code transcripts, at Claude API list prices as of{' '}
         {format(parseISO(cost.pricesAsOf), 'MMM d, yyyy')}. It estimates the use they record, not what you were billed,
@@ -235,14 +255,20 @@ function Footnote({ cost }: { cost: ApiCost }) {
 }
 
 /**
- * The line under the total: the days it covers, and the pace when that is
- * only part of the window.
+ * The line under the total: the days it covers, the pace when that is only
+ * part of the window, and whether the total leaves use without a price out.
  */
-export function summaryText(cost: Pick<ApiCost, 'coveredDays' | 'projectedUsd'>): string {
-  if (cost.projectedUsd === null) {
-    return `Over the last ${windowDays} days.`
+export function summaryText(cost: Pick<ApiCost, 'coveredDays' | 'projectedUsd' | 'coverage'>): string {
+  const days =
+    cost.projectedUsd === null
+      ? `the last ${windowDays} days`
+      : `the ${dayCount(cost.coveredDays)} your transcripts cover`
+  if (cost.coverage === 'unpriced') {
+    return `None of the use over ${days} has a price.`
   }
-  return `Over the ${dayCount(cost.coveredDays)} your transcripts cover. On pace for ${formatUsd(cost.projectedUsd)} over ${windowDays} days.`
+  const pace = cost.projectedUsd === null ? '' : ` On pace for ${formatUsd(cost.projectedUsd)} over ${windowDays} days.`
+  const partial = cost.coverage === 'partial' ? ' Partial: use without a price is left out.' : ''
+  return `Over ${days}.${pace}${partial}`
 }
 
 function dayCount(days: number): string {
