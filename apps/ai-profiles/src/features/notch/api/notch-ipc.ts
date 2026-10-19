@@ -45,6 +45,25 @@ export function setNotchContentHeight(height: number): Promise<void> {
   return invoke('notch_set_content_height', { height })
 }
 
+/** A profile's limit crossed a usage alert threshold. */
+export type UsageAlert = {
+  profileId: string
+  window: 'weekly' | 'session'
+  /** The window's length in minutes: 10080 for a week. */
+  windowMinutes: number
+  threshold: number
+  used: number
+  /** The share of the window gone, 0-100. */
+  elapsed: number
+  /** Usage is ahead of a straight-line pace through the window. */
+  ahead: boolean
+}
+
+/** Follow the usage alerts that drop the panel open. */
+export function onNotchAlert(handler: (alert: UsageAlert) => void): Promise<() => void> {
+  return listen<UsageAlert>('notch:alert', (event) => handler(event.payload))
+}
+
 /** Report the width the folded profile summary needs either side of the notch. */
 export function setNotchWingWidth(width: number): Promise<void> {
   return invoke('notch_set_wing_width', { width })

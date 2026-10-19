@@ -1,19 +1,20 @@
 import type { Profile, SidebarEntry } from '@/lib/types'
 import type { NotchState } from '../api/notch-ipc'
 
-import { fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fetchUsableUsage } from '@/features/profiles/api/use-profile-usage'
 import { useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
 import { renderWithQuery } from '@/test/render-with-query'
 
-import { getNotchState, onNotchState, openProfileFromNotch } from '../api/notch-ipc'
+import { getNotchState, onNotchAlert, onNotchState, openProfileFromNotch } from '../api/notch-ipc'
 import { NotchHud } from './notch-hud'
 
 vi.mock('../api/notch-ipc', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/notch-ipc')>()),
   getNotchState: vi.fn(),
+  onNotchAlert: vi.fn(),
   onNotchState: vi.fn(),
   openProfileFromNotch: vi.fn(),
   setNotchContentHeight: vi.fn(),
@@ -60,6 +61,7 @@ function given({ entries }: { entries: Array<SidebarEntry> }) {
 beforeEach(() => {
   vi.mocked(getNotchState).mockResolvedValue(expanded)
   vi.mocked(onNotchState).mockResolvedValue(() => undefined)
+  vi.mocked(onNotchAlert).mockResolvedValue(() => undefined)
   vi.mocked(fetchUsableUsage).mockImplementation(async (id) => ({
     quota: {
       primary: { utilization: 12, resetsAt: new Date(Date.now() + 3 * 3600_000).toISOString() },
@@ -120,5 +122,29 @@ describe('NotchHud', () => {
 
     fireEvent.click(await screen.findByText('Work'))
     expect(openProfileFromNotch).toHaveBeenCalledWith('work')
+  })
+
+  it('names the limit that crossed and marks its row', async () => {
+    given({ entries: [managed('work', 'Work'), managed('home', 'Home')] })
+    renderWithQuery(<NotchHud />)
+    await screen.findByText('Work')
+    const handler = vi.mocked(onNotchAlert).mock.lastCall?.[0]
+
+    act(() =>
+      handler?.({
+        profileId: 'home',
+        window: 'weekly',
+        windowMinutes: 10080,
+        threshold: 75,
+        used: 85,
+        elapsed: 40,
+        ahead: true,
+      }),
+    )
+
+    expect(screen.getByRole('status')).toHaveTextContent('Burn warning')
+    expect(screen.getByRole('status')).toHaveTextContent('Home · weekly limit 85% used, 40% of the week gone')
+    expect(screen.getByText('Home').closest('button')).toHaveAttribute('data-alerted', 'true')
+    expect(screen.getByText('Work').closest('button')).not.toHaveAttribute('data-alerted')
   })
 })

@@ -119,3 +119,22 @@ export function meterLevel(percent: number | null): MeterLevel {
   }
   return percent >= 100 ? 'full' : 'warn'
 }
+
+/** What the panel says about a usage alert. */
+export type AlertCopy = { title: string; detail: string }
+
+/**
+ * Pure: the banner for a crossed threshold. Ahead of an even pace it is a
+ * warning; on or behind pace, a milestone.
+ */
+export function alertCopy(
+  alert: { window: 'weekly' | 'session'; windowMinutes: number; used: number; elapsed: number; ahead: boolean },
+  profileName: string,
+): AlertCopy {
+  const limit = alert.window === 'weekly' ? 'weekly limit' : `${codexWindowLabel(alert.windowMinutes).shortLabel} limit`
+  const period = alert.window === 'weekly' ? 'week' : 'window'
+  return {
+    title: alert.ahead ? 'Burn warning' : 'Usage milestone',
+    detail: `${profileName} · ${limit} ${Math.round(alert.used)}% used, ${Math.round(alert.elapsed)}% of the ${period} gone`,
+  }
+}

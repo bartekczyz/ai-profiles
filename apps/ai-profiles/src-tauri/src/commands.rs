@@ -26,6 +26,7 @@ use crate::usage::{
     quota::{ClaudeQuotaCache, ClaudeQuotaProvider},
     ProfileUsage,
 };
+use crate::usage_alerts;
 
 #[tauri::command]
 pub fn list_profiles() -> AppResult<Vec<Profile>> {
@@ -583,9 +584,33 @@ static CLAUDE_DEAD_CREDS: OnceLock<usage::dead_credentials::DeadCredentialRegist
     OnceLock::new();
 
 #[tauri::command]
-pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
-    let app = resolve_app(&profile_id)?;
-    let config_dir = resolve_cli_config_dir(&profile_id)?;
+pub async fn get_profile_usage(
+    app: tauri::AppHandle,
+    profile_id: String,
+) -> AppResult<ProfileUsage> {
+    let usage = fetch_profile_usage(&profile_id, Attendance::Attended).await?;
+    usage_alerts::observe(&app, &profile_id, &usage);
+    Ok(usage)
+}
+
+/// Whether someone asked for a usage reading, or a background check took it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Attendance {
+    /// A window asked for it: an expired Claude token may be refreshed by
+    /// running the CLI, and a refresh that fails marks the sign-in dead.
+    Attended,
+    /// The usage alerts' background check. It never runs the CLI and never
+    /// marks a sign-in dead, so nothing it sees can sign a profile out.
+    Background,
+}
+
+/// A profile's usage reading, as `get_profile_usage` returns it.
+pub(crate) async fn fetch_profile_usage(
+    profile_id: &str,
+    attendance: Attendance,
+) -> AppResult<ProfileUsage> {
+    let app = resolve_app(profile_id)?;
+    let config_dir = resolve_cli_config_dir(profile_id)?;
     let app_spec = spec(app);
     if !app_spec.has_usage {
         return Ok(ProfileUsage {
@@ -602,6 +627,9 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
                 CLAUDE_DEAD_CREDS.get_or_init(usage::dead_credentials::DeadCredentialRegistry::new);
             let provider = ClaudeQuotaProvider::new(user_agent, cache, dead_credentials)
                 .map_err(|_| AppError::Io(std::io::Error::other("could not build HTTP client")))?;
+            if attendance == Attendance::Background {
+                return Ok(usage::build(&config_dir, &provider).await);
+            }
             let refresher = CLAUDE_REFRESHER.get_or_init(usage::refresh::ClaudeCliRefresher::new);
             Ok(
                 usage::build_with_cli_refresh(&config_dir, &provider, refresher, dead_credentials)
@@ -624,7 +652,7 @@ pub async fn list_sessions(profile_id: String) -> AppResult<SessionList> {
     sessions::list_sessions(sessions::home_for(&profile_id)?).await
 }
 
-fn resolve_app(profile_id: &str) -> AppResult<AppKind> {
+pub(crate) fn resolve_app(profile_id: &str) -> AppResult<AppKind> {
     if let Some(kind) = AppKind::from_default_id(profile_id) {
         return Ok(kind);
     }

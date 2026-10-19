@@ -2,7 +2,7 @@ import type { QuotaUsage } from '@/lib/types'
 
 import { describe, expect, it } from 'vitest'
 
-import { elapsedFraction, formatResetsIn, meterLevel, profileMeters } from './profile-meters'
+import { alertCopy, elapsedFraction, formatResetsIn, meterLevel, profileMeters } from './profile-meters'
 
 const now = new Date('2026-10-13T00:00:00Z')
 
@@ -80,5 +80,20 @@ describe('meterLevel', () => {
     expect(meterLevel(79)).toBe('ok')
     expect(meterLevel(80)).toBe('warn')
     expect(meterLevel(100)).toBe('full')
+  })
+})
+
+describe('alertCopy', () => {
+  it('warns when usage is ahead of an even pace', () => {
+    expect(alertCopy({ window: 'weekly', windowMinutes: 10080, used: 75.4, elapsed: 40, ahead: true }, 'Work')).toEqual(
+      { title: 'Burn warning', detail: 'Work · weekly limit 75% used, 40% of the week gone' },
+    )
+  })
+
+  it('is a milestone on or behind pace, naming the session window', () => {
+    expect(alertCopy({ window: 'session', windowMinutes: 300, used: 50, elapsed: 62, ahead: false }, 'Home')).toEqual({
+      title: 'Usage milestone',
+      detail: 'Home · 5h limit 50% used, 62% of the window gone',
+    })
   })
 })

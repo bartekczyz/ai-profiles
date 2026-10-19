@@ -189,6 +189,10 @@ body {
   background: hsl(0 0% 100% / 0.07);
 }
 
+.notch-row[data-alerted] {
+  background: hsl(0 0% 100% / 0.1);
+}
+
 .notch-row:focus-visible {
   outline: 1px solid var(--notch-ink-dim);
 }
@@ -285,4 +289,34 @@ body {
   margin-left: -0.75px;
   border-radius: 1px;
   background: var(--notch-ink);
+}
+
+/* The usage alert that dropped the panel open. */
+.notch-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  margin: 0 -8px 2px;
+  border-radius: 10px;
+  border: 1px solid hsl(0 0% 100% / 0.14);
+}
+
+.notch-alert[data-ahead="true"] {
+  border-color: var(--notch-warn);
+}
+
+.notch-alert-title {
+  font-size: 12px;
+}
+
+.notch-alert[data-ahead="true"] .notch-alert-title {
+  color: var(--notch-warn);
+}
+
+.notch-alert-detail {
+  font-size: 10px;
+  line-height: 1.4;
+  letter-spacing: 0.03em;
+  color: var(--notch-ink-dim);
 }

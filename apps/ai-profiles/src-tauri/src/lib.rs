@@ -22,6 +22,7 @@ mod slug;
 #[cfg(test)]
 mod test_support;
 mod usage;
+mod usage_alerts;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager};
@@ -118,6 +119,7 @@ pub fn run() {
                     eprintln!("ai-profiles: could not open the notch HUD: {err}");
                 }
             }
+            usage_alerts::spawn(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {

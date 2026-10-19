@@ -70,6 +70,7 @@ const appState: AppState = {
   defaultProfileNames: {},
   dismissedRepairSessions: {},
   notchHudOff: false,
+  usageAlertThresholds: null,
 }
 
 const guiDataDir = '/Users/ada/Library/Application Support/Claude'

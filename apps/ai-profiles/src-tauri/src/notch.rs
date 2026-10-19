@@ -52,6 +52,10 @@ const HOTSPOT_BELOW: f64 = 5.0;
 #[cfg(target_os = "macos")]
 const STATE_EVENT: &str = "notch:state";
 
+/// The event that tells the HUD webview which limit crossed.
+#[cfg(target_os = "macos")]
+const ALERT_EVENT: &str = "notch:alert";
+
 /// The event that asks the main window to show a profile.
 #[cfg(target_os = "macos")]
 const OPEN_PROFILE_EVENT: &str = "notch:open-profile";
@@ -241,9 +245,10 @@ mod macos {
     use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
     use super::{
-        frame_drifted, notch_rect, Notch, NotchPhase, NotchState, Rect, LABEL, MAX_WING,
-        OPEN_PROFILE_EVENT, STATE_EVENT, WING,
+        frame_drifted, notch_rect, Notch, NotchPhase, NotchState, Rect, ALERT_EVENT, LABEL,
+        MAX_WING, OPEN_PROFILE_EVENT, STATE_EVENT, WING,
     };
+    use crate::usage_alerts::UsageAlert;
 
     /// How often the watcher reads the cursor.
     const POLL: Duration = Duration::from_millis(100);
@@ -251,6 +256,8 @@ mod macos {
     const HOVER_HOLD: Duration = Duration::from_millis(150);
     /// How long the panel stays open after the pointer leaves it.
     const LINGER: Duration = Duration::from_millis(1200);
+    /// How long a usage alert holds the panel open, pointer or not.
+    const ALERT_HOLD: Duration = Duration::from_secs(8);
     /// How often the watcher reads the displays again and checks the panel
     /// is still on the notch, in polls: a lid that closes or a resolution
     /// change moves or removes the notch, and macOS moves windows itself.
@@ -262,6 +269,8 @@ mod macos {
         expanded: bool,
         /// The height the webview measured below the notch row.
         content: f64,
+        /// A usage alert keeps the panel open until then.
+        held_until: Option<Instant>,
         /// The folded wings' width, which the profile summary sets.
         wing: f64,
     }
@@ -270,6 +279,7 @@ mod macos {
         notch: None,
         expanded: false,
         content: 0.0,
+        held_until: None,
         wing: WING,
     });
 
@@ -384,6 +394,29 @@ mod macos {
         }
     }
 
+    /// True when the panel is open in a notch, so an alert has somewhere to
+    /// show.
+    pub fn available() -> bool {
+        hud().notch.is_some()
+    }
+
+    /// Drop the panel open for a usage alert, and tell the webview which
+    /// limit crossed.
+    pub fn alert(app: &AppHandle, alert: UsageAlert) {
+        let Some(window) = app.get_webview_window(LABEL) else {
+            return;
+        };
+        {
+            let mut hud = hud();
+            if hud.notch.is_none() {
+                return;
+            }
+            hud.held_until = Some(Instant::now() + ALERT_HOLD);
+        }
+        let _ = window.emit_to(LABEL, ALERT_EVENT, alert);
+        set_expanded(&window, true);
+    }
+
     /// Bring the main window forward on profile `id`, and fold the panel.
     pub fn open_profile(app: &AppHandle, id: String) {
         if let Some(main) = app.get_webview_window("main") {
@@ -420,6 +453,9 @@ mod macos {
     fn set_expanded(window: &WebviewWindow, expanded: bool) {
         {
             let mut hud = hud();
+            if !expanded {
+                hud.held_until = None;
+            }
             if hud.expanded == expanded || hud.notch.is_none() {
                 return;
             }
@@ -464,9 +500,10 @@ mod macos {
                     });
                 }
                 let cursor = cursor_location();
-                let (notch, expanded) = {
+                let (notch, expanded, held) = {
                     let hud = hud();
-                    (hud.notch, hud.expanded)
+                    let held = hud.held_until.is_some_and(|until| Instant::now() < until);
+                    (hud.notch, hud.expanded, held)
                 };
                 let Some(notch) = notch else {
                     rested_since = None;
@@ -477,7 +514,7 @@ mod macos {
                 let near = notch.in_hotspot(cursor) || over_panel;
                 if expanded {
                     rested_since = None;
-                    if near {
+                    if near || held {
                         left_at = None;
                     } else if left_at.get_or_insert_with(Instant::now).elapsed() >= LINGER {
                         left_at = None;
@@ -634,6 +671,11 @@ pub fn set_content_height(_app: &tauri::AppHandle, _height: f64) {}
 
 #[cfg(not(target_os = "macos"))]
 pub fn set_wing_width(_app: &tauri::AppHandle, _width: f64) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn available() -> bool {
+    false
+}
 
 #[cfg(not(target_os = "macos"))]
 pub fn open_profile(_app: &tauri::AppHandle, _id: String) {}

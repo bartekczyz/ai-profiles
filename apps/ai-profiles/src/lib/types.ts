@@ -157,6 +157,11 @@ export type AppState = {
   dismissedRepairSessions: Record<string, Array<string>>
   /** The user turned off the weekly-limit HUD in the notch. On by default. */
   notchHudOff: boolean
+  /**
+   * The usage percentages that drop the notch panel open, or `null` for the
+   * defaults (50, 75, 90, 100). An empty list turns usage alerts off.
+   */
+  usageAlertThresholds: Array<number> | null
 }
 
 export type AppStatePatch = {
@@ -183,6 +188,8 @@ export type AppStatePatch = {
   dismissedRepair?: { profileId: string; sessionIds: Array<string> }
   /** Turns the notch HUD off, or back on. */
   notchHudOff?: boolean
+  /** Sets the usage alert thresholds. An empty list turns alerts off. */
+  usageAlertThresholds?: Array<number>
 }
 
 /**

@@ -201,9 +201,6 @@ impl AppKind {
 }
 
 /// Format the synthetic default-entry id for a kind, e.g. `"default:claude"`.
-// Consumed by later phases (per-app default entries); the round-trip test
-// covers it today.
-#[allow(dead_code)]
 pub fn default_id(kind: AppKind) -> String {
     format!("default:{}", kind.as_str())
 }
