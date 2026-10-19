@@ -1,4 +1,4 @@
-import type { Profile, SidebarEntry } from '@/lib/types'
+import type { AppState, Profile, SidebarEntry } from '@/lib/types'
 import type { NotchState } from '../api/notch-ipc'
 
 import { fireEvent, screen } from '@testing-library/react'
@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fetchUsableUsage } from '@/features/profiles/api/use-profile-usage'
 import { useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
+import { useAppState } from '@/lib/app-state/use-app-state'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import { getNotchState, onNotchState, openProfileFromNotch } from '../api/notch-ipc'
@@ -27,6 +28,7 @@ vi.mock('@/features/profiles/api/use-profile-usage', async (importOriginal) => (
   ...(await importOriginal<typeof import('@/features/profiles/api/use-profile-usage')>()),
   fetchUsableUsage: vi.fn(),
 }))
+vi.mock('@/lib/app-state/use-app-state', () => ({ useAppState: vi.fn() }))
 
 const expanded: NotchState = {
   phase: 'expanded',
@@ -53,8 +55,24 @@ function managed(id: string, name: string, cli = true): SidebarEntry {
   return { kind: 'managed', profile }
 }
 
+function appState(): AppState {
+  return {
+    welcomeShown: true,
+    migrationDismissedAt: null,
+    pathBannerDismissedAt: null,
+    themeMode: 'system',
+    selectedEntryId: null,
+    dockIconAcknowledgedAt: null,
+    defaultProfileNames: {},
+    dismissedRepairSessions: {},
+    notchHudOff: false,
+    fiveDayWeekProfiles: [],
+  }
+}
+
 function given({ entries }: { entries: Array<SidebarEntry> }) {
   vi.mocked(useSidebarEntries).mockReturnValue(entries)
+  vi.mocked(useAppState).mockReturnValue({ state: appState(), update: vi.fn(), refresh: vi.fn() })
 }
 
 beforeEach(() => {

@@ -56,9 +56,18 @@ describe('elapsedFraction', () => {
     expect(elapsedFraction(new Date('2026-10-12T00:00:00Z'), now)).toBe(1)
   })
 
-  it('measures a session against its own length', () => {
+  it('counts only weekdays in a five-day week, so the weekend holds the pace still', () => {
+    // A local-time week from Tuesday 13 to Tuesday 20 October: five weekdays.
+    const reset = new Date(2026, 9, 20)
+    expect(elapsedFraction(reset, new Date(2026, 9, 17), undefined, 5)).toBeCloseTo(0.8)
+    expect(elapsedFraction(reset, new Date(2026, 9, 18, 12), undefined, 5)).toBeCloseTo(0.8)
+    expect(elapsedFraction(reset, new Date(2026, 9, 19, 12), undefined, 5)).toBeCloseTo(0.9)
+    expect(elapsedFraction(reset, new Date(2026, 9, 17), undefined, 7)).toBeCloseTo(4 / 7)
+  })
+
+  it('always counts the clock for a session', () => {
     const reset = new Date(2026, 9, 18, 5)
-    expect(elapsedFraction(reset, new Date(2026, 9, 18, 2, 30), 300)).toBeCloseTo(0.5)
+    expect(elapsedFraction(reset, new Date(2026, 9, 18, 2, 30), 300, 5)).toBeCloseTo(0.5)
   })
 })
 

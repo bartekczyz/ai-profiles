@@ -8,6 +8,7 @@ import { format } from 'date-fns'
 import { ArrowLeftRight, RefreshCw } from 'lucide-react'
 
 import { Skeleton, TooltipBubble } from '@/design'
+import { WorkingWeekPicker } from '@/features/notch/components/working-week-picker'
 import { appSpecs } from '@/lib/app-registry'
 import { openCliLogin } from '@/lib/commands'
 
@@ -143,6 +144,7 @@ function UsageCardInner({ app, profileId, cliCommand }: { app: AppId; profileId:
             ) : null}
           </div>
           <div className="flex items-center gap-[7px]">
+            <WorkingWeekPicker profileId={profileId} />
             <RefreshCountdown isFetching={isFetching} dataUpdatedAt={dataUpdatedAt} />
             <button
               type="button"

@@ -72,7 +72,21 @@ export function computeOptimisticAppState(previous: AppState, patch: AppStatePat
     defaultProfileNames: withDefaultProfileName(previous.defaultProfileNames, patch.defaultProfileName),
     dismissedRepairSessions: withDismissedRepair(previous.dismissedRepairSessions, patch.dismissedRepair),
     notchHudOff: patch.notchHudOff ?? previous.notchHudOff,
+    fiveDayWeekProfiles: withWorkingWeek(previous.fiveDayWeekProfiles, patch.workingWeek),
   }
+}
+
+/** Mirrors the Rust side: a five-day week joins the list, a seven-day one leaves it. */
+function withWorkingWeek(
+  fiveDay: AppState['fiveDayWeekProfiles'] | undefined,
+  change: AppStatePatch['workingWeek'],
+): AppState['fiveDayWeekProfiles'] {
+  const current = fiveDay ?? []
+  if (!change) {
+    return current
+  }
+  const others = current.filter((id) => id !== change.profileId)
+  return change.days === 5 ? [...others, change.profileId] : others
 }
 
 /** Mirrors the Rust side: trims, and an empty name drops the custom name. */

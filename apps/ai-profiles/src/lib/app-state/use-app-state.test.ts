@@ -19,6 +19,7 @@ function makeAppState(overrides: Partial<AppState> = {}): AppState {
     defaultProfileNames: {},
     dismissedRepairSessions: {},
     notchHudOff: false,
+    fiveDayWeekProfiles: [],
     ...overrides,
   }
 }
@@ -107,6 +108,13 @@ describe('useAppState', () => {
 })
 
 describe('computeOptimisticAppState', () => {
+  it('gives a profile a five-day week and back', () => {
+    const five = computeOptimisticAppState(makeAppState(), { workingWeek: { profileId: 'p1', days: 5 } })
+    expect(five.fiveDayWeekProfiles).toEqual(['p1'])
+    const seven = computeOptimisticAppState(five, { workingWeek: { profileId: 'p1', days: 7 } })
+    expect(seven.fiveDayWeekProfiles).toEqual([])
+  })
+
   it('overrides welcomeShown and themeMode when patched', () => {
     const previous = makeAppState({ welcomeShown: false, themeMode: 'system' })
     const result = computeOptimisticAppState(previous, { welcomeShown: true, themeMode: 'dark' })

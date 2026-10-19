@@ -157,6 +157,11 @@ export type AppState = {
   dismissedRepairSessions: Record<string, Array<string>>
   /** The user turned off the weekly-limit HUD in the notch. On by default. */
   notchHudOff: boolean
+  /**
+   * The profiles (or default entries) whose weekly pace counts only Monday
+   * to Friday. The rest count all seven days.
+   */
+  fiveDayWeekProfiles: Array<string>
 }
 
 export type AppStatePatch = {
@@ -183,6 +188,8 @@ export type AppStatePatch = {
   dismissedRepair?: { profileId: string; sessionIds: Array<string> }
   /** Turns the notch HUD off, or back on. */
   notchHudOff?: boolean
+  /** Gives one profile a 5- or 7-day working week. */
+  workingWeek?: { profileId: string; days: 5 | 7 }
 }
 
 /**

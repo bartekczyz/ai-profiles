@@ -1,7 +1,7 @@
 //! Persisted app-level state — independent of profiles.json.
 //! Holds first-run flags and dismissal timestamps.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -53,6 +53,10 @@ pub struct AppState {
     /// The user turned off the weekly-limit HUD in the notch. On by default.
     #[serde(default)]
     pub notch_hud_off: bool,
+    /// The profiles (or `default:<app>` entries) whose weekly pace counts
+    /// only Monday to Friday. The rest count all seven days.
+    #[serde(default)]
+    pub five_day_week_profiles: BTreeSet<String>,
 }
 
 /// Renames one app's stock-install entry. An empty (or all-whitespace) name
@@ -65,6 +69,14 @@ pub struct DefaultProfileName {
 }
 
 const DEFAULT_PROFILE_NAME_MAX_CHARS: usize = 64;
+
+/// Sets how many days profile `profile_id`'s week has: 5 or 7.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkingWeekPatch {
+    pub profile_id: String,
+    pub days: u8,
+}
 
 /// Sets the sessions a profile's repair offer was dismissed for. An empty
 /// list forgets the dismissal.
@@ -104,6 +116,8 @@ pub struct AppStatePatch {
     pub dismissed_repair: Option<DismissedRepair>,
     #[serde(default)]
     pub notch_hud_off: Option<bool>,
+    #[serde(default)]
+    pub working_week: Option<WorkingWeekPatch>,
 }
 
 pub fn load() -> AppResult<AppState> {
@@ -178,6 +192,21 @@ pub fn apply(patch: AppStatePatch) -> AppResult<AppState> {
     if let Some(off) = patch.notch_hud_off {
         state.notch_hud_off = off;
     }
+    if let Some(week) = patch.working_week {
+        match week.days {
+            5 => {
+                state.five_day_week_profiles.insert(week.profile_id);
+            }
+            7 => {
+                state.five_day_week_profiles.remove(&week.profile_id);
+            }
+            days => {
+                return Err(AppError::Validation(format!(
+                    "a working week has 5 or 7 days, not {days}"
+                )))
+            }
+        }
+    }
     save(&state)?;
     Ok(state)
 }
@@ -186,7 +215,9 @@ pub fn apply(patch: AppStatePatch) -> AppResult<AppState> {
 /// nothing when it keeps nothing.
 pub fn forget_profile(id: &str) -> AppResult<()> {
     let mut state = load()?;
-    if state.dismissed_repair_sessions.remove(id).is_none() {
+    let repair = state.dismissed_repair_sessions.remove(id).is_some();
+    let week = state.five_day_week_profiles.remove(id);
+    if !repair && !week {
         return Ok(());
     }
     save(&state)
@@ -280,6 +311,7 @@ mod tests {
             default_profile_names: BTreeMap::from([(AppKind::Claude, "Personal".into())]),
             dismissed_repair_sessions: BTreeMap::from([("p1".into(), vec!["s1".into()])]),
             notch_hud_off: true,
+            five_day_week_profiles: BTreeSet::new(),
         };
         save(&state).unwrap();
         let loaded = load().unwrap();
@@ -301,6 +333,7 @@ mod tests {
             default_profile_names: BTreeMap::new(),
             dismissed_repair_sessions: BTreeMap::new(),
             notch_hud_off: false,
+            five_day_week_profiles: BTreeSet::new(),
         })
         .unwrap();
 
@@ -332,6 +365,7 @@ mod tests {
             default_profile_names: BTreeMap::new(),
             dismissed_repair_sessions: BTreeMap::new(),
             notch_hud_off: false,
+            five_day_week_profiles: BTreeSet::new(),
         })
         .unwrap();
 
@@ -396,6 +430,7 @@ mod tests {
             default_profile_names: BTreeMap::new(),
             dismissed_repair_sessions: BTreeMap::new(),
             notch_hud_off: false,
+            five_day_week_profiles: BTreeSet::new(),
         })
         .unwrap();
         let after = apply(AppStatePatch {
@@ -550,5 +585,27 @@ mod tests {
     fn state_without_default_profile_names_still_loads() {
         let parsed: AppState = serde_json::from_str(r#"{"welcomeShown": true}"#).unwrap();
         assert!(parsed.default_profile_names.is_empty());
+    }
+
+    #[test]
+    fn a_profile_takes_a_five_or_seven_day_week_and_nothing_else() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        let set = |days: u8| {
+            apply(AppStatePatch {
+                working_week: Some(WorkingWeekPatch {
+                    profile_id: "p1".into(),
+                    days,
+                }),
+                ..AppStatePatch::default()
+            })
+        };
+        assert!(set(5).unwrap().five_day_week_profiles.contains("p1"));
+        assert!(set(6).is_err());
+        assert!(!set(7).unwrap().five_day_week_profiles.contains("p1"));
+        set(5).unwrap();
+        forget_profile("p1").unwrap();
+        assert!(load().unwrap().five_day_week_profiles.is_empty());
+        purge();
     }
 }
