@@ -50,6 +50,9 @@ pub struct AppState {
     /// stays away until a session not among them needs repair.
     #[serde(default)]
     pub dismissed_repair_sessions: BTreeMap<String, Vec<String>>,
+    /// The user turned off the weekly-limit HUD in the notch. On by default.
+    #[serde(default)]
+    pub notch_hud_off: bool,
 }
 
 /// Renames one app's stock-install entry. An empty (or all-whitespace) name
@@ -99,6 +102,8 @@ pub struct AppStatePatch {
     pub default_profile_name: Option<DefaultProfileName>,
     #[serde(default)]
     pub dismissed_repair: Option<DismissedRepair>,
+    #[serde(default)]
+    pub notch_hud_off: Option<bool>,
 }
 
 pub fn load() -> AppResult<AppState> {
@@ -169,6 +174,9 @@ pub fn apply(patch: AppStatePatch) -> AppResult<AppState> {
                 .dismissed_repair_sessions
                 .insert(dismissed.profile_id, dismissed.session_ids);
         }
+    }
+    if let Some(off) = patch.notch_hud_off {
+        state.notch_hud_off = off;
     }
     save(&state)?;
     Ok(state)
@@ -271,6 +279,7 @@ mod tests {
             dock_icon_acknowledged_at: Some("2026-05-21T09:30:00Z".into()),
             default_profile_names: BTreeMap::from([(AppKind::Claude, "Personal".into())]),
             dismissed_repair_sessions: BTreeMap::from([("p1".into(), vec!["s1".into()])]),
+            notch_hud_off: true,
         };
         save(&state).unwrap();
         let loaded = load().unwrap();
@@ -291,6 +300,7 @@ mod tests {
             dock_icon_acknowledged_at: Some("acknowledged".into()),
             default_profile_names: BTreeMap::new(),
             dismissed_repair_sessions: BTreeMap::new(),
+            notch_hud_off: false,
         })
         .unwrap();
 
@@ -321,6 +331,7 @@ mod tests {
             dock_icon_acknowledged_at: None,
             default_profile_names: BTreeMap::new(),
             dismissed_repair_sessions: BTreeMap::new(),
+            notch_hud_off: false,
         })
         .unwrap();
 
@@ -384,6 +395,7 @@ mod tests {
             dock_icon_acknowledged_at: None,
             default_profile_names: BTreeMap::new(),
             dismissed_repair_sessions: BTreeMap::new(),
+            notch_hud_off: false,
         })
         .unwrap();
         let after = apply(AppStatePatch {

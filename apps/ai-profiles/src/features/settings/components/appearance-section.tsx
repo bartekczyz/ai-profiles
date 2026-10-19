@@ -5,6 +5,13 @@ import { Monitor, Moon, Sun } from 'lucide-react'
 import { Segmented, useTheme } from '@/design'
 import { useAppState } from '@/lib/app-state/use-app-state'
 
+type NotchHud = 'shown' | 'hidden'
+
+const notchOptions: ReadonlyArray<SegmentedOption<NotchHud>> = [
+  { value: 'shown', label: 'Shown', ariaLabel: 'Show weekly limits in the notch' },
+  { value: 'hidden', label: 'Hidden', ariaLabel: 'Hide weekly limits from the notch' },
+]
+
 const themeOptions: ReadonlyArray<SegmentedOption<ThemeMode>> = [
   {
     value: 'light',
@@ -27,7 +34,7 @@ const themeOptions: ReadonlyArray<SegmentedOption<ThemeMode>> = [
 ]
 
 /**
- * Top section of Settings — theme picker.
+ * Top section of Settings — theme picker and the notch HUD switch.
  *
  * The segmented control's value mirrors `useTheme().mode` (the live in-memory
  * mode, which the ThemeProvider applies to `<html data-theme>`). Changes flow
@@ -56,6 +63,22 @@ export function AppearanceSection() {
         </span>
       </div>
       <Segmented<ThemeMode> ariaLabel="Theme" options={themeOptions} value={theme.mode} onChange={handleChange} />
+      <div className="mt-5 mb-2.5 flex items-center justify-between">
+        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">
+          Weekly limits in the notch
+        </span>
+      </div>
+      <Segmented<NotchHud>
+        ariaLabel="Weekly limits in the notch"
+        options={notchOptions}
+        value={appState.state.notchHudOff ? 'hidden' : 'shown'}
+        onChange={(next) => {
+          void appState.update({ notchHudOff: next === 'hidden' })
+        }}
+      />
+      <p className="mt-2 text-[12px] text-muted-strong">
+        On a Mac with a notch, rest the pointer on it to see every profile's weekly limit.
+      </p>
     </section>
   )
 }

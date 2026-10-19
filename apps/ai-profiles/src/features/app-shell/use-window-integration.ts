@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { listen } from '@tauri-apps/api/event'
 
 import { useTheme } from '@/design'
+import { onOpenProfileFromNotch } from '@/features/notch/api/notch-ipc'
 import { appFromEntry } from '@/features/profiles/api/use-sidebar-entries'
 
 /**
@@ -70,6 +71,21 @@ function useAboutMenuEvent(onOpen: () => void) {
 }
 
 /**
+ * Shows the profile whose row was clicked in the notch HUD. The shell has
+ * already brought this window forward.
+ */
+function useNotchProfileEvent(onOpen: (id: string) => void) {
+  useEffect(() => {
+    const unlistenPromise = onOpenProfileFromNotch(onOpen)
+    return () => {
+      void unlistenPromise.then((unlisten) => {
+        unlisten()
+      })
+    }
+  }, [onOpen])
+}
+
+/**
  * Tints the whole window by the selected entry's app. When nothing is
  * selected (or this unmounts), clears the attribute so :root falls back to
  * --color-orange.
@@ -101,15 +117,21 @@ type WindowIntegrationInput = {
    * Called when the App menu's "About ai-profiles" item is chosen.
    */
   onOpenAbout: () => void
+  /**
+   * Called when a profile row in the notch HUD is clicked.
+   */
+  onOpenProfile: (id: string) => void
 }
 
 /**
  * Syncs the window with the app shell: persisted theme, context-menu
- * suppression, the App menu's About item and the per-app tint.
+ * suppression, the App menu's About item, the notch HUD's profile rows and
+ * the per-app tint.
  */
-export function useWindowIntegration({ themeMode, selected, onOpenAbout }: WindowIntegrationInput) {
+export function useWindowIntegration({ themeMode, selected, onOpenAbout, onOpenProfile }: WindowIntegrationInput) {
   useThemeSync(themeMode)
   useContextMenuSuppression()
   useAboutMenuEvent(onOpenAbout)
+  useNotchProfileEvent(onOpenProfile)
   useAppTint(selected)
 }

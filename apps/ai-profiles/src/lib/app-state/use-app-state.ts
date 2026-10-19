@@ -71,6 +71,7 @@ export function computeOptimisticAppState(previous: AppState, patch: AppStatePat
     dockIconAcknowledgedAt: patch.dockIconAcknowledgedAt ?? previous.dockIconAcknowledgedAt,
     defaultProfileNames: withDefaultProfileName(previous.defaultProfileNames, patch.defaultProfileName),
     dismissedRepairSessions: withDismissedRepair(previous.dismissedRepairSessions, patch.dismissedRepair),
+    notchHudOff: patch.notchHudOff ?? previous.notchHudOff,
   }
 }
 

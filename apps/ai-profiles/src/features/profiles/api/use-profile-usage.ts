@@ -43,6 +43,14 @@ export function ensureUsable(usage: ProfileUsage): ProfileUsage {
 }
 
 /**
+ * Fetches a profile's usage, throwing `UsageUnavailableError` when the
+ * snapshot carries no usable quota.
+ */
+export async function fetchUsableUsage(profileId: string): Promise<ProfileUsage> {
+  return ensureUsable(narrowProfileUsage(await getProfileUsage(profileId)))
+}
+
+/**
  * Fetches the profile's usage stats. Refetches every 5 minutes while the
  * query is active and on every mount, so opening the detail page always
  * triggers a fresh fetch. A fetch problem is thrown as `UsageUnavailableError`
@@ -51,7 +59,7 @@ export function ensureUsable(usage: ProfileUsage): ProfileUsage {
 export function useProfileUsage(profileId: string) {
   return useQuery({
     queryKey: queryKeys.profileUsage(profileId),
-    queryFn: async () => ensureUsable(narrowProfileUsage(await getProfileUsage(profileId))),
+    queryFn: () => fetchUsableUsage(profileId),
     staleTime: 0,
     refetchOnMount: 'always',
     refetchInterval: refetchIntervalMs,

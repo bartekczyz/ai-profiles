@@ -1,0 +1,288 @@
+@import "@fontsource-variable/bitcount-prop-single/index.css";
+
+/*
+ * The notch HUD. Pure black in both themes, so the panel and the camera
+ * cutout read as one shape; its ink is its own, not the app theme's. Adapted
+ * from antiburn's island (MIT, https://github.com/antiburn/antiburn).
+ */
+:root {
+  --notch-ink: hsl(0 0% 92%);
+  --notch-ink-dim: hsl(0 0% 92% / 0.55);
+  --notch-led-off: hsl(0 0% 100% / 0.16);
+  --notch-warn: #e8a54b;
+  --notch-full: #e8655b;
+  --notch-panel: #000;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+#root {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.notch-panel {
+  position: relative;
+  box-sizing: border-box;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--notch-panel);
+  color: var(--notch-ink);
+  font-family: "Bitcount Prop Single Variable", ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: 0 0 14px 14px;
+  --notch-corner: 6px;
+}
+
+.notch-panel-open {
+  border-radius: 0 0 24px 24px;
+  --notch-corner: 19px;
+}
+
+/*
+ * The top corners curve outward into the bezel: each pseudo-element is a
+ * square in the transparent gutter with a quarter circle of transparency cut
+ * from its outer, lower corner.
+ */
+.notch-panel::before,
+.notch-panel::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: var(--notch-corner);
+  height: var(--notch-corner);
+  pointer-events: none;
+}
+
+.notch-panel::before {
+  right: 100%;
+  background: radial-gradient(
+    circle at 0 100%,
+    transparent calc(var(--notch-corner) - 0.5px),
+    var(--notch-panel) var(--notch-corner)
+  );
+}
+
+.notch-panel::after {
+  left: 100%;
+  background: radial-gradient(
+    circle at 100% 100%,
+    transparent calc(var(--notch-corner) - 0.5px),
+    var(--notch-panel) var(--notch-corner)
+  );
+}
+
+.notch-header {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr var(--notch-width) 1fr;
+  height: var(--notch-height);
+}
+
+.notch-wing {
+  display: flex;
+  align-items: center;
+}
+
+.notch-wing-left {
+  justify-content: flex-end;
+}
+
+.notch-wing-right {
+  justify-content: flex-start;
+}
+
+.notch-wing-left {
+  padding-right: 10px;
+}
+
+.notch-wing-right {
+  padding-left: 10px;
+}
+
+/* The folded summary: one chip per profile either side of the camera. */
+.notch-chips {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.notch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.notch-chip-figure {
+  font-size: 10px;
+  letter-spacing: 0;
+  color: var(--notch-ink-dim);
+}
+
+.notch-chip-figure[data-level="warn"] {
+  color: var(--notch-warn);
+}
+
+.notch-chip-figure[data-level="full"] {
+  color: var(--notch-full);
+}
+
+.notch-body {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* The panel is too small for a scroll bar to read as anything but noise;
+     a trackpad still scrolls a long list. */
+  scrollbar-width: none;
+}
+
+.notch-body::-webkit-scrollbar {
+  display: none;
+}
+
+.notch-rows {
+  padding: 6px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notch-empty {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--notch-ink-dim);
+}
+
+.notch-row {
+  all: unset;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  margin: 0 -8px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.notch-row:hover {
+  background: hsl(0 0% 100% / 0.07);
+}
+
+.notch-row:focus-visible {
+  outline: 1px solid var(--notch-ink-dim);
+}
+
+.notch-row-head,
+.notch-limit-caption {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.notch-row-head {
+  font-size: 13px;
+}
+
+.notch-limit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notch-limit-caption {
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--notch-ink-dim);
+}
+
+.notch-limit-caption .notch-figure {
+  color: var(--notch-ink);
+  font-size: 12px;
+}
+
+.notch-swatch {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.notch-swatch-outline {
+  box-sizing: border-box;
+  border: 1px solid var(--notch-ink-dim);
+}
+
+.notch-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.notch-figure[data-level="warn"] {
+  color: var(--notch-warn);
+}
+
+.notch-figure[data-level="full"] {
+  color: var(--notch-full);
+}
+
+.notch-led-bar {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 8px;
+}
+
+.notch-led {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--notch-led-off);
+}
+
+.notch-led-lit {
+  background: var(--notch-ink);
+}
+
+.notch-led-bar[data-level="warn"] .notch-led-lit {
+  background: var(--notch-warn);
+}
+
+.notch-led-bar[data-level="full"] .notch-led-lit {
+  background: var(--notch-full);
+}
+
+/* Where an even pace through the week would be by now. */
+.notch-led-pace {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 1.5px;
+  margin-left: -0.75px;
+  border-radius: 1px;
+  background: var(--notch-ink);
+}

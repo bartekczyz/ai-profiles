@@ -66,6 +66,7 @@ function AppContent() {
     themeMode: appState.state.themeMode,
     selected,
     onOpenAbout: () => setDialog({ kind: 'about' }),
+    onOpenProfile: selectEntry,
   })
 
   const gates = shortcutGates({

@@ -205,4 +205,4 @@ ai-profiles is inspired by [Multi-Claude](https://multiclaude.app/), a paid macO
 
 ## License
 
-[MIT](./LICENSE)
+[MIT](./LICENSE). Third-party material and its licences are listed in [THIRD_PARTY_NOTICES](./THIRD_PARTY_NOTICES).

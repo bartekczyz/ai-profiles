@@ -12,6 +12,7 @@ mod inherited_env;
 mod launch;
 mod launchers;
 mod migration;
+mod notch;
 mod path_setup;
 mod paths;
 mod profiles;
@@ -23,7 +24,7 @@ mod test_support;
 mod usage;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 /// Custom menu identifier for the App menu's "About ai-profiles" entry.
 /// The default macOS About item opens a tiny system panel; we replace it
@@ -39,7 +40,13 @@ pub fn run() {
         // the app itself after `downloadAndInstall` finishes — Tauri 2's
         // updater plugin does NOT relaunch on its own.
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(
+            // The notch HUD places itself on the notch every time; a restored
+            // frame would only fight it.
+            tauri_plugin_window_state::Builder::new()
+                .with_denylist(&[notch::LABEL])
+                .build(),
+        )
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             // Bring the desktop launchers an earlier version built up to this
@@ -102,7 +109,26 @@ pub fn run() {
             )?;
             let menu = Menu::with_items(app, &[&app_submenu, &edit_submenu])?;
             app.set_menu(menu)?;
+
+            if !app_state::load()
+                .map(|state| state.notch_hud_off)
+                .unwrap_or(false)
+            {
+                if let Err(err) = notch::set_enabled(app.handle(), true) {
+                    eprintln!("ai-profiles: could not open the notch HUD: {err}");
+                }
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // The notch HUD is a window too, and the app quits when its last
+            // window closes: close the HUD with the main window so closing
+            // the main window still quits.
+            if window.label() == "main"
+                && matches!(event, tauri::WindowEvent::CloseRequested { .. })
+            {
+                notch::close(window.app_handle());
+            }
         })
         .on_menu_event(|app, event| {
             if event.id().as_ref() == OPEN_ABOUT_ID {
@@ -133,6 +159,10 @@ pub fn run() {
             commands::install_path_hook,
             commands::load_app_state,
             commands::update_app_state,
+            commands::notch_state,
+            commands::notch_set_content_height,
+            commands::notch_set_wing_width,
+            commands::notch_open_profile,
             commands::get_app_metadata,
             commands::get_profile_usage,
             commands::open_external_url,

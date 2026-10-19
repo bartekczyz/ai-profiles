@@ -155,6 +155,8 @@ export type AppState = {
    * session not among them needs repair.
    */
   dismissedRepairSessions: Record<string, Array<string>>
+  /** The user turned off the weekly-limit HUD in the notch. On by default. */
+  notchHudOff: boolean
 }
 
 export type AppStatePatch = {
@@ -179,6 +181,8 @@ export type AppStatePatch = {
    * list forgets the dismissal.
    */
   dismissedRepair?: { profileId: string; sessionIds: Array<string> }
+  /** Turns the notch HUD off, or back on. */
+  notchHudOff?: boolean
 }
 
 /**

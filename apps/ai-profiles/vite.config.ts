@@ -15,6 +15,15 @@ export default defineConfig(async () => ({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      // The notch HUD is a second window with its own small page.
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        notch: path.resolve(__dirname, 'notch.html'),
+      },
+    },
+  },
   clearScreen: false,
   server: {
     port: 1420,

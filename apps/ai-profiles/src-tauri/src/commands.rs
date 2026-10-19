@@ -10,6 +10,7 @@ use crate::error::{AppError, AppResult};
 use crate::migration::{
     self, ExistingInstall, ExistingInstallSizes, ImportParams, MigrationBackupInfo,
 };
+use crate::notch;
 use crate::path_setup::{self, PathHookOutcome, Shell};
 use crate::paths::{
     next_migration_backup_dir, profile_dir as profile_data_dir, stock_cli_config_dir,
@@ -487,8 +488,37 @@ pub fn load_app_state() -> AppResult<AppState> {
 }
 
 #[tauri::command]
-pub fn update_app_state(patch: AppStatePatch) -> AppResult<AppState> {
-    app_state::apply(patch)
+pub fn update_app_state(app: tauri::AppHandle, patch: AppStatePatch) -> AppResult<AppState> {
+    let notch_hud_off = patch.notch_hud_off;
+    let state = app_state::apply(patch)?;
+    if let Some(off) = notch_hud_off {
+        notch::set_enabled(&app, !off).map_err(|err| AppError::Io(std::io::Error::other(err)))?;
+    }
+    Ok(state)
+}
+
+/// The notch HUD's geometry now, for a HUD webview that just mounted.
+#[tauri::command]
+pub fn notch_state() -> notch::NotchState {
+    notch::state()
+}
+
+/// The HUD webview measured its meters: fit the open panel to them.
+#[tauri::command]
+pub fn notch_set_content_height(app: tauri::AppHandle, height: f64) {
+    notch::set_content_height(&app, height);
+}
+
+/// The HUD webview measured its folded profile summary: fit the wings to it.
+#[tauri::command]
+pub fn notch_set_wing_width(app: tauri::AppHandle, width: f64) {
+    notch::set_wing_width(&app, width);
+}
+
+/// A profile row in the notch HUD was clicked: show it in the main window.
+#[tauri::command]
+pub fn notch_open_profile(app: tauri::AppHandle, id: String) {
+    notch::open_profile(&app, id);
 }
 
 /// Metadata the About dialog renders.

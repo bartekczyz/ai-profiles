@@ -31,7 +31,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `macos-private-api` lets the notch HUD's window be transparent around its
+# curved corners.
+tauri = { version = "2", features = ["macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
 thiserror = "2"
@@ -63,11 +65,15 @@ tauri-plugin-window-state = "2"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = [
     "NSBitmapImageRep",
+    "NSEvent",
     "NSGraphics",
     "NSGraphicsContext",
     "NSImage",
     "NSImageRep",
+    "NSResponder",
     "NSRunningApplication",
+    "NSScreen",
+    "NSWindow",
     "NSWorkspace",
 ] }
 objc2-foundation = { version = "0.3", features = [
@@ -76,6 +82,7 @@ objc2-foundation = { version = "0.3", features = [
     "libc",
     "NSDate",
     "NSError",
+    "NSGeometry",
 ] }
 
 # Profile for the `profile-shim` binary build.rs embeds. One copy is written
