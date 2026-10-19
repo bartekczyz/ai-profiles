@@ -33,6 +33,7 @@ function appState(dismissedRepairSessions: AppState['dismissedRepairSessions'] =
     defaultProfileNames: {},
     dismissedRepairSessions,
     notchHudOff: false,
+    notchHiddenProfiles: [],
   }
 }
 

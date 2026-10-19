@@ -157,6 +157,8 @@ export type AppState = {
   dismissedRepairSessions: Record<string, Array<string>>
   /** The user turned off the weekly-limit HUD in the notch. On by default. */
   notchHudOff: boolean
+  /** The profiles (or default entries) left out of the notch HUD. */
+  notchHiddenProfiles: Array<string>
 }
 
 export type AppStatePatch = {
@@ -183,6 +185,8 @@ export type AppStatePatch = {
   dismissedRepair?: { profileId: string; sessionIds: Array<string> }
   /** Turns the notch HUD off, or back on. */
   notchHudOff?: boolean
+  /** Shows one profile in the notch HUD, or leaves it out. */
+  notchProfile?: { profileId: string; shown: boolean }
 }
 
 /**

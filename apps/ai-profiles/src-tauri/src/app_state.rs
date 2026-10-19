@@ -1,7 +1,7 @@
 //! Persisted app-level state — independent of profiles.json.
 //! Holds first-run flags and dismissal timestamps.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -53,6 +53,10 @@ pub struct AppState {
     /// The user turned off the weekly-limit HUD in the notch. On by default.
     #[serde(default)]
     pub notch_hud_off: bool,
+    /// The profiles (or `default:<app>` entries) the user left out of the
+    /// notch HUD.
+    #[serde(default)]
+    pub notch_hidden_profiles: BTreeSet<String>,
 }
 
 /// Renames one app's stock-install entry. An empty (or all-whitespace) name
@@ -65,6 +69,14 @@ pub struct DefaultProfileName {
 }
 
 const DEFAULT_PROFILE_NAME_MAX_CHARS: usize = 64;
+
+/// Shows profile `profile_id` in the notch HUD, or leaves it out.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotchProfile {
+    pub profile_id: String,
+    pub shown: bool,
+}
 
 /// Sets the sessions a profile's repair offer was dismissed for. An empty
 /// list forgets the dismissal.
@@ -104,6 +116,8 @@ pub struct AppStatePatch {
     pub dismissed_repair: Option<DismissedRepair>,
     #[serde(default)]
     pub notch_hud_off: Option<bool>,
+    #[serde(default)]
+    pub notch_profile: Option<NotchProfile>,
 }
 
 pub fn load() -> AppResult<AppState> {
@@ -178,6 +192,13 @@ pub fn apply(patch: AppStatePatch) -> AppResult<AppState> {
     if let Some(off) = patch.notch_hud_off {
         state.notch_hud_off = off;
     }
+    if let Some(notch) = patch.notch_profile {
+        if notch.shown {
+            state.notch_hidden_profiles.remove(&notch.profile_id);
+        } else {
+            state.notch_hidden_profiles.insert(notch.profile_id);
+        }
+    }
     save(&state)?;
     Ok(state)
 }
@@ -186,7 +207,9 @@ pub fn apply(patch: AppStatePatch) -> AppResult<AppState> {
 /// nothing when it keeps nothing.
 pub fn forget_profile(id: &str) -> AppResult<()> {
     let mut state = load()?;
-    if state.dismissed_repair_sessions.remove(id).is_none() {
+    let repair = state.dismissed_repair_sessions.remove(id).is_some();
+    let notch = state.notch_hidden_profiles.remove(id);
+    if !repair && !notch {
         return Ok(());
     }
     save(&state)
@@ -280,6 +303,7 @@ mod tests {
             default_profile_names: BTreeMap::from([(AppKind::Claude, "Personal".into())]),
             dismissed_repair_sessions: BTreeMap::from([("p1".into(), vec!["s1".into()])]),
             notch_hud_off: true,
+            notch_hidden_profiles: BTreeSet::new(),
         };
         save(&state).unwrap();
         let loaded = load().unwrap();
@@ -301,6 +325,7 @@ mod tests {
             default_profile_names: BTreeMap::new(),
             dismissed_repair_sessions: BTreeMap::new(),
             notch_hud_off: false,
+            notch_hidden_profiles: BTreeSet::new(),
         })
         .unwrap();
 
@@ -332,6 +357,7 @@ mod tests {
             default_profile_names: BTreeMap::new(),
             dismissed_repair_sessions: BTreeMap::new(),
             notch_hud_off: false,
+            notch_hidden_profiles: BTreeSet::new(),
         })
         .unwrap();
 
@@ -396,6 +422,7 @@ mod tests {
             default_profile_names: BTreeMap::new(),
             dismissed_repair_sessions: BTreeMap::new(),
             notch_hud_off: false,
+            notch_hidden_profiles: BTreeSet::new(),
         })
         .unwrap();
         let after = apply(AppStatePatch {
@@ -550,5 +577,31 @@ mod tests {
     fn state_without_default_profile_names_still_loads() {
         let parsed: AppState = serde_json::from_str(r#"{"welcomeShown": true}"#).unwrap();
         assert!(parsed.default_profile_names.is_empty());
+    }
+
+    fn show_in_notch(id: &str, shown: bool) -> AppResult<AppState> {
+        apply(AppStatePatch {
+            notch_profile: Some(NotchProfile {
+                profile_id: id.into(),
+                shown,
+            }),
+            ..AppStatePatch::default()
+        })
+    }
+
+    #[test]
+    fn a_profile_left_out_of_the_notch_comes_back_and_is_forgotten_with_the_profile() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        purge();
+        show_in_notch("p1", false).unwrap();
+        show_in_notch("p2", false).unwrap();
+        assert!(load().unwrap().notch_hidden_profiles.contains("p1"));
+
+        let after = show_in_notch("p1", true).unwrap();
+        assert!(!after.notch_hidden_profiles.contains("p1"));
+
+        forget_profile("p2").unwrap();
+        assert!(load().unwrap().notch_hidden_profiles.is_empty());
+        purge();
     }
 }

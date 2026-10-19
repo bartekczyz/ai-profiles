@@ -10,6 +10,7 @@ import { useQueries, useQueryClient } from '@tanstack/react-query'
 import { fetchUsableUsage, UsageUnavailableError } from '@/features/profiles/api/use-profile-usage'
 import { appFromEntry, entryId, useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
 import { appSpecs } from '@/lib/app-registry'
+import { useAppState } from '@/lib/app-state/use-app-state'
 import { queryKeys } from '@/lib/query/keys'
 
 import {
@@ -80,7 +81,11 @@ type Row = {
 }
 
 function NotchPanel({ state }: { state: NotchState }) {
+  const { state: appState } = useAppState()
   const entries = useSidebarEntries().filter((entry) => {
+    if (appState.notchHiddenProfiles.includes(entryId(entry))) {
+      return false
+    }
     const surfaces = entry.kind === 'managed' ? entry.profile.surfaces : entry.entry.surfaces
     return surfaces.cli && appSpecs[appFromEntry(entry)].hasUsage
   })
