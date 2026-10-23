@@ -8,6 +8,7 @@ import { getProfileApiCost } from '@/lib/commands'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import {
+  barsOf,
   formatShare,
   formatUsd,
   kindRows,
@@ -25,6 +26,7 @@ function makeCost(overrides: Partial<ApiCost> = {}): ApiCost {
     totalUsd: 559.07,
     projectedUsd: 698.84,
     coveredDays: 24,
+    hasUse: true,
     // The 30-day window, up to Oct 15.
     days: [
       ...Array.from({ length: 29 }, (_, index) => ({
@@ -70,7 +72,7 @@ describe('ProfileDetailApiCost', () => {
     expect(row.textContent).toContain('Last 30 days')
     expect(row.textContent).toContain('$559')
     expect(row.textContent).not.toMatch(/×|plan|save/i)
-    expect(getProfileApiCost).toHaveBeenCalledWith('p1')
+    expect(getProfileApiCost).toHaveBeenCalledWith('p1', 'last30Days')
   })
 
   it('says the use is unpriced, not $0, when none of it has a price', async () => {
@@ -116,7 +118,9 @@ describe('ProfileDetailApiCost', () => {
   })
 
   it('shows nothing for a profile without transcripts', async () => {
-    vi.mocked(getProfileApiCost).mockResolvedValue(makeCost({ coveredDays: 0, totalUsd: 0, projectedUsd: null }))
+    vi.mocked(getProfileApiCost).mockResolvedValue(
+      makeCost({ coveredDays: 0, hasUse: false, totalUsd: 0, projectedUsd: null }),
+    )
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
     await waitFor(() => expect(screen.queryByText('Estimated API cost')).toBeNull())
   })
@@ -169,6 +173,30 @@ describe('ProfileDetailApiCost', () => {
     expect(screen.queryByText(/your plan|what you pay/i)).toBeNull()
   })
 
+  it('estimates the period picked in the breakdown, on the line as well', async () => {
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
+    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+    fireEvent.click(await screen.findByRole('radio', { name: '7 days' }))
+
+    await waitFor(() => expect(getProfileApiCost).toHaveBeenCalledWith('p1', 'last7Days'))
+    // Behind the open dialog, the line is hidden from the accessibility tree.
+    const row = screen.getByRole('button', { name: /Estimated API cost/, hidden: true })
+    await waitFor(() => expect(row.textContent).toContain('Last 7 days'))
+  })
+
+  it("says Claude Code deletes older transcripts when they don't reach back far enough", async () => {
+    const days = Array.from({ length: 90 }, (_, index) => ({
+      date: format(addDays(parseISO('2026-07-18'), index), 'yyyy-MM-dd'),
+      totalUsd: 0,
+      byModel: [],
+    }))
+    vi.mocked(getProfileApiCost).mockResolvedValue(makeCost({ days, coveredDays: 30 }))
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
+    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+
+    expect(await screen.findByText(/deletes transcripts after 30 days unless cleanupPeriodDays/)).toBeTruthy()
+  })
+
   it('tells projects of the same name apart by their paths', async () => {
     vi.mocked(getProfileApiCost).mockResolvedValue(
       makeCost({
@@ -197,28 +225,71 @@ it('charts only the days the transcripts cover', async () => {
 
 describe('summaryText', () => {
   it('says how far the transcripts go back and the pace when they cover only part of the window', () => {
-    expect(summaryText(makeCost({ coveredDays: 24, projectedUsd: 702 }))).toBe(
+    expect(summaryText(makeCost({ coveredDays: 24, projectedUsd: 702 }), 'last30Days')).toBe(
       'Over the 24 days your transcripts cover. On pace for $702 over 30 days.',
     )
   })
 
   it('gives no pace for under a week', () => {
-    expect(summaryText(makeCost({ coveredDays: 3, projectedUsd: null }))).toBe(
+    expect(summaryText(makeCost({ coveredDays: 3, projectedUsd: null }), 'last30Days')).toBe(
       'Over the 3 days your transcripts cover.',
     )
   })
 
   it('says the window alone when the transcripts cover all of it', () => {
-    expect(summaryText(makeCost({ coveredDays: 30, projectedUsd: null }))).toBe('Over the last 30 days.')
+    expect(summaryText(makeCost({ coveredDays: 30, projectedUsd: null }), 'last30Days')).toBe('Over the last 30 days.')
   })
 
   it('says when the total is partial or nothing has a price', () => {
-    expect(summaryText(makeCost({ coveredDays: 30, projectedUsd: null, coverage: 'partial' }))).toBe(
+    expect(summaryText(makeCost({ coveredDays: 30, projectedUsd: null, coverage: 'partial' }), 'last30Days')).toBe(
       'Over the last 30 days. Partial: use without a price is left out.',
     )
-    expect(summaryText(makeCost({ coveredDays: 3, projectedUsd: null, coverage: 'unpriced' }))).toBe(
+    expect(summaryText(makeCost({ coveredDays: 3, projectedUsd: null, coverage: 'unpriced' }), 'last30Days')).toBe(
       'None of the use over the 3 days your transcripts cover has a price.',
     )
+  })
+})
+
+describe('summaryText of a single day', () => {
+  const day = [{ date: '2026-10-14', totalUsd: 3, byModel: [] }]
+
+  it('names the day', () => {
+    expect(summaryText(makeCost({ days: day, coveredDays: 1, projectedUsd: null }), 'yesterday')).toBe('Yesterday.')
+    expect(
+      summaryText(makeCost({ days: day, coveredDays: 1, projectedUsd: null, coverage: 'unpriced' }), 'today'),
+    ).toBe('None of the use today has a price.')
+  })
+
+  it('says when the transcripts start after it', () => {
+    expect(summaryText(makeCost({ days: day, coveredDays: 0, projectedUsd: null }), 'yesterday')).toBe(
+      "Your transcripts don't reach back to yesterday.",
+    )
+  })
+})
+
+describe('barsOf', () => {
+  it('sums whole weeks up to the last day, with what is left over in the first bar', () => {
+    const days = Array.from({ length: 9 }, (_, index) => ({
+      date: format(addDays(parseISO('2026-10-07'), index), 'yyyy-MM-dd'),
+      totalUsd: 1,
+      byModel: [{ model: index % 2 === 0 ? 'Opus 5.5' : 'Sonnet 5.5', usd: 1 }],
+    }))
+    const byModel = [
+      { model: 'Opus 5.5', usd: 5 },
+      { model: 'Sonnet 5.5', usd: 4 },
+    ]
+
+    const bars = barsOf(days, 7, byModel)
+
+    expect(bars.map((bar) => [bar.from, bar.to, bar.totalUsd])).toEqual([
+      ['2026-10-07', '2026-10-08', 2],
+      ['2026-10-09', '2026-10-15', 7],
+    ])
+    expect(bars[1].byModel).toEqual([
+      { model: 'Opus 5.5', usd: 4 },
+      { model: 'Sonnet 5.5', usd: 3 },
+    ])
+    expect(barsOf(days, 1, byModel)).toHaveLength(9)
   })
 })
 

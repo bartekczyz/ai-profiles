@@ -28,6 +28,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::io::BufReader;
+use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
@@ -302,10 +303,10 @@ fn tier_of(setting: &str) -> Tier {
 static ROLLOUT_CACHE: LazyLock<LineCache<RolloutScan, RolloutScan>> =
     LazyLock::new(LineCache::default);
 
-/// The estimated API cost of the Codex use recorded in `codex_home`, as of
-/// `today`, at `prices`. Walks every rollout, so it belongs on a blocking
+/// The estimated API cost of the Codex use recorded in `codex_home` over
+/// `period`, at `prices`. Walks every rollout, so it belongs on a blocking
 /// thread.
-pub fn read(codex_home: &Path, prices: &Catalog, today: NaiveDate) -> ApiCost {
+pub fn read(codex_home: &Path, prices: &Catalog, period: RangeInclusive<NaiveDate>) -> ApiCost {
     ROLLOUT_CACHE.forget_gone();
     let mut paths = Vec::new();
     for dir in ["sessions", "archived_sessions"] {
@@ -328,7 +329,7 @@ pub fn read(codex_home: &Path, prices: &Catalog, today: NaiveDate) -> ApiCost {
         .iter()
         .map(|(turn, cwd)| (turn, cwd.as_deref()))
         .collect();
-    tally(turns, prices, today)
+    tally(turns, prices, period)
 }
 
 fn is_rollout(path: &Path) -> bool {
@@ -458,7 +459,7 @@ mod tests {
     use serde_json::{json, Value};
     use tempfile::tempdir;
 
-    use super::super::{local_day, Coverage};
+    use super::super::{local_day, Coverage, Period};
     use super::*;
     use crate::usage::prices::tests::catalog_of;
 
@@ -561,7 +562,7 @@ mod tests {
     const ROLLOUT: &str = "sessions/2026/10/15/rollout-2026-10-15T12-00-00-t1.jsonl";
 
     fn cost_of(home: &Path) -> ApiCost {
-        read(home, &prices(), today())
+        read(home, &prices(), Period::Last30Days.days(today()))
     }
 
     fn assert_usd(actual: f64, expected: f64) {

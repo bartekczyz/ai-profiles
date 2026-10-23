@@ -283,24 +283,34 @@ export type ProfileUsage = {
 export type ModelCost = { model: string; usd: number }
 
 /**
- * An estimate of what a profile's Claude Code or Codex use over the last 30
- * days would cost at API prices, in USD, read from its transcripts. Not the
+ * The days an API cost estimate covers: yesterday alone, or the last ones up
+ * to today.
+ */
+export type Period = 'today' | 'yesterday' | 'last7Days' | 'last30Days' | 'last90Days' | 'last6Months' | 'year'
+
+/**
+ * An estimate of what a profile's Claude Code or Codex use over a period
+ * would cost at API prices, in USD, read from its transcripts. Not the
  * profile's bill.
  */
 export type ApiCost = {
   totalUsd: number
   /**
-   * What the whole window would cost at the same pace, when the transcripts
+   * What the whole period would cost at the same pace, when the transcripts
    * on disk cover only part of it, and at least a week.
    */
   projectedUsd: number | null
   /**
-   * How many days the transcripts reach back to, today included: 0 when there
-   * are none.
+   * How many days of the period the transcripts reach back to, its last
+   * included: 0 when they start after it.
    */
   coveredDays: number
   /**
-   * Each day of the window, oldest first.
+   * Whether the transcripts record any use at all, in the period or not.
+   */
+  hasUse: boolean
+  /**
+   * Each day of the period, oldest first.
    */
   days: Array<{ date: string; totalUsd: number; byModel: Array<ModelCost> }>
   /**

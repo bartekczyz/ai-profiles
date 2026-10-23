@@ -1,4 +1,4 @@
-import type { SessionAction } from '@/lib/types'
+import type { Period, SessionAction } from '@/lib/types'
 
 /**
  * Typed query-key factory.
@@ -21,7 +21,7 @@ export const queryKeys = {
   profileUsage: (id: string) => ['profile-usage', id] as const,
   // Outside the `profiles` subtree for the same reason: it walks every
   // transcript the profile has.
-  profileApiCost: (id: string) => ['profile-api-cost', id] as const,
+  profileApiCost: (id: string, period: Period) => ['profile-api-cost', id, period] as const,
   dependencies: ['dependencies'] as const,
   migration: {
     existing: ['migration', 'existing'] as const,

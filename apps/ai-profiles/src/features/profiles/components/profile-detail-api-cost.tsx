@@ -1,12 +1,12 @@
 import type { AppId } from '@/lib/app-registry'
-import type { ApiCost } from '@/lib/types'
+import type { ApiCost, ModelCost, Period } from '@/lib/types'
 
 import { useState } from 'react'
 
 import { format, parseISO } from 'date-fns'
 import { ChevronRight } from 'lucide-react'
 
-import { Button, Dialog, Kbd, Skeleton } from '@/design'
+import { Button, Dialog, Kbd, Segmented, Skeleton } from '@/design'
 
 import { useProfileApiCost } from '../api/use-profile-api-cost'
 import { shortenHomePath } from './shorten-home-path'
@@ -22,15 +22,54 @@ const modelColors = ['bg-profile-orange', 'bg-profile-steel', 'bg-profile-sage',
 const shownProjects = 8
 
 /**
+ * The periods the estimate can cover, as the picker names them, with the
+ * length of each one counted back from today.
+ */
+const periods: ReadonlyArray<{ value: Period; label: string; length?: string }> = [
+  { value: 'today', label: 'Today' },
+  { value: 'yesterday', label: 'Yesterday' },
+  { value: 'last7Days', label: '7 days', length: '7 days' },
+  { value: 'last30Days', label: '30 days', length: '30 days' },
+  { value: 'last90Days', label: '90 days', length: '90 days' },
+  { value: 'last6Months', label: '6 months', length: '6 months' },
+  { value: 'year', label: 'Year', length: '12 months' },
+]
+
+const defaultPeriod: Period = 'last30Days'
+const periodKey = 'ai-profiles-api-cost-period'
+
+function readPeriod(): Period {
+  try {
+    const stored = window.localStorage.getItem(periodKey)
+    return periods.find((each) => each.value === stored)?.value ?? defaultPeriod
+  } catch {
+    return defaultPeriod
+  }
+}
+
+function periodOf(period: Period): { label: string; length?: string } {
+  return periods.find((each) => each.value === period) ?? { label: period }
+}
+
+/**
+ * What the line and the summary call `period`: "Today", "Last 7 days".
+ */
+function periodName(period: Period): string {
+  const { label, length } = periodOf(period)
+  return length ? `Last ${length}` : label
+}
+
+/**
  * Per app: the tool whose transcripts the estimate reads, whose API prices it
  * is at, what its cache writes are called, and the chats it can't see.
  */
-const sources: Record<AppId, { tool: string; api: string; cacheWrites: string; leftOut: string }> = {
+const sources: Record<AppId, { tool: string; api: string; cacheWrites: string; leftOut: string; kept?: string }> = {
   claude: {
     tool: 'Claude Code',
     api: 'Claude API',
     cacheWrites: 'Cache writes, 5 min',
     leftOut: "Chats in the Claude desktop app and on claude.ai keep no token counts, so they aren't included.",
+    kept: 'Claude Code deletes transcripts after 30 days unless cleanupPeriodDays in its settings says otherwise, so older use is gone.',
   },
   codex: {
     tool: 'Codex',
@@ -54,16 +93,27 @@ type Props = {
 
 /**
  * One line under the usage card estimating what the profile's Claude Code or
- * Codex use would cost at API prices, which opens the breakdown. Nothing for
- * a profile without transcripts yet. Until the transcripts are read, the line
- * holds its place, so what follows doesn't jump down when it arrives.
+ * Codex use over the picked period would cost at API prices, which opens the
+ * breakdown. Nothing for a profile without transcripts yet. Until the
+ * transcripts are read, the line holds its place, so what follows doesn't
+ * jump down when it arrives. The period picked in the breakdown is
+ * remembered for every profile.
  *
  * It is an estimate of the recorded use, never the bill: the profile may pay
  * by API key, by subscription, or both over time, and nothing on disk says
  * which, so it isn't compared against a plan.
  */
 export function ProfileDetailApiCost({ app, profileId }: Props) {
-  const { data: cost, isError } = useProfileApiCost(profileId)
+  const [period, setPeriod] = useState<Period>(readPeriod)
+  const { data: cost, isError } = useProfileApiCost(profileId, period)
+  function changePeriod(next: Period) {
+    setPeriod(next)
+    try {
+      window.localStorage.setItem(periodKey, next)
+    } catch {
+      // Storage may be unavailable; the pick still holds for this session.
+    }
+  }
   if (!cost) {
     return (
       <div className={rowClasses}>
@@ -81,13 +131,20 @@ export function ProfileDetailApiCost({ app, profileId }: Props) {
       </div>
     )
   }
-  if (cost.coveredDays === 0) {
+  if (!cost.hasUse) {
     return null
   }
-  return <ApiCostRow app={app} cost={cost} />
+  return <ApiCostRow app={app} cost={cost} period={period} onPeriodChange={changePeriod} />
 }
 
-function ApiCostRow({ app, cost }: { app: AppId; cost: ApiCost }) {
+type RowProps = {
+  app: AppId
+  cost: ApiCost
+  period: Period
+  onPeriodChange: (period: Period) => void
+}
+
+function ApiCostRow({ app, cost, period, onPeriodChange }: RowProps) {
   const [open, setOpen] = useState(false)
   const source = sources[app]
 
@@ -99,7 +156,7 @@ function ApiCostRow({ app, cost }: { app: AppId; cost: ApiCost }) {
         className={`${rowClasses} cursor-pointer transition-colors hover:bg-white/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-white/[0.05]`}
       >
         <span className={rowLabelClasses}>Estimated API cost</span>
-        <span className="text-muted">Last 30 days</span>
+        <span className="text-muted">{periodName(period)}</span>
         {cost.coverage === 'unpriced' ? (
           <span className="font-medium text-amber">Unpriced</span>
         ) : (
@@ -120,13 +177,21 @@ function ApiCostRow({ app, cost }: { app: AppId; cost: ApiCost }) {
           </Button>
         }
       >
-        <Summary cost={cost} />
+        <Segmented
+          size="small"
+          ariaLabel="Period"
+          options={periods}
+          value={period}
+          onChange={onPeriodChange}
+          className="mb-4"
+        />
+        <Summary cost={cost} period={period} kept={source.kept} />
         {cost.unpriced.length > 0 ? (
           <p className="m-0 mb-5 text-meta text-amber">{unpricedNote(cost.unpriced)}</p>
         ) : null}
         {cost.coverage === 'unpriced' ? null : (
           <>
-            <DailyChart cost={cost} />
+            <CostOverTime cost={cost} />
             <KindBreakdown byKind={cost.byKind} cacheWrites={source.cacheWrites} />
             <Projects projects={cost.projects} />
           </>
@@ -137,7 +202,11 @@ function ApiCostRow({ app, cost }: { app: AppId; cost: ApiCost }) {
   )
 }
 
-function Summary({ cost }: { cost: ApiCost }) {
+/**
+ * The total and the days it covers, with how long the tool keeps transcripts,
+ * `kept`, when they don't reach back to the start of a period over 30 days.
+ */
+function Summary({ cost, period, kept }: { cost: ApiCost; period: Period; kept?: string }) {
   return (
     <section className="mb-4">
       {cost.coverage === 'unpriced' ? (
@@ -152,52 +221,73 @@ function Summary({ cost }: { cost: ApiCost }) {
           ) : null}
         </p>
       )}
-      <p className="m-0 text-meta text-muted">{summaryText(cost)}</p>
+      <p className="m-0 text-meta text-muted">{summaryText(cost, period)}</p>
+      {kept && cost.days.length > 30 && cost.coveredDays < cost.days.length ? (
+        <p className="m-0 mt-1 text-meta text-muted">{kept}</p>
+      ) : null}
     </section>
   )
 }
 
 /**
- * The cost of each day the transcripts cover: the days before the oldest one
+ * The chart over a period of days, or for a single day, what each model cost.
+ */
+function CostOverTime({ cost }: { cost: ApiCost }) {
+  if (cost.days.length > 1) {
+    return <CostChart cost={cost} />
+  }
+  if (cost.byModel.length === 0) {
+    return null
+  }
+  return (
+    <section className="mb-5">
+      <h3 className={eyebrowClasses}>By model</h3>
+      <ModelLegend byModel={cost.byModel} />
+    </section>
+  )
+}
+
+type Bar = { from: string; to: string; totalUsd: number; byModel: Array<ModelCost> }
+
+/**
+ * The cost of each day the transcripts cover, or of each week past 90 days,
+ * as daily bars would be too thin to point at: the days before the oldest one
  * are left out rather than drawn as days that cost nothing.
  */
-function DailyChart({ cost }: { cost: ApiCost }) {
-  const days = cost.days.slice(-cost.coveredDays)
-  const highest = Math.max(0, ...days.map((day) => day.totalUsd))
-  const colorOf = (model: string) =>
-    modelColors[
-      Math.min(
-        cost.byModel.findIndex((each) => each.model === model),
-        modelColors.length - 1,
-      )
-    ]
-  const first = days[0]
+function CostChart({ cost }: { cost: ApiCost }) {
+  const daysPerBar = cost.days.length > 90 ? 7 : 1
+  const unit = daysPerBar === 1 ? 'day' : 'week'
+  const bars = barsOf(cost.days.slice(cost.days.length - cost.coveredDays), daysPerBar, cost.byModel)
+  const highest = Math.max(0, ...bars.map((bar) => bar.totalUsd))
+  const first = bars[0]
   return (
     <section className="mb-5">
       <div className="flex items-baseline justify-between">
-        <h3 className={eyebrowClasses}>By day</h3>
-        <span className="font-mono text-mono text-muted-strong">peak {formatUsd(highest)}/day</span>
+        <h3 className={eyebrowClasses}>By {unit}</h3>
+        <span className="font-mono text-mono text-muted-strong">
+          peak {formatUsd(highest)}/{unit}
+        </span>
       </div>
       <div
         role="img"
-        aria-label={`Cost per day over the last ${dayCount(days.length)}`}
+        aria-label={`Cost per ${unit} over the last ${dayCount(cost.coveredDays)}`}
         className="flex h-28 items-end gap-[3px] border-b border-border-soft"
       >
-        {days.map((day) => (
+        {bars.map((bar) => (
           <div
-            key={day.date}
-            title={`${formatDay(day.date)}: ${formatUsd(day.totalUsd)}`}
+            key={bar.from}
+            title={`${barLabel(bar)}: ${formatUsd(bar.totalUsd)}`}
             className="flex h-full flex-1 flex-col justify-end"
           >
             <div
               className="flex flex-col-reverse overflow-hidden rounded-t-[2px]"
-              style={{ height: `${highest > 0 ? (day.totalUsd / highest) * 100 : 0}%` }}
+              style={{ height: `${highest > 0 ? (bar.totalUsd / highest) * 100 : 0}%` }}
             >
-              {day.byModel.map((model) => (
+              {bar.byModel.map((model) => (
                 <div
                   key={model.model}
-                  className={colorOf(model.model)}
-                  style={{ height: `${(model.usd / day.totalUsd) * 100}%` }}
+                  className={colorOf(cost.byModel, model.model)}
+                  style={{ height: `${(model.usd / bar.totalUsd) * 100}%` }}
                 />
               ))}
             </div>
@@ -205,20 +295,72 @@ function DailyChart({ cost }: { cost: ApiCost }) {
         ))}
       </div>
       <div className="mt-1 flex justify-between font-mono text-mono text-muted-strong">
-        <span>{first ? formatDay(first.date) : null}</span>
+        <span>{first ? formatDay(first.from) : null}</span>
         <span>Today</span>
       </div>
-      <ul className="m-0 mt-2.5 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-meta text-muted">
-        {cost.byModel.map((model) => (
-          <li key={model.model} className="flex items-center gap-1.5">
-            <span aria-hidden className={`h-2 w-2 rounded-[2px] ${colorOf(model.model)}`} />
-            {model.model}
-            <span className="text-ink tabular-nums">{formatUsd(model.usd)}</span>
-          </li>
-        ))}
-      </ul>
+      <ModelLegend byModel={cost.byModel} className="mt-2.5" />
     </section>
   )
+}
+
+function ModelLegend({ byModel, className = '' }: { byModel: Array<ModelCost>; className?: string }) {
+  return (
+    <ul className={`m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-meta text-muted ${className}`}>
+      {byModel.map((model) => (
+        <li key={model.model} className="flex items-center gap-1.5">
+          <span aria-hidden className={`h-2 w-2 rounded-[2px] ${colorOf(byModel, model.model)}`} />
+          {model.model}
+          <span className="text-ink tabular-nums">{formatUsd(model.usd)}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
+ * The bar colour of `model`, by its place in `byModel`, most expensive first.
+ */
+function colorOf(byModel: Array<ModelCost>, model: string): string {
+  return modelColors[
+    Math.min(
+      byModel.findIndex((each) => each.model === model),
+      modelColors.length - 1,
+    )
+  ]
+}
+
+/**
+ * `days` in bars of `size` days each, the last ending on the last day, so only
+ * the first may be shorter. A bar's models are in `byModel`'s order.
+ */
+export function barsOf(days: ApiCost['days'], size: number, byModel: Array<ModelCost>): Array<Bar> {
+  if (days.length === 0) {
+    return []
+  }
+  const firstSize = days.length % size || size
+  const chunks = [days.slice(0, firstSize)]
+  for (let start = firstSize; start < days.length; start += size) {
+    chunks.push(days.slice(start, start + size))
+  }
+  return chunks.map((chunk) => {
+    const spentOn = (model: string) =>
+      chunk.reduce((sum, day) => sum + (day.byModel.find((each) => each.model === model)?.usd ?? 0), 0)
+    return {
+      from: chunk[0].date,
+      to: chunk[chunk.length - 1].date,
+      totalUsd: chunk.reduce((sum, day) => sum + day.totalUsd, 0),
+      byModel: byModel.map(({ model }) => ({ model, usd: spentOn(model) })).filter((each) => each.usd > 0),
+    }
+  })
+}
+
+/**
+ * A day as "Thu, Oct 15", a week as "Oct 9 – Oct 15".
+ */
+function barLabel(bar: Bar): string {
+  return bar.from === bar.to
+    ? format(parseISO(bar.from), 'EEE, MMM d')
+    : `${formatDay(bar.from)} – ${formatDay(bar.to)}`
 }
 
 function KindBreakdown({ byKind, cacheWrites }: { byKind: ApiCost['byKind']; cacheWrites: string }) {
@@ -296,21 +438,29 @@ function Footnote({ cost, app }: { cost: ApiCost; app: AppId }) {
 
 /**
  * The line under the total: the days it covers, the pace when that is only
- * part of the window (from a week up), and whether the total leaves use
- * without a price out.
+ * part of `period` (from a week up), and whether the total leaves use without
+ * a price out.
  */
-export function summaryText(cost: Pick<ApiCost, 'days' | 'coveredDays' | 'projectedUsd' | 'coverage'>): string {
-  const windowDays = cost.days.length
-  const days =
-    cost.coveredDays < windowDays
-      ? `the ${dayCount(cost.coveredDays)} your transcripts cover`
-      : `the last ${windowDays} days`
-  if (cost.coverage === 'unpriced') {
-    return `None of the use over ${days} has a price.`
+export function summaryText(
+  cost: Pick<ApiCost, 'days' | 'coveredDays' | 'projectedUsd' | 'coverage'>,
+  period: Period,
+): string {
+  const { label, length } = periodOf(period)
+  if (cost.coveredDays === 0) {
+    return `Your transcripts don't reach back to ${label.toLowerCase()}.`
   }
-  const pace = cost.projectedUsd === null ? '' : ` On pace for ${formatUsd(cost.projectedUsd)} over ${windowDays} days.`
+  const over =
+    cost.coveredDays < cost.days.length
+      ? `over the ${dayCount(cost.coveredDays)} your transcripts cover`
+      : length
+        ? `over the last ${length}`
+        : label.toLowerCase()
+  if (cost.coverage === 'unpriced') {
+    return `None of the use ${over} has a price.`
+  }
+  const pace = cost.projectedUsd === null ? '' : ` On pace for ${formatUsd(cost.projectedUsd)} over ${length}.`
   const partial = cost.coverage === 'partial' ? ' Partial: use without a price is left out.' : ''
-  return `Over ${days}.${pace}${partial}`
+  return `${over.charAt(0).toUpperCase()}${over.slice(1)}.${pace}${partial}`
 }
 
 function dayCount(days: number): string {

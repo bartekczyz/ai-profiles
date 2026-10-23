@@ -20,10 +20,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
-use chrono::{DateTime, Days, Local, NaiveDate, Utc};
+use chrono::{DateTime, Days, Local, Months, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::prices::{Catalog, Tier, Tokens};
@@ -31,31 +32,68 @@ use crate::line_cache::{LineCache, LineScan};
 
 pub(crate) mod codex;
 
-/// How many days, today included, the estimate covers. Claude Code
-/// deletes transcripts after 30 days unless told otherwise
-/// (`cleanupPeriodDays`), so a longer window would mostly be empty.
-pub const WINDOW_DAYS: u32 = 30;
+/// The days an estimate covers, as picked in the app. Claude Code deletes
+/// transcripts after 30 days unless told otherwise (`cleanupPeriodDays`), so
+/// for it the longer ones mostly reach back no further.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Period {
+    Today,
+    Yesterday,
+    Last7Days,
+    Last30Days,
+    Last90Days,
+    Last6Months,
+    Year,
+}
+
+impl Period {
+    /// Its days as of `today`: yesterday alone, or the last ones up to
+    /// `today`. Six months back from Oct 15 starts on Apr 16, as 30 days back
+    /// starts on Sep 16.
+    pub fn days(self, today: NaiveDate) -> RangeInclusive<NaiveDate> {
+        let back = |days: u64| today - Days::new(days - 1)..=today;
+        let months = |months: u32| {
+            today
+                .checked_sub_months(Months::new(months))
+                .map_or(today, |day| day + Days::new(1))..=today
+        };
+        match self {
+            Period::Today => today..=today,
+            Period::Yesterday => {
+                let yesterday = today - Days::new(1);
+                yesterday..=yesterday
+            }
+            Period::Last7Days => back(7),
+            Period::Last30Days => back(30),
+            Period::Last90Days => back(90),
+            Period::Last6Months => months(6),
+            Period::Year => months(12),
+        }
+    }
+}
 
 /// The fewest days a pace is projected from: over fewer, one busy or quiet
 /// day sets it.
 const MIN_PROJECTED_DAYS: u32 = 7;
 
-/// What a profile's Claude Code or Codex use over the last [`WINDOW_DAYS`]
-/// would cost at API list prices, in USD: an estimate of the recorded use, not
-/// what the profile was billed, whether it pays by API key or by
-/// subscription.
+/// What a profile's Claude Code or Codex use over a [`Period`] would cost at
+/// API list prices, in USD: an estimate of the recorded use, not what the
+/// profile was billed, whether it pays by API key or by subscription.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiCost {
     pub total_usd: f64,
-    /// What the whole window would cost at the same pace, when the
+    /// What the whole period would cost at the same pace, when the
     /// transcripts on disk cover only part of it, and at least
     /// [`MIN_PROJECTED_DAYS`].
     pub projected_usd: Option<f64>,
-    /// How many days of the window the transcripts on disk reach back to,
-    /// today included: 0 when there are none.
+    /// How many days of the period the transcripts on disk reach back to,
+    /// its last included: 0 when they start after it.
     pub covered_days: u32,
-    /// Each day of the window, oldest first.
+    /// Whether the transcripts record any use at all, in the period or not.
+    pub has_use: bool,
+    /// Each day of the period, oldest first.
     pub days: Vec<DayCost>,
     /// By what was billed.
     pub by_kind: KindCosts,
@@ -66,7 +104,7 @@ pub struct ApiCost {
     /// Use the price list has no rates for, by tokens used, most first. Its
     /// tokens are in none of the costs.
     pub unpriced: Vec<UnpricedUse>,
-    /// How much of the use in the window the costs cover.
+    /// How much of the use in the period the costs cover.
     pub coverage: Coverage,
     /// The day the price list is of, `YYYY-MM-DD`.
     pub prices_as_of: NaiveDate,
@@ -132,7 +170,7 @@ pub struct ProjectCost {
     pub usd: f64,
 }
 
-/// How much of the use in the window has a price.
+/// How much of the use in the period has a price.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Coverage {
@@ -324,10 +362,10 @@ fn turn_of(record: Record) -> Option<(String, Turn)> {
 /// Transcripts already read, by path.
 static USAGE_CACHE: LazyLock<LineCache<UsageScan, UsageScan>> = LazyLock::new(LineCache::default);
 
-/// The estimated API cost of the Claude Code use recorded in `config_dir`, as
-/// of `today`, at `prices`. Walks every transcript, so it belongs on a
-/// blocking thread.
-pub fn read(config_dir: &Path, prices: &Catalog, today: NaiveDate) -> ApiCost {
+/// The estimated API cost of the Claude Code use recorded in `config_dir` over
+/// `period`, at `prices`. Walks every transcript, so it belongs on a blocking
+/// thread.
+pub fn read(config_dir: &Path, prices: &Catalog, period: RangeInclusive<NaiveDate>) -> ApiCost {
     USAGE_CACHE.forget_gone();
     let projects = config_dir.join("projects");
     let mut paths = Vec::new();
@@ -351,7 +389,7 @@ pub fn read(config_dir: &Path, prices: &Catalog, today: NaiveDate) -> ApiCost {
         .collect();
     let read: HashSet<PathBuf> = paths.into_iter().collect();
     USAGE_CACHE.retain(|path| !path.starts_with(&projects) || read.contains(path));
-    tally(once_each(&scans), prices, today)
+    tally(once_each(&scans), prices, period)
 }
 
 /// Every file in `dir` and the folders in it that is `wanted`, into
@@ -427,9 +465,13 @@ fn label_of(model: &str) -> String {
 }
 
 /// The estimated API cost at `prices` of the requests in `turns`, each with
-/// the folder its session started in, over the window ending `today`.
-fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, today: NaiveDate) -> ApiCost {
-    let start = today - Days::new(u64::from(WINDOW_DAYS - 1));
+/// the folder its session started in, over `period`.
+fn tally(
+    turns: Vec<(&Turn, Option<&str>)>,
+    prices: &Catalog,
+    period: RangeInclusive<NaiveDate>,
+) -> ApiCost {
+    let (start, end) = (*period.start(), *period.end());
     let mut oldest: Option<NaiveDate> = None;
     let mut by_kind = KindCosts::default();
     let mut by_day: HashMap<NaiveDate, HashMap<String, f64>> = HashMap::new();
@@ -440,7 +482,7 @@ fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, today: NaiveDate) 
     for (turn, project) in turns {
         let day = local_day(turn.at);
         oldest = Some(oldest.map_or(day, |oldest| oldest.min(day)));
-        if day < start || day > today {
+        if !period.contains(&day) {
             continue;
         }
         let costs = match prices.model(&turn.model) {
@@ -483,7 +525,7 @@ fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, today: NaiveDate) 
     });
     let days = start
         .iter_days()
-        .take_while(|day| *day <= today)
+        .take_while(|day| *day <= end)
         .map(|date| {
             let spent = by_day.remove(&date).unwrap_or_default();
             let by_model: Vec<ModelCost> = by_model
@@ -531,18 +573,19 @@ fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, today: NaiveDate) 
             .then(left.missing.cmp(&right.missing))
     });
 
-    let covered_days = oldest.map_or(0, |oldest| {
-        let from = oldest.max(start).min(today);
-        u32::try_from((today - from).num_days() + 1).unwrap_or(WINDOW_DAYS)
+    let period_days = u32::try_from((end - start).num_days() + 1).unwrap_or(u32::MAX);
+    let covered_days = oldest.filter(|oldest| *oldest <= end).map_or(0, |oldest| {
+        u32::try_from((end - oldest.max(start)).num_days() + 1).unwrap_or(period_days)
     });
     let total_usd = by_kind.total();
     let coverage = Coverage::of(priced_any, !unpriced.is_empty());
     ApiCost {
         total_usd,
-        projected_usd: (MIN_PROJECTED_DAYS..WINDOW_DAYS)
+        projected_usd: (MIN_PROJECTED_DAYS..period_days)
             .contains(&covered_days)
-            .then(|| total_usd / f64::from(covered_days) * f64::from(WINDOW_DAYS)),
+            .then(|| total_usd / f64::from(covered_days) * f64::from(period_days)),
         covered_days,
+        has_use: oldest.is_some(),
         days,
         by_kind,
         by_model,
@@ -620,7 +663,7 @@ mod tests {
     }
 
     fn cost_of(config: &Path) -> ApiCost {
-        read(config, &prices(), today())
+        read(config, &prices(), Period::Last30Days.days(today()))
     }
 
     fn assert_usd(actual: f64, expected: f64) {
@@ -850,7 +893,7 @@ mod tests {
 
         let cost = cost_of(config.path());
 
-        assert_eq!(cost.days.len(), WINDOW_DAYS as usize);
+        assert_eq!(cost.days.len(), 30);
         assert_eq!(cost.days.last().unwrap().date, today());
         assert_usd(cost.days.last().unwrap().total_usd, 2.0);
         assert_eq!(cost.covered_days, 10);
@@ -860,10 +903,83 @@ mod tests {
         // 29 days on, the first response has left the window, which the
         // second still covers in full.
         let later = today() + Days::new(29);
-        let cost = read(config.path(), &prices(), later);
+        let cost = read(config.path(), &prices(), Period::Last30Days.days(later));
         assert_usd(cost.total_usd, 2.0);
-        assert_eq!(cost.covered_days, WINDOW_DAYS);
+        assert_eq!(cost.covered_days, 30);
         assert_eq!(cost.projected_usd, None);
+    }
+
+    #[test]
+    fn a_period_counts_only_its_own_days_and_is_projected_over_its_length() {
+        let config = tempdir().unwrap();
+        let usage = json!({ "output_tokens": 100_000 });
+        write(
+            config.path(),
+            "-work-app/s1.jsonl",
+            &[
+                response(
+                    "2026-10-06T12:00:00Z",
+                    "msg_1",
+                    "claude-opus-5-5",
+                    usage.clone(),
+                ),
+                response(
+                    "2026-10-14T12:00:00Z",
+                    "msg_2",
+                    "claude-opus-5-5",
+                    usage.clone(),
+                ),
+                response(NOW, "msg_3", "claude-opus-5-5", usage),
+            ],
+        );
+        let cost = |period: Period| read(config.path(), &prices(), period.days(today()));
+
+        let yesterday = cost(Period::Yesterday);
+        assert_usd(yesterday.total_usd, 2.0);
+        assert_eq!(yesterday.days.len(), 1);
+        assert_eq!(yesterday.covered_days, 1);
+        assert_eq!(yesterday.projected_usd, None);
+        assert_usd(cost(Period::Today).total_usd, 2.0);
+        let quarter = cost(Period::Last90Days);
+        assert_usd(quarter.total_usd, 6.0);
+        assert_eq!(quarter.days.len(), 90);
+        assert_eq!(quarter.covered_days, 10);
+        assert_usd(quarter.projected_usd.unwrap(), 54.0);
+
+        // Yesterday was before the first use: none of it is covered, but
+        // there is use to show.
+        let since_today = tempdir().unwrap();
+        write(
+            since_today.path(),
+            "-work-app/s1.jsonl",
+            &[response(
+                NOW,
+                "msg_1",
+                "claude-opus-5-5",
+                json!({ "output_tokens": 100_000 }),
+            )],
+        );
+        let before = read(
+            since_today.path(),
+            &prices(),
+            Period::Yesterday.days(today()),
+        );
+        assert_eq!(before.covered_days, 0);
+        assert!(before.has_use);
+    }
+
+    #[test]
+    fn periods_of_months_count_back_from_today_as_periods_of_days_do() {
+        let day = |text: &str| text.parse::<NaiveDate>().unwrap();
+        let today = day("2026-10-15");
+
+        assert_eq!(Period::Last30Days.days(today), day("2026-09-16")..=today);
+        assert_eq!(Period::Last6Months.days(today), day("2026-04-16")..=today);
+        assert_eq!(Period::Year.days(today), day("2025-10-16")..=today);
+        assert_eq!(
+            Period::Yesterday.days(today),
+            day("2026-10-14")..=day("2026-10-14")
+        );
     }
 
     #[test]
@@ -885,7 +1001,11 @@ mod tests {
         assert_eq!(cost.covered_days, 6);
         assert_eq!(cost.projected_usd, None);
         // A day on, it covers a week, enough to project from.
-        let later = read(config.path(), &prices(), today() + Days::new(1));
+        let later = read(
+            config.path(),
+            &prices(),
+            Period::Last30Days.days(today() + Days::new(1)),
+        );
         assert_eq!(later.covered_days, 7);
         assert!(later.projected_usd.is_some());
     }
@@ -897,6 +1017,7 @@ mod tests {
         let cost = cost_of(config.path());
 
         assert_eq!(cost.covered_days, 0);
+        assert!(!cost.has_use);
         assert_eq!(cost.projected_usd, None);
         assert_usd(cost.total_usd, 0.0);
         assert_eq!(cost.coverage, Coverage::Complete);
