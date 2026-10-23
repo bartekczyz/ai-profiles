@@ -170,7 +170,9 @@ function ApiCostRow({ app, cost, period, onPeriodChange }: RowProps) {
         open={open}
         title="Estimated API cost"
         description={`What ${source.tool} use on this profile would cost at ${source.api} prices. An estimate, not your bill.`}
-        className="w-[min(780px,calc(100%-64px))]"
+        // Held at the top, not centred: each period is a different height,
+        // and centred, the picker would move out from under the pointer.
+        className="top-8 w-[min(780px,calc(100%-64px))] translate-y-0"
         onClose={() => setOpen(false)}
         foot={
           <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} onClick={() => setOpen(false)}>
