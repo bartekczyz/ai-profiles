@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '@/design'
 import {
   copyToClipboard,
+  customIcon,
   openInFinder,
   openProfileInApp,
   profileAccount,
@@ -34,6 +35,8 @@ vi.mock('@/lib/commands', async () => {
     ...actual,
     listSessions: vi.fn(async () => ({ sessions: [], repairCount: 0 })),
     profilePaths: vi.fn(),
+    // Unanswered unless a test answers it, as the account line is.
+    customIcon: vi.fn(() => new Promise(() => {})),
     // Unanswered unless a test answers it: the account line isn't what most
     // tests here are about, and its answer re-renders the pane mid-click.
     profileAccount: vi.fn(() => new Promise(() => {})),
@@ -199,6 +202,24 @@ describe('ProfileDetail — overflow menu', () => {
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Edit' }))
     expect(onEdit).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('menu')).toBeNull()
+  })
+})
+
+describe('ProfileDetail — header icon', () => {
+  it('shows the launcher icon the profile picked in place of its color', async () => {
+    vi.mocked(customIcon).mockResolvedValueOnce(new Uint8Array([0x89, 0x50]).buffer)
+    const { container } = renderDetail()
+    await waitFor(() => {
+      expect(container.querySelector('header img')?.getAttribute('src')).toBe('data:image/png;base64,iVA=')
+    })
+  })
+
+  it('shows the color while the profile has no icon of its own', async () => {
+    vi.mocked(customIcon).mockResolvedValueOnce(new ArrayBuffer(0))
+    const { container } = renderDetail()
+    await waitFor(() => expect(customIcon).toHaveBeenCalledWith('p1'))
+    await act(async () => {})
+    expect(container.querySelector('header img')).toBeNull()
   })
 })
 

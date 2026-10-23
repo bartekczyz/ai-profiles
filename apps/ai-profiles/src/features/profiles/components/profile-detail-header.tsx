@@ -86,7 +86,14 @@ export function ProfileDetailHeader({ name, swatch, action, info, subline, menu,
   )
 }
 
-export function ProfileSwatch({ color }: { color: string }) {
+/**
+ * Swatch for a managed profile: the launcher icon the user picked for it, as
+ * the Dock shows it, or else a tile in the profile's color.
+ */
+export function ProfileSwatch({ color, icon }: { color: string; icon?: string | null }) {
+  if (icon) {
+    return <img aria-hidden alt="" src={icon} className="h-11 w-11 shrink-0 object-contain" />
+  }
   return (
     <div
       aria-hidden

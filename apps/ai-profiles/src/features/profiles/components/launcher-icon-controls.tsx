@@ -9,6 +9,7 @@ import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { useGeneratedIconPreview } from '../api/use-custom-icon'
 import { launcherIconControls, pngDataUrl, resetIcon } from '../lib/launcher-icon'
+import { isSvgFile, svgToPng } from '../lib/svg-icon'
 import { DockPreview } from './dock-preview'
 
 export type LauncherIconField = {
@@ -22,7 +23,7 @@ export type LauncherIconField = {
    */
   canRemove: boolean
   /**
-   * Takes the PNG the user picked.
+   * Takes the PNG or SVG the user picked.
    */
   onChoose: (file: File) => void
   /**
@@ -73,10 +74,13 @@ export function useLauncherIconChange({
       onChoose: async (file) => {
         const pick = ++changes.current
         try {
-          const png = await file.arrayBuffer()
+          // An SVG is drawn into a PNG here, which is then checked and kept as
+          // a picked PNG is.
+          const picked = isSvgFile(file) ? await svgToPng(file) : file
+          const png = await picked.arrayBuffer()
           await checkCustomIcon(new Uint8Array(png))
           if (pick === changes.current) {
-            set({ kind: 'custom', file, preview: pngDataUrl(png) ?? '' })
+            set({ kind: 'custom', file: picked, preview: pngDataUrl(png) ?? '' })
           }
         } catch (caught) {
           toast.error('Could not use this image.', extractErrorMessage(caught))
@@ -127,7 +131,7 @@ export function LauncherIconControls({ icon, canRemove, disabled, onChoose, onRe
         ref={input}
         hidden
         type="file"
-        accept="image/png"
+        accept="image/png,image/svg+xml,.svg"
         aria-label="Launcher icon image"
         onChange={(event) => {
           const file = event.target.files?.[0]

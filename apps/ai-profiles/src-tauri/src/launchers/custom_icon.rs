@@ -251,7 +251,7 @@ fn decode(png: &[u8]) -> AppResult<CustomIcon> {
         )));
     }
     let (width, height) = png_dimensions(png)
-        .ok_or_else(|| AppError::Validation("That file isn't a PNG image.".into()))?;
+        .ok_or_else(|| AppError::Validation("That file isn't a PNG or SVG image.".into()))?;
     check_dimensions(width, height)?;
     let image = Image::read_png(Cursor::new(png))
         .map_err(|err| AppError::Validation(format!("The PNG image can't be read: {err}")))?;
@@ -363,7 +363,7 @@ mod tests {
     fn a_file_that_is_not_a_png_is_refused() {
         for bytes in [&b""[..], b"GIF89a", &[0xff, 0xd8, 0xff, 0xe0, 0, 0x10]] {
             let message = validation_message(decode(bytes));
-            assert_eq!(message, "That file isn't a PNG image.");
+            assert_eq!(message, "That file isn't a PNG or SVG image.");
         }
     }
 
