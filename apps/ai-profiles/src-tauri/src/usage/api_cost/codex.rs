@@ -229,11 +229,7 @@ impl LineScan for RolloutScan {
                 self.cwd = payload.cwd.filter(|cwd| !cwd.is_empty());
                 self.started = timestamp.and_then(|at| at.parse().ok());
             }
-            (Some("turn_context"), _) => {
-                if payload.model.is_some() {
-                    self.model = payload.model;
-                }
-            }
+            (Some("turn_context"), _) if payload.model.is_some() => self.model = payload.model,
             (Some("event_msg"), Some("thread_settings_applied")) => {
                 // Settings that don't name a tier leave it as it was.
                 if let Some(tier) = payload
