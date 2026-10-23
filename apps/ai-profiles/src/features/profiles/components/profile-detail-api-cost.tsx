@@ -7,6 +7,7 @@ import { format, parseISO } from 'date-fns'
 import { ChevronRight } from 'lucide-react'
 
 import { Button, Dialog, Kbd, Segmented, Skeleton } from '@/design'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/design/ui/tooltip'
 
 import { useProfileApiCost } from '../api/use-profile-api-cost'
 import { shortenHomePath } from './shorten-home-path'
@@ -254,7 +255,8 @@ type Bar = { from: string; to: string; totalUsd: number; byModel: Array<ModelCos
 /**
  * The cost of each day the transcripts cover, or of each week past 90 days,
  * as daily bars would be too thin to point at: the days before the oldest one
- * are left out rather than drawn as days that cost nothing.
+ * are left out rather than drawn as days that cost nothing. Pointing at a bar
+ * shows its days and what each model cost then.
  */
 function CostChart({ cost }: { cost: ApiCost }) {
   const daysPerBar = cost.days.length > 90 ? 7 : 1
@@ -270,38 +272,70 @@ function CostChart({ cost }: { cost: ApiCost }) {
           peak {formatUsd(highest)}/{unit}
         </span>
       </div>
-      <div
-        role="img"
-        aria-label={`Cost per ${unit} over the last ${dayCount(cost.coveredDays)}`}
-        className="flex h-28 items-end gap-[3px] border-b border-border-soft"
-      >
-        {bars.map((bar) => (
-          <div
-            key={bar.from}
-            title={`${barLabel(bar)}: ${formatUsd(bar.totalUsd)}`}
-            className="flex h-full flex-1 flex-col justify-end"
-          >
-            <div
-              className="flex flex-col-reverse overflow-hidden rounded-t-[2px]"
-              style={{ height: `${highest > 0 ? (bar.totalUsd / highest) * 100 : 0}%` }}
-            >
-              {bar.byModel.map((model) => (
-                <div
-                  key={model.model}
-                  className={colorOf(cost.byModel, model.model)}
-                  style={{ height: `${(model.usd / bar.totalUsd) * 100}%` }}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
+      <TooltipProvider>
+        <div
+          role="img"
+          aria-label={`Cost per ${unit} over the last ${dayCount(cost.coveredDays)}`}
+          className="flex h-28 items-end gap-[3px] border-b border-border-soft"
+        >
+          {bars.map((bar) => (
+            <Tooltip key={bar.from}>
+              <TooltipTrigger asChild>
+                <div className="flex h-full flex-1 flex-col justify-end rounded-t-[2px] hover:bg-ink/[0.05]">
+                  <div
+                    className="flex flex-col-reverse overflow-hidden rounded-t-[2px]"
+                    style={{ height: `${highest > 0 ? (bar.totalUsd / highest) * 100 : 0}%` }}
+                  >
+                    {bar.byModel.map((model) => (
+                      <div
+                        key={model.model}
+                        className={colorOf(cost.byModel, model.model)}
+                        style={{ height: `${(model.usd / bar.totalUsd) * 100}%` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent
+                side="top"
+                sideOffset={4}
+                className="flex-col items-stretch gap-1 px-2.5 py-2 font-mono text-[11px] leading-[1.4]"
+              >
+                <BarBreakdown bar={bar} byModel={cost.byModel} />
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
+      </TooltipProvider>
       <div className="mt-1 flex justify-between font-mono text-mono text-muted-strong">
         <span>{first ? formatDay(first.from) : null}</span>
         <span>Today</span>
       </div>
       <ModelLegend byModel={cost.byModel} className="mt-2.5" />
     </section>
+  )
+}
+
+/**
+ * A bar's days, its total, and what each model cost then, most first.
+ */
+function BarBreakdown({ bar, byModel }: { bar: Bar; byModel: Array<ModelCost> }) {
+  return (
+    <>
+      <span className="flex justify-between gap-4">
+        <span>{barLabel(bar)}</span>
+        <span className="tabular-nums">{formatUsd(bar.totalUsd)}</span>
+      </span>
+      {[...bar.byModel]
+        .sort((left, right) => right.usd - left.usd)
+        .map((model) => (
+          <span key={model.model} className="flex items-center gap-1.5">
+            <span aria-hidden className={`h-2 w-2 rounded-[2px] ${colorOf(byModel, model.model)}`} />
+            {model.model}
+            <span className="ml-auto pl-4 tabular-nums">{formatUsd(model.usd)}</span>
+          </span>
+        ))}
+    </>
   )
 }
 

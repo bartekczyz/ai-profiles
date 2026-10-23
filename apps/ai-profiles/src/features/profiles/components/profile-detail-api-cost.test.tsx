@@ -1,6 +1,7 @@
 import type { ApiCost } from '@/lib/types'
 
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { addDays, format, parseISO } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -221,6 +222,21 @@ it('charts only the days the transcripts cover', async () => {
   renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
   fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
   expect(await screen.findByRole('img', { name: 'Cost per day over the last 1 day' })).toBeTruthy()
+})
+
+it('shows the day and what each model cost then when pointing at its bar', async () => {
+  renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
+  fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+  const chart = await screen.findByRole('img', { name: /Cost per day/ })
+  const bars = chart.children
+
+  await userEvent.setup().hover(bars[bars.length - 1])
+
+  const tooltip = await screen.findByRole('tooltip')
+  expect(tooltip.textContent).toContain('Thu, Oct 15')
+  expect(tooltip.textContent).toContain('$12.50')
+  expect(tooltip.textContent).toContain('Opus 5.5$10')
+  expect(tooltip.textContent).toContain('Sonnet 5.5$2.50')
 })
 
 describe('summaryText', () => {
