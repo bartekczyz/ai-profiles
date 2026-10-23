@@ -35,7 +35,14 @@ function claudeGroup(customName: string | null = null): SidebarGroup {
     app: 'claude',
     default: {
       kind: 'default',
-      entry: { id: 'default:claude', app: 'claude', name: 'Claude', customName, surfaces: { gui: true, cli: true } },
+      entry: {
+        id: 'default:claude',
+        app: 'claude',
+        name: 'Claude',
+        customName,
+        color: null,
+        surfaces: { gui: true, cli: true },
+      },
     },
     managed: [managed('work', 'claude', 'Work'), managed('home', 'claude', 'Home')],
   }

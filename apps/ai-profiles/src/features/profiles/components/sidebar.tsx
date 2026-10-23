@@ -22,7 +22,7 @@ import { Cog, Plus } from 'lucide-react'
 import { ariaKeyshortcutsFor, Button, Kbd } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
 
-import { entryId, groupEntriesByApp } from '../api/use-sidebar-entries'
+import { entryId, groupEntriesByApp, shortcutEntries } from '../api/use-sidebar-entries'
 import { reorderedProfileIds, visibleSection } from '../lib/sidebar-section'
 import { AppGlyph } from './app-glyph'
 import { ManagedSidebarSwatch } from './managed-sidebar-swatch'
@@ -74,9 +74,11 @@ export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreat
   // row and spend width the profile names need.
   const showAppGlyphs = groups.length > 1
 
-  // Flat managed list in store order — the source of truth for the ⌘N chip
-  // index and for rebuilding the full order after a per-section reorder.
+  // Flat managed list in store order — the source of truth for rebuilding the
+  // full order after a per-section reorder.
   const managedFlat: Array<ManagedEntry> = entries.filter((entry): entry is ManagedEntry => entry.kind === 'managed')
+  // The ids ⌘1…⌘9 select, in the order the rows appear.
+  const shortcutIds = shortcutEntries(entries).map(entryId)
 
   // Reorder requires a handler and an unfiltered list — dragging within a
   // filtered list would produce a confusing result on the canonical order.
@@ -99,6 +101,7 @@ export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreat
             query={query}
             canReorder={canReorder}
             managedFlat={managedFlat}
+            shortcutIds={shortcutIds}
             onSelect={onSelect}
             onReorder={onReorder}
           />
@@ -138,6 +141,7 @@ type AppSectionProps = {
   query: string
   canReorder: boolean
   managedFlat: Array<ManagedEntry>
+  shortcutIds: Array<string>
   onSelect: (id: string) => void
   onReorder?: (ids: Array<string>) => void
 }
@@ -160,6 +164,7 @@ function AppSection({
   query,
   canReorder,
   managedFlat,
+  shortcutIds,
   onSelect,
   onReorder,
 }: AppSectionProps) {
@@ -179,7 +184,14 @@ function AppSection({
       {visibleDefault ? (
         <SidebarProfileRow
           name={defaultRowName}
-          swatch={<OutlinedSwatch size={10} />}
+          swatch={
+            visibleDefault.entry.color ? (
+              <ManagedSidebarSwatch color={visibleDefault.entry.color} />
+            ) : (
+              <OutlinedSwatch size={10} />
+            )
+          }
+          shortcutIndex={shortcutIndexOf(shortcutIds, entryId(visibleDefault))}
           surfaces={visibleDefault.entry.surfaces}
           selected={entryId(visibleDefault) === selectedId}
           glyph={rowGlyph}
@@ -191,6 +203,7 @@ function AppSection({
         <ReorderableManagedList
           group={group}
           managedFlat={managedFlat}
+          shortcutIds={shortcutIds}
           selectedId={selectedId}
           glyph={rowGlyph}
           onSelect={onSelect}
@@ -206,7 +219,7 @@ function AppSection({
                 surfaces={managedEntry.profile.surfaces}
                 selected={managedEntry.profile.id === selectedId}
                 glyph={rowGlyph}
-                shortcutIndex={shortcutIndexOf(managedFlat, managedEntry.profile.id)}
+                shortcutIndex={shortcutIndexOf(shortcutIds, managedEntry.profile.id)}
                 onSelect={() => onSelect(managedEntry.profile.id)}
               />
             </li>
@@ -223,10 +236,13 @@ type ReorderableManagedListProps = {
    */
   group: SidebarGroup
   /**
-   * Every managed entry in store order, for the ⌘N chip index and the full
-   * order after a reorder.
+   * Every managed entry in store order, for the full order after a reorder.
    */
   managedFlat: Array<ManagedEntry>
+  /**
+   * The ids ⌘1…⌘9 select, in the order the rows appear.
+   */
+  shortcutIds: Array<string>
   /**
    * The selected entry's id, or `null` when none is selected.
    */
@@ -253,6 +269,7 @@ type ReorderableManagedListProps = {
 function ReorderableManagedList({
   group,
   managedFlat,
+  shortcutIds,
   selectedId,
   glyph,
   onSelect,
@@ -297,7 +314,7 @@ function ReorderableManagedList({
                 surfaces={managedEntry.profile.surfaces}
                 selected={managedEntry.profile.id === selectedId}
                 glyph={glyph}
-                shortcutIndex={shortcutIndexOf(managedFlat, managedEntry.profile.id)}
+                shortcutIndex={shortcutIndexOf(shortcutIds, managedEntry.profile.id)}
                 sortableId={managedEntry.profile.id}
                 onSelect={() => onSelect(managedEntry.profile.id)}
               />
@@ -310,11 +327,12 @@ function ReorderableManagedList({
 }
 
 /**
- * The position of profile `id` in the flat managed store order — the index
- * its ⌘N chip shows.
+ * The index entry `id`'s ⌘N chip shows: its place among the entries ⌘1…⌘9
+ * select, or none.
  */
-function shortcutIndexOf(managedFlat: Array<ManagedEntry>, id: string): number {
-  return managedFlat.findIndex((managedEntry) => managedEntry.profile.id === id)
+function shortcutIndexOf(shortcutIds: Array<string>, id: string): number | undefined {
+  const index = shortcutIds.indexOf(id)
+  return index === -1 ? undefined : index
 }
 
 /**
