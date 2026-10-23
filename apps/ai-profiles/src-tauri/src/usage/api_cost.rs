@@ -99,7 +99,7 @@ pub struct ApiCost {
     pub by_kind: KindCosts,
     /// By model, most expensive first.
     pub by_model: Vec<ModelCost>,
-    /// By the folder each session started in, most expensive first.
+    /// By the repository each session worked in, most expensive first.
     pub projects: Vec<ProjectCost>,
     /// Use the price list has no rates for, by tokens used, most first. Its
     /// tokens are in none of the costs.
@@ -165,7 +165,8 @@ impl KindCosts {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectCost {
-    /// The folder, `None` for sessions that don't say.
+    /// The repository, or outside one the folder the sessions started in.
+    /// `None` for sessions that don't say.
     pub path: Option<String>,
     pub usd: f64,
 }
@@ -476,7 +477,8 @@ fn tally(
     let mut by_kind = KindCosts::default();
     let mut by_day: HashMap<NaiveDate, HashMap<String, f64>> = HashMap::new();
     let mut by_model: HashMap<String, f64> = HashMap::new();
-    let mut by_project: HashMap<Option<&str>, f64> = HashMap::new();
+    let mut by_project: HashMap<Option<String>, f64> = HashMap::new();
+    let mut repositories: HashMap<&str, String> = HashMap::new();
     let mut unpriced: HashMap<(String, Option<&'static str>), u64> = HashMap::new();
     let mut priced_any = false;
     for (turn, project) in turns {
@@ -510,6 +512,12 @@ fn tally(
             .entry(label.clone())
             .or_default() += usd;
         *by_model.entry(label).or_default() += usd;
+        let project = project.map(|folder| {
+            repositories
+                .entry(folder)
+                .or_insert_with(|| repository_of(folder))
+                .clone()
+        });
         *by_project.entry(project).or_default() += usd;
     }
 
@@ -546,10 +554,7 @@ fn tally(
         .collect();
     let mut projects: Vec<ProjectCost> = by_project
         .into_iter()
-        .map(|(path, usd)| ProjectCost {
-            path: path.map(str::to_owned),
-            usd,
-        })
+        .map(|(path, usd)| ProjectCost { path, usd })
         .collect();
     projects.sort_by(|left, right| {
         right
@@ -594,6 +599,34 @@ fn tally(
         coverage,
         prices_as_of: prices.as_of(),
     }
+}
+
+/// The repository `folder` is in: the nearest folder up from it with a
+/// `.git`, or for a worktree, the repository it was added to. A submodule is
+/// a repository of its own. `folder` itself when it is in none. A folder
+/// that's gone is still found in a repository that isn't, but a worktree that
+/// was removed can't be traced back to its repository.
+fn repository_of(folder: &str) -> String {
+    for dir in Path::new(folder).ancestors() {
+        let git = dir.join(".git");
+        if git.is_dir() {
+            return dir.to_string_lossy().into_owned();
+        }
+        if git.is_file() {
+            // A worktree's `.git` reads `gitdir: <repository>/.git/worktrees/<name>`.
+            let added_to = fs::read_to_string(&git).ok().and_then(|text| {
+                let gitdir = dir.join(text.strip_prefix("gitdir:")?.trim());
+                let worktrees = gitdir.parent().filter(|path| path.ends_with("worktrees"))?;
+                let dot_git = worktrees.parent().filter(|path| path.ends_with(".git"))?;
+                dot_git.parent().map(Path::to_path_buf)
+            });
+            return added_to
+                .unwrap_or_else(|| dir.to_path_buf())
+                .to_string_lossy()
+                .into_owned();
+        }
+    }
+    folder.to_owned()
 }
 
 #[cfg(test)]
@@ -1021,6 +1054,38 @@ mod tests {
         assert_eq!(cost.projected_usd, None);
         assert_usd(cost.total_usd, 0.0);
         assert_eq!(cost.coverage, Coverage::Complete);
+    }
+
+    #[test]
+    fn projects_are_the_repositories_sessions_worked_in() {
+        let root = tempdir().unwrap();
+        let path = |relative: &str| root.path().join(relative).to_string_lossy().into_owned();
+        let main = path("main");
+        fs::create_dir_all(root.path().join("main/.git/worktrees/feature")).unwrap();
+        fs::create_dir_all(root.path().join("main/src")).unwrap();
+        fs::create_dir_all(root.path().join("worktrees/feature/src")).unwrap();
+        fs::write(
+            root.path().join("worktrees/feature/.git"),
+            format!("gitdir: {main}/.git/worktrees/feature\n"),
+        )
+        .unwrap();
+        fs::create_dir_all(root.path().join("main/vendor/lib")).unwrap();
+        fs::write(
+            root.path().join("main/vendor/lib/.git"),
+            "gitdir: ../../.git/modules/lib\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.path().join("notes")).unwrap();
+
+        assert_eq!(repository_of(&main), main);
+        assert_eq!(repository_of(&path("main/src")), main);
+        assert_eq!(repository_of(&path("main/src/gone")), main);
+        assert_eq!(repository_of(&path("worktrees/feature/src")), main);
+        assert_eq!(
+            repository_of(&path("main/vendor/lib")),
+            path("main/vendor/lib")
+        );
+        assert_eq!(repository_of(&path("notes")), path("notes"));
     }
 
     #[test]

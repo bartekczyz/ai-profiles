@@ -330,7 +330,8 @@ export type ApiCost = {
    */
   byModel: Array<ModelCost>
   /**
-   * By the folder each session started in, most expensive first.
+   * By the repository each session worked in, or outside one the folder it
+   * started in, most expensive first.
    */
   projects: Array<{ path: string | null; usd: number }>
   /**
