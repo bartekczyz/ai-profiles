@@ -276,6 +276,12 @@ describe('summaryText of a single day', () => {
     ).toBe('None of the use today has a price.')
   })
 
+  it('says when there was no use', () => {
+    expect(summaryText(makeCost({ days: day, coveredDays: 1, projectedUsd: null, totalUsd: 0 }), 'yesterday')).toBe(
+      'No use yesterday.',
+    )
+  })
+
   it('says when the transcripts start after it', () => {
     expect(summaryText(makeCost({ days: day, coveredDays: 0, projectedUsd: null }), 'yesterday')).toBe(
       "Your transcripts don't reach back to yesterday.",

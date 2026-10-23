@@ -190,7 +190,7 @@ function ApiCostRow({ app, cost, period, onPeriodChange }: RowProps) {
         {cost.unpriced.length > 0 ? (
           <p className="m-0 mb-5 text-meta text-amber">{unpricedNote(cost.unpriced)}</p>
         ) : null}
-        {cost.coverage === 'unpriced' ? null : (
+        {cost.byModel.length === 0 ? null : (
           <>
             <CostOverTime cost={cost} />
             <div className="grid grid-cols-2 gap-6">
@@ -477,10 +477,10 @@ function Footnote({ cost, app }: { cost: ApiCost; app: AppId }) {
 /**
  * The line under the total: the days it covers, the pace when that is only
  * part of `period` (from a week up), and whether the total leaves use without
- * a price out.
+ * a price out, or there was no use at all.
  */
 export function summaryText(
-  cost: Pick<ApiCost, 'days' | 'coveredDays' | 'projectedUsd' | 'coverage'>,
+  cost: Pick<ApiCost, 'totalUsd' | 'days' | 'coveredDays' | 'projectedUsd' | 'coverage'>,
   period: Period,
 ): string {
   const { label, length } = periodOf(period)
@@ -495,6 +495,9 @@ export function summaryText(
         : label.toLowerCase()
   if (cost.coverage === 'unpriced') {
     return `None of the use ${over} has a price.`
+  }
+  if (cost.totalUsd === 0) {
+    return `No use ${over}.`
   }
   const pace = cost.projectedUsd === null ? '' : ` On pace for ${formatUsd(cost.projectedUsd)} over ${length}.`
   const partial = cost.coverage === 'partial' ? ' Partial: use without a price is left out.' : ''
