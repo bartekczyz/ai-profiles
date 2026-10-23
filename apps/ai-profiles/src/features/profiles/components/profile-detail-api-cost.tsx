@@ -253,15 +253,17 @@ function CostOverTime({ cost }: { cost: ApiCost }) {
 type Bar = { from: string; to: string; totalUsd: number; byModel: Array<ModelCost> }
 
 /**
- * The cost of each day the transcripts cover, or of each week past 90 days,
- * as daily bars would be too thin to point at: the days before the oldest one
- * are left out rather than drawn as days that cost nothing. Pointing at a bar
- * shows its days and what each model cost then.
+ * The cost of each day the transcripts cover, or of each week when they cover
+ * over 90 days, as daily bars would be too thin to point at: the days before
+ * the oldest one are left out rather than drawn as days that cost nothing,
+ * so a year that the transcripts cover a month of is drawn by day. Pointing
+ * at a bar shows its days and what each model cost then.
  */
 function CostChart({ cost }: { cost: ApiCost }) {
-  const daysPerBar = cost.days.length > 90 ? 7 : 1
+  const covered = cost.days.slice(cost.days.length - cost.coveredDays)
+  const daysPerBar = covered.length > 90 ? 7 : 1
   const unit = daysPerBar === 1 ? 'day' : 'week'
-  const bars = barsOf(cost.days.slice(cost.days.length - cost.coveredDays), daysPerBar, cost.byModel)
+  const bars = barsOf(covered, daysPerBar, cost.byModel)
   const highest = Math.max(0, ...bars.map((bar) => bar.totalUsd))
   const first = bars[0]
   return (
