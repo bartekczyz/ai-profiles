@@ -169,7 +169,7 @@ function ApiCostRow({ app, cost, period, onPeriodChange }: RowProps) {
         open={open}
         title="Estimated API cost"
         description={`What ${source.tool} use on this profile would cost at ${source.api} prices. An estimate, not your bill.`}
-        className="w-[min(600px,calc(100%-64px))]"
+        className="w-[min(780px,calc(100%-64px))]"
         onClose={() => setOpen(false)}
         foot={
           <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} onClick={() => setOpen(false)}>
@@ -192,8 +192,10 @@ function ApiCostRow({ app, cost, period, onPeriodChange }: RowProps) {
         {cost.coverage === 'unpriced' ? null : (
           <>
             <CostOverTime cost={cost} />
-            <KindBreakdown byKind={cost.byKind} cacheWrites={source.cacheWrites} />
-            <Projects projects={cost.projects} />
+            <div className="grid grid-cols-2 gap-6">
+              <KindBreakdown byKind={cost.byKind} cacheWrites={source.cacheWrites} />
+              <Projects projects={cost.projects} />
+            </div>
           </>
         )}
         <Footnote cost={cost} app={app} />
@@ -367,7 +369,7 @@ function KindBreakdown({ byKind, cacheWrites }: { byKind: ApiCost['byKind']; cac
   const rows = kindRows(byKind, cacheWrites)
   const total = rows.reduce((sum, row) => sum + row.usd, 0)
   return (
-    <section className="mb-5">
+    <section className="mb-5 min-w-0">
       <h3 className={eyebrowClasses}>By what was billed</h3>
       <CostRows rows={rows.map((row) => ({ ...row, key: row.label, share: total > 0 ? row.usd / total : 0 }))} />
     </section>
@@ -397,7 +399,7 @@ function Projects({ projects }: { projects: ApiCost['projects'] }) {
     })
   }
   return (
-    <section className="mb-5">
+    <section className="mb-5 min-w-0">
       <h3 className={eyebrowClasses}>By project</h3>
       <CostRows rows={rows} />
     </section>
