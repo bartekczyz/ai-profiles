@@ -45,7 +45,7 @@ const eyebrowClasses = 'mb-2 font-mono text-[11.5px] font-medium uppercase track
 const rowClasses =
   'mb-3.5 flex w-full items-center gap-2 rounded-[10px] border border-border-soft bg-white/30 px-[13px] py-[9px] text-left text-meta dark:bg-white/[0.02]'
 
-const rowLabelClasses = 'font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong'
+const rowLabelClasses = 'text-ink-soft'
 
 type Props = {
   app: AppId
@@ -99,7 +99,7 @@ function ApiCostRow({ app, cost }: { app: AppId; cost: ApiCost }) {
         className={`${rowClasses} cursor-pointer transition-colors hover:bg-white/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-white/[0.05]`}
       >
         <span className={rowLabelClasses}>Estimated API cost</span>
-        <span className="font-mono text-mono text-muted-strong">last {cost.coveredDays}d</span>
+        <span className="text-muted">Last 30 days</span>
         {cost.coverage === 'unpriced' ? (
           <span className="font-medium text-amber">Unpriced</span>
         ) : (

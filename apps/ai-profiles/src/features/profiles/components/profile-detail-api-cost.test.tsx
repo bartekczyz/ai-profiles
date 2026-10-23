@@ -67,7 +67,7 @@ describe('ProfileDetailApiCost', () => {
   it('estimates what the use would cost, without comparing it against a plan', async () => {
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
     const row = await screen.findByRole('button', { name: /Estimated API cost/ })
-    expect(row.textContent).toContain('last 24d')
+    expect(row.textContent).toContain('Last 30 days')
     expect(row.textContent).toContain('$559')
     expect(row.textContent).not.toMatch(/×|plan|save/i)
     expect(getProfileApiCost).toHaveBeenCalledWith('p1')
