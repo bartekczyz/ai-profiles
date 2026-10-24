@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.0](https://github.com/bartekczyz/ai-profiles/compare/v1.4.0...v1.5.0) (2026-10-24)
+
+
+### Added
+
+* **launchers:** let a profile use its own launcher icon ([#71](https://github.com/bartekczyz/ai-profiles/issues/71)) ([53ca195](https://github.com/bartekczyz/ai-profiles/commit/53ca195f6910a534bba06df47e5885b85bf71cef))
+* **profiles:** estimate what Claude Code and Codex use would cost at API prices ([#73](https://github.com/bartekczyz/ai-profiles/issues/73)) ([3ed9142](https://github.com/bartekczyz/ai-profiles/commit/3ed9142e8dbf0869d75db4f3ff35ccdd12316cdb))
+* **profiles:** give the default profile a color and ⌘1 ([#51](https://github.com/bartekczyz/ai-profiles/issues/51)) ([b351141](https://github.com/bartekczyz/ai-profiles/commit/b351141eb087a39c41eb2ea89dfd95eebb6d67e2))
+
+
+### Fixed
+
+* **layout:** stop the wide pane's left column scrolling sideways ([#80](https://github.com/bartekczyz/ai-profiles/issues/80)) ([74531ca](https://github.com/bartekczyz/ai-profiles/commit/74531ca8521841baa79dce35406c4dd15f7f954b))
+* **usage:** satisfy clippy's collapsible_match in the Codex rollout scan ([#79](https://github.com/bartekczyz/ai-profiles/issues/79)) ([06934c1](https://github.com/bartekczyz/ai-profiles/commit/06934c115c76ca869dc44025ddf500f8e8e41282))
+
 ## [1.4.0](https://github.com/bartekczyz/ai-profiles/compare/v1.3.1...v1.4.0) (2026-09-27)
 
 
