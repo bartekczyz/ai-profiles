@@ -7,7 +7,7 @@ import { Component, createContext, useContext, useEffect, useState } from 'react
 import { format } from 'date-fns'
 import { ArrowLeftRight, RefreshCw } from 'lucide-react'
 
-import { Skeleton, TooltipBubble } from '@/design'
+import { PortalTooltip, Skeleton } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
 import { openCliLogin } from '@/lib/commands'
 
@@ -129,16 +129,17 @@ function UsageCardInner({ app, profileId, cliCommand }: { app: AppId; profileId:
                 <span aria-hidden className="text-mono">
                   ·
                 </span>
-                <button
-                  type="button"
-                  aria-label={toggleCopy.ariaLabel}
-                  onClick={() => changeDisplay(toggleUsageDisplay(display))}
-                  className="group relative inline-flex min-h-[22px] cursor-pointer items-center gap-1 rounded px-1 text-mono transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                >
-                  {toggleCopy.buttonLabel}
-                  <ArrowLeftRight aria-hidden size={10} className="opacity-60" />
-                  <TooltipBubble>{toggleCopy.tooltip}</TooltipBubble>
-                </button>
+                <PortalTooltip label={toggleCopy.tooltip}>
+                  <button
+                    type="button"
+                    aria-label={toggleCopy.ariaLabel}
+                    onClick={() => changeDisplay(toggleUsageDisplay(display))}
+                    className="inline-flex min-h-[22px] cursor-pointer items-center gap-1 rounded px-1 text-mono transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  >
+                    {toggleCopy.buttonLabel}
+                    <ArrowLeftRight aria-hidden size={10} className="opacity-60" />
+                  </button>
+                </PortalTooltip>
               </>
             ) : null}
           </div>
@@ -357,10 +358,9 @@ function CreditExpiry({ expiresAt }: { expiresAt: number | null }) {
   const date = new Date(expiresAt * 1000)
   const deltaMs = date.getTime() - Date.now()
   return (
-    <span className="group relative inline-block">
-      {deltaMs <= 0 ? 'expired' : formatResetRelative(deltaMs, 'expires')}
-      <TooltipBubble>{format(date, 'EEE d MMM yyyy, HH:mm')}</TooltipBubble>
-    </span>
+    <PortalTooltip label={format(date, 'EEE d MMM yyyy, HH:mm')}>
+      <span>{deltaMs <= 0 ? 'expired' : formatResetRelative(deltaMs, 'expires')}</span>
+    </PortalTooltip>
   )
 }
 
@@ -815,10 +815,9 @@ function MeterTrailing({ trailing, percent, resetLabel }: MeterTrailingProps) {
         <>
           {percent === null ? '—' : `${percent}%`}
           {resetLabel ? (
-            <span className="group relative inline-block">
-              {` · ${resetLabel.relative}`}
-              <TooltipBubble>{resetLabel.absolute}</TooltipBubble>
-            </span>
+            <PortalTooltip label={resetLabel.absolute}>
+              <span>{` · ${resetLabel.relative}`}</span>
+            </PortalTooltip>
           ) : null}
         </>
       )}
@@ -887,16 +886,18 @@ function DaySeparators() {
 
 function PaceMarker({ percent, remaining = false }: { percent: number; remaining?: boolean }) {
   const clamped = Math.min(100, Math.max(0, percent))
+  const label = `Even daily pace · ${Math.round(clamped)}%${remaining ? ' remaining' : ''}`
   return (
-    <div
-      className="group absolute -top-0.5 flex h-2.5 w-3 items-center justify-center"
-      style={{ left: `calc(${clamped}% - 6px)` }}
-    >
-      <div aria-hidden className="pointer-events-none h-full w-0.5 rounded-sm bg-ink" />
-      <TooltipBubble>
-        Even daily pace · {Math.round(clamped)}%{remaining ? ' remaining' : ''}
-      </TooltipBubble>
-    </div>
+    <PortalTooltip label={label}>
+      <div
+        role="img"
+        aria-label={label}
+        className="absolute -top-0.5 flex h-2.5 w-3 items-center justify-center"
+        style={{ left: `calc(${clamped}% - 6px)` }}
+      >
+        <div aria-hidden className="pointer-events-none h-full w-0.5 rounded-sm bg-ink" />
+      </div>
+    </PortalTooltip>
   )
 }
 

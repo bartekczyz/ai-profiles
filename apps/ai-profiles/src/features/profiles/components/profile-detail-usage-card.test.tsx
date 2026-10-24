@@ -118,7 +118,7 @@ describe('ProfileDetailUsageCard', () => {
     }
     if (availableCount) expect(screen.getByText('2 resets available')).toBeInTheDocument()
     if (credits?.length) {
-      expect(screen.getByText(/^expires in \d+d$/)).toBeInTheDocument()
+      fireEvent.focus(screen.getByText(/^expires in \d+d$/))
       expect(screen.getByRole('tooltip', { name: /2030/ })).toBeInTheDocument()
     }
   })
@@ -388,21 +388,17 @@ describe('ProfileDetailUsageCard', () => {
       refetch: vi.fn(),
     })
     renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
-    // Each window with resetsAt contributes a tooltip alongside its
-    // "resets in …" label. Tooltip content is the absolute datetime in
-    // the "EEE d MMM, HH:mm" pattern (locale-stable across CI hosts;
-    // hour digits and short day/month names are timezone-independent in
-    // shape even if absolute values shift).
+    // Hovering each "resets in …" label reveals the absolute datetime in the
+    // "EEE d MMM, HH:mm" pattern (shape is timezone-independent). 5h and
+    // weekly have resetsAt; weekly Sonnet has none, so it has no label.
     const datetimePattern = /^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}, \d{2}:\d{2}$/
-    const tooltips = screen
-      .getAllByRole('tooltip')
-      .map((node) => node.textContent?.trim() ?? '')
-      .filter((text) => datetimePattern.test(text))
-    // 5h and weekly each emit one datetime tooltip; weekly Sonnet has
-    // no resetsAt so contributes nothing. The PaceMarker on the weekly
-    // window also emits a tooltip, but its content is "Even daily pace
-    // · N%" which the pattern filter excludes.
-    expect(tooltips).toHaveLength(2)
+    const labels = screen.getAllByText(/resets in/)
+    expect(labels).toHaveLength(2)
+    for (const label of labels) {
+      fireEvent.focus(label)
+      expect(screen.getByRole('tooltip').textContent?.trim()).toMatch(datetimePattern)
+      fireEvent.blur(label)
+    }
   })
 
   it('hides the Weekly Sonnet row when its utilization is zero', () => {
@@ -457,10 +453,7 @@ describe('ProfileDetailUsageCard', () => {
       refetch: vi.fn(),
     })
     renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} />)
-    const datetimePattern = /^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}, \d{2}:\d{2}$/
-    const tooltips = screen.queryAllByRole('tooltip')
-    const datetimeTooltips = tooltips.filter((node) => datetimePattern.test((node.textContent ?? '').trim()))
-    expect(datetimeTooltips).toHaveLength(0)
+    expect(screen.queryByText(/resets in/)).not.toBeInTheDocument()
   })
 
   it('renders only two meters for a Codex profile even when a scoped weekly is present', () => {
@@ -713,8 +706,8 @@ describe('quota pace windows', () => {
     [43200, '2026-10-02T00:00:00Z', 0, 1],
   ])('uses duration %s for pace, independently of weekly separators', (duration, reset, expected, barChildren) => {
     renderCodex(duration, reset)
-    const tooltip = screen.getByRole('tooltip', { name: `Even daily pace · ${Math.round(expected)}%` })
-    const left = tooltip.parentElement?.style.left ?? ''
+    const marker = screen.getByRole('img', { name: `Even daily pace · ${Math.round(expected)}%` })
+    const left = marker.style.left
     expect(Number(left.match(/calc\(([-\d.]+)%/)?.[1])).toBeCloseTo(expected, 4)
     expect(screen.getByRole('progressbar').children).toHaveLength(barChildren)
   })
@@ -722,8 +715,8 @@ describe('quota pace windows', () => {
   it('inverts a 30-day marker in remaining mode', () => {
     renderCodex(43200, '2026-09-27T00:00:00Z')
     fireEvent.click(screen.getByRole('button', { name: 'Show remaining quota' }))
-    const tooltip = screen.getByRole('tooltip', { name: 'Even daily pace · 87% remaining' })
-    expect(Number(tooltip.parentElement?.style.left.match(/calc\(([-\d.]+)%/)?.[1])).toBeCloseTo(86.666667, 4)
+    const marker = screen.getByRole('img', { name: 'Even daily pace · 87% remaining' })
+    expect(Number(marker.style.left.match(/calc\(([-\d.]+)%/)?.[1])).toBeCloseTo(86.666667, 4)
   })
 
   it.each([
@@ -737,7 +730,7 @@ describe('quota pace windows', () => {
     [43200, 'invalid'],
   ])('hides pace for invalid duration/reset %s %s', (duration, reset) => {
     renderCodex(duration, reset)
-    expect(screen.queryByRole('tooltip', { name: /Even daily pace/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: /Even daily pace/ })).not.toBeInTheDocument()
   })
 
   it('preserves both Claude weekly markers and their separators', () => {
@@ -748,7 +741,7 @@ describe('quota pace windows', () => {
       refetch: vi.fn(),
     } as unknown as ReturnType<typeof useProfileUsage>)
     renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="pace" cliEnabled />)
-    expect(screen.getAllByRole('tooltip', { name: 'Even daily pace · 50%' })).toHaveLength(2)
+    expect(screen.getAllByRole('img', { name: 'Even daily pace · 50%' })).toHaveLength(2)
     const bars = screen.getAllByRole('progressbar')
     expect(bars[1].children).toHaveLength(7)
     expect(bars[2].children).toHaveLength(7)
