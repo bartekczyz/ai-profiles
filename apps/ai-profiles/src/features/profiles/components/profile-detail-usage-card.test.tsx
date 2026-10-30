@@ -649,6 +649,38 @@ describe('ProfileDetailUsageCard', () => {
     expect(openCliLogin).toHaveBeenCalledWith('p1')
   })
 
+  it('hides kept meters and names the owner when the login belongs to another account', () => {
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: {
+        quota: { primary: { utilization: 40, resetsAt: null }, secondary: null, scopedWeekly: [] },
+        quotaError: null,
+        fetchedAt: '2026-10-30T00:00:00Z',
+      },
+      error: new UsageUnavailableError('account_mismatch', 'work@example.com'),
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} cliCommand="claude-work" />)
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    expect(screen.getByText(/work@example\.com/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /refresh sign-in/i }))
+    expect(openCliLogin).toHaveBeenCalledWith('p1')
+  })
+
+  it('offers the CLI sign-in for a desktop-only profile', () => {
+    ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: undefined,
+      error: new UsageUnavailableError('desktop_only'),
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })
+    renderWithQuery(<ProfileDetailUsageCard app="claude" profileId="p1" cliEnabled={true} cliCommand="claude-work" />)
+    fireEvent.click(screen.getByRole('button', { name: /refresh sign-in/i }))
+    expect(openCliLogin).toHaveBeenCalledWith('p1')
+  })
+
   it('falls back to the stock CLI binary name when no cliCommand is given', () => {
     ;(useProfileUsage as ReturnType<typeof vi.fn>).mockReturnValue({
       data: undefined,

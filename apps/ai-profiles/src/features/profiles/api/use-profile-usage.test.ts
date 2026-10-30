@@ -9,6 +9,17 @@ import { narrowProfileUsage } from './narrow-usage'
 import { ensureUsable, UsageUnavailableError } from './use-profile-usage'
 
 describe('narrowProfileUsage', () => {
+  it('carries the stored account through to the thrown error', () => {
+    const usage = narrowProfileUsage({
+      quota: null,
+      quotaError: 'account_mismatch',
+      storedAccountEmail: 'work@example.com',
+    })
+    expect(() => ensureUsable(usage)).toThrow(
+      expect.objectContaining({ code: 'account_mismatch', storedAccountEmail: 'work@example.com' }),
+    )
+  })
+
   it('preserves reset counts and nullable expiry details', () => {
     const resets = { availableCount: 2, credits: [{ title: 'Full reset', status: 'available', expiresAt: null }] }
     const result = narrowProfileUsage({ quota: { rateLimitResetCredits: resets } })

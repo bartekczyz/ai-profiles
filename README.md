@@ -77,7 +77,7 @@ Profiles created by migrating an existing install already hold their own copy of
 
 Each profile's detail page shows that profile's current quota utilization alongside the launcher and CLI buttons. A small countdown tells you when the next auto-refresh will fire (every 5 minutes while the card is visible), or you can hit the ↻ button to refresh on demand.
 
-**Claude profiles** show three meters: the rolling 5-hour window, the 7-day window, and the 7-day Sonnet sub-window. Under the hood the card calls Anthropic's `/api/oauth/usage` endpoint using the profile's own OAuth token, read from the macOS Keychain entry Claude Code created when you signed in. The quota endpoint and the Keychain naming convention are undocumented Anthropic internals — if either changes, the meters may show `—` until we ship a patch.
+**Claude profiles** show three meters: the rolling 5-hour window, the 7-day window, and the 7-day Sonnet sub-window. Under the hood the card calls Anthropic's `/api/oauth/usage` endpoint using the profile's own OAuth token, read from the macOS Keychain entry Claude Code created when you signed in. It also checks with `/api/oauth/profile` that the token belongs to that profile's account, and says so instead of showing another account's quota. These endpoints and the Keychain naming convention are undocumented Anthropic internals — if either changes, the meters may show `—` until we ship a patch.
 
 **Codex profiles** show two meters: the 5-hour window and the weekly window. The card drives `codex app-server` over its JSON-RPC protocol (`account/rateLimits/read`) — no separate auth is needed because the app-server reads from the profile's own `CODEX_HOME/auth.json` directly.
 
@@ -175,7 +175,7 @@ Claude Code reads `AGENTS.md` at project scope only; its user-scope instructions
 **Does this send any of my data anywhere?**
 No. The app is local-only and has no analytics, no telemetry, no remote logging. It makes only these outbound requests:
 - Auto-update checks the GitHub Releases manifest.
-- The usage card asks Anthropic for a Claude profile's quota, signed in as that profile. Codex profiles ask through the `codex` CLI.
+- The usage card asks Anthropic for a Claude profile's quota, signed in as that profile, and which account that sign-in belongs to, so it never shows another account's quota. Codex profiles ask through the `codex` CLI.
 - The estimated API cost downloads [LiteLLM's public price list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) from GitHub, at most once a day and only once you view an estimate. It's a plain download that carries nothing about your profiles, transcripts or accounts; the estimate itself is worked out on your machine.
 
 **Can I migrate later if I skipped the first-run prompt?**

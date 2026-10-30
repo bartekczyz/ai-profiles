@@ -18,11 +18,16 @@ export const refetchIntervalMs = 5 * 60 * 1000
  */
 export class UsageUnavailableError extends Error {
   readonly code: QuotaError
+  /**
+   * With `account_mismatch`, the email of the account the stored login belongs to.
+   */
+  readonly storedAccountEmail?: string
 
-  constructor(code: QuotaError) {
+  constructor(code: QuotaError, storedAccountEmail?: string) {
     super(`usage unavailable: ${code}`)
     this.name = 'UsageUnavailableError'
     this.code = code
+    this.storedAccountEmail = storedAccountEmail
   }
 }
 
@@ -34,7 +39,7 @@ export class UsageUnavailableError extends Error {
  */
 export function ensureUsable(usage: ProfileUsage): ProfileUsage {
   if (usage.quotaError) {
-    throw new UsageUnavailableError(usage.quotaError)
+    throw new UsageUnavailableError(usage.quotaError, usage.storedAccountEmail)
   }
   if (!usage.quota) {
     throw new UsageUnavailableError('unknown')
