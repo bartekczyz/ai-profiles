@@ -9,7 +9,7 @@ type SkeletonProps = {
 } & HTMLAttributes<HTMLDivElement>
 
 const shapeClasses: Record<SkeletonShape, string> = {
-  text: 'h-3 rounded-xs',
+  text: 'h-3 rounded-full',
   block: 'rounded-md',
   circle: 'rounded-full',
 }
@@ -25,7 +25,7 @@ export function Skeleton({ shape = 'block', className, ...rest }: SkeletonProps)
       aria-hidden
       data-shape={shape}
       className={cn(
-        'bg-cream-2 dark:bg-cream-3 animate-[design-skeleton_1.4s_ease-in-out_infinite]',
+        'bg-black/[0.055] dark:bg-white/[0.06] animate-[design-skeleton_1.6s_ease-in-out_infinite]',
         shapeClasses[shape],
         className,
       )}

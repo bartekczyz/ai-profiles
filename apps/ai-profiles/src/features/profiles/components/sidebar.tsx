@@ -17,7 +17,7 @@ import {
   useSensors,
 } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { Cog, Plus } from 'lucide-react'
+import { GearSix, Plus } from '@phosphor-icons/react'
 
 import { ariaKeyshortcutsFor, Button, Kbd } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
@@ -85,13 +85,13 @@ export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreat
   const canReorder = onReorder !== undefined && query.trim().length === 0
 
   return (
-    <aside className="relative flex w-[200px] shrink-0 flex-col border-r border-border bg-cream-2 px-2 pt-11 pb-3">
+    <aside className="relative flex w-[232px] shrink-0 flex-col px-2.5 pt-11 pb-2.5">
       <SidebarBrandMark />
       <SidebarSearchInput value={query} inputRef={searchInputRef} onChange={setQuery} />
       {/* App groups are separated by a hairline rather than a text header. The
           rule is a sibling selector, not an index, so a group whose rows are
           all filtered out takes its separator with it. */}
-      <div className="flex flex-1 flex-col overflow-y-auto pr-0.5 [&>section+section]:mt-[7px] [&>section+section]:border-t [&>section+section]:border-border [&>section+section]:pt-[7px]">
+      <div className="flex flex-1 flex-col overflow-y-auto pr-0.5 [&>section+section]:mt-3 [&>section+section]:border-t [&>section+section]:border-black/[0.06] [&>section+section]:pt-3 dark:[&>section+section]:border-white/[0.06]">
         {groups.map((group) => (
           <AppSection
             key={group.app}
@@ -107,13 +107,13 @@ export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreat
           />
         ))}
       </div>
-      <footer className="mt-2 flex items-center gap-2 border-t border-border pt-2.5">
+      <footer className="mt-2 flex items-center gap-1">
         <Button
-          variant="primary"
+          variant="ghost"
           size="sm"
-          className="flex-1 rounded-full"
-          leadingIcon={<Plus className="h-3.5 w-3.5" strokeWidth={2.25} />}
-          trailingKbd={<Kbd variant="onOrange" shortcutId="open-create-profile" />}
+          className="flex-1 justify-start px-2 text-ink-soft hover:not-disabled:bg-black/[0.05] dark:hover:not-disabled:bg-white/[0.06]"
+          leadingIcon={<Plus className="h-3.5 w-3.5" />}
+          trailingKbd={<Kbd variant="subtle" shortcutId="open-create-profile" />}
           aria-keyshortcuts={ariaKeyshortcutsFor('open-create-profile')}
           onClick={onCreate}
         >
@@ -125,9 +125,9 @@ export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreat
           aria-label="Open settings"
           aria-keyshortcuts={ariaKeyshortcutsFor('toggle-settings')}
           title="Settings (⌘,)"
-          className="grid h-7 w-[30px] cursor-pointer place-items-center rounded-sm border border-border bg-white/60 text-muted transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-white hover:text-ink dark:bg-white/[0.04] dark:hover:bg-white/[0.08] dark:hover:text-ink"
+          className="grid h-7 w-7 place-items-center rounded-md text-muted transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-black/[0.05] hover:text-ink dark:hover:bg-white/[0.06] dark:hover:text-ink"
         >
-          <Cog className="h-3.5 w-3.5" strokeWidth={1.75} />
+          <GearSix className="h-4 w-4" />
         </button>
       </footer>
     </aside>

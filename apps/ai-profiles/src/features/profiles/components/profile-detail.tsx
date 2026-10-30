@@ -16,7 +16,7 @@ import { useProfilePaths } from '../api/use-profile-paths'
 import { accountLabel, accountTitle } from './account-line'
 import { formatLastUsed } from './format-last-used'
 import { ProfileDetailApiCost } from './profile-detail-api-cost'
-import { ProfileDetailHeader, ProfileSwatch } from './profile-detail-header'
+import { ProfileDetailHeader, ProfileDetailToolbar, ProfileSwatch } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
 import { ProfileDetailOverflowMenu, ProfileDetailOverflowMenuFallback } from './profile-detail-overflow-menu'
 import { ProfileDetailSurfacesPanel } from './profile-detail-surfaces-panel'
@@ -47,6 +47,21 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
   return (
     <PaneLayout
       aside={<SessionsPanel key={profile.id} profileId={profile.id} app={profile.app} />}
+      toolbar={
+        <ProfileDetailToolbar
+          app={profile.app}
+          name={profile.name}
+          menu={
+            // Its own boundary: the breadcrumb and Edit render from
+            // sidebar-provided data immediately, and only the menu waits on
+            // the per-profile path resolution.
+            <Suspense key={profile.id} fallback={<ProfileDetailOverflowMenuFallback />}>
+              <ProfileDetailOverflowMenu profileId={profile.id} onDelete={onDelete} onError={setActionError} />
+            </Suspense>
+          }
+          onEdit={onEdit}
+        />
+      }
       header={
         <ProfileDetailHeader
           name={profile.name}
@@ -65,15 +80,6 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
               <span className="text-muted-strong">{formatLastUsed(profile.lastUsedAt)}</span>
             </>
           }
-          menu={
-            // Its own boundary: the header's identity block renders from
-            // sidebar-provided data immediately, and only the menu waits on
-            // the per-profile path resolution.
-            <Suspense key={profile.id} fallback={<ProfileDetailOverflowMenuFallback />}>
-              <ProfileDetailOverflowMenu profileId={profile.id} onDelete={onDelete} onError={setActionError} />
-            </Suspense>
-          }
-          onEdit={onEdit}
         />
       }
     >
@@ -83,32 +89,33 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
         cliEnabled={profile.surfaces.cli}
         profileId={profile.id}
       />
-      <ProfileDetailApiCost app={profile.app} profileId={profile.id} />
 
-      {/* Only the two row descriptions wait on per-profile data, so the
-          fallback is the same panel with its description slots empty: the
-          controls stay live and nothing moves when the paths land. Stacked,
-          the sessions card follows 14px below, as the cards above space
-          themselves; beside it, this ends the column. */}
-      <div className="mb-3.5 pane-wide:mb-6">
-        <Suspense
-          key={profile.id}
-          fallback={
-            <ManagedSurfaces
+      {/* The launch panel and the cost card share a row under the usage
+          card; with no cost to show, the panel takes the whole row. Only
+          the panel's row descriptions wait on per-profile data, so its
+          fallback is the same panel with those slots empty. */}
+      <div className="mb-3 flex items-stretch gap-3">
+        <div className="min-w-0 flex-[2] basis-0">
+          <Suspense
+            key={profile.id}
+            fallback={
+              <ManagedSurfaces
+                profile={profile}
+                shortcutsEnabled={shortcutsEnabled}
+                launch={launch}
+                onError={setActionError}
+              />
+            }
+          >
+            <ResolvedManagedSurfaces
               profile={profile}
               shortcutsEnabled={shortcutsEnabled}
               launch={launch}
               onError={setActionError}
             />
-          }
-        >
-          <ResolvedManagedSurfaces
-            profile={profile}
-            shortcutsEnabled={shortcutsEnabled}
-            launch={launch}
-            onError={setActionError}
-          />
-        </Suspense>
+          </Suspense>
+        </div>
+        <ProfileDetailApiCost app={profile.app} profileId={profile.id} />
       </div>
 
       {actionError ? (

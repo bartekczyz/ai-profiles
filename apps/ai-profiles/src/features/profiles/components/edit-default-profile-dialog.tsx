@@ -20,7 +20,7 @@ type Props = {
 
 const maxLength = 64
 
-const labelClasses = 'font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted'
+const labelClasses = 'text-[12.5px] font-medium text-ink-soft'
 
 /**
  * Names and colours the stock-install entry. Both are labels only — the stock
@@ -190,7 +190,7 @@ function ColorField({ color, onColorChange }: ColorFieldProps) {
         {color.trim() !== '' ? (
           <button
             type="button"
-            className="cursor-pointer text-meta text-muted-strong hover:text-ink"
+            className="text-meta text-muted-strong hover:text-ink"
             onClick={() => onColorChange('')}
           >
             No color

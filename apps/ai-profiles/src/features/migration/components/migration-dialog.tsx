@@ -3,7 +3,7 @@ import type { ExistingInstallInfo, ExistingInstallSizes, ImportExistingInput, Pr
 
 import { useState } from 'react'
 
-import { Loader2 } from 'lucide-react'
+import { CircleNotch } from '@phosphor-icons/react'
 
 import { Button, Dialog, Kbd, StatusDot } from '@/design'
 import { Input } from '@/design/ui/input'
@@ -138,7 +138,7 @@ function MigrationDialogFoot({ valid, submitting, onCancel, onImport }: Migratio
         disabled={!valid || submitting}
         variant="primary"
         size="sm"
-        leadingIcon={submitting ? <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> : null}
+        leadingIcon={submitting ? <CircleNotch aria-hidden className="h-3.5 w-3.5 animate-spin" /> : null}
         trailingKbd={submitting ? null : <Kbd variant="onOrange">⏎</Kbd>}
         onClick={onImport}
       >
@@ -284,23 +284,23 @@ function ImportChoices({
       </legend>
       <div className="flex flex-col gap-1.5 text-body text-ink-soft">
         {existing.guiPath ? (
-          <label className="flex cursor-pointer items-center gap-2">
+          <label className="flex items-center gap-2">
             <input
               type="checkbox"
               checked={includeGui}
               onChange={(event) => onIncludeGuiChange(event.target.checked)}
-              className="h-3.5 w-3.5 cursor-pointer accent-orange"
+              className="h-3.5 w-3.5 accent-orange"
             />
             Desktop app data (history, login)
           </label>
         ) : null}
         {existing.cliPath ? (
-          <label className="flex cursor-pointer items-center gap-2">
+          <label className="flex items-center gap-2">
             <input
               type="checkbox"
               checked={includeCli}
               onChange={(event) => onIncludeCliChange(event.target.checked)}
-              className="h-3.5 w-3.5 cursor-pointer accent-orange"
+              className="h-3.5 w-3.5 accent-orange"
             />
             {appSpecs[app].cliDisplayName} CLI config
           </label>

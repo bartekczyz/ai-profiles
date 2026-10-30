@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 
-import { MoreHorizontal } from 'lucide-react'
+import { DotsThree } from '@phosphor-icons/react'
 
 import { cn } from '@/design'
 import {
@@ -86,7 +86,7 @@ type HeldBackReasonProps = {
  * dimmed while the action is unavailable.
  */
 const controlClasses =
-  'inline-flex h-7 shrink-0 cursor-pointer items-center rounded-[7px] text-[12px] text-muted outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-ink/[0.06] hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40 aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted'
+  'inline-flex h-7 shrink-0 items-center rounded-[7px] text-[12px] text-muted outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-ink/[0.06] hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40 aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted'
 
 /**
  * A row's actions, laid out for the room the panel has: side by side as
@@ -111,7 +111,7 @@ export function SessionRowActions({ actions }: Props) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button type="button" aria-label="Session actions" className={cn(controlClasses, 'w-7 justify-center')}>
-              <MoreHorizontal aria-hidden className="h-4 w-4" />
+              <DotsThree aria-hidden className="h-4 w-4" />
             </button>
           </DropdownMenuTrigger>
           {/* The generated content pins its width to the 28px trigger; the

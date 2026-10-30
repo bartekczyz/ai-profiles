@@ -4,6 +4,7 @@ import type { RightPane } from '@/features/app-shell/lib/shortcut-gates'
 
 import { Suspense, useState } from 'react'
 
+import { insetPanelClasses } from '@/components/pane-layout'
 import { AboutDialog } from '@/features/about/components/about-dialog'
 import { ProfileIndexHotkeys } from '@/features/app-shell/components/profile-index-hotkeys'
 import { TitleBarDragStrip } from '@/features/app-shell/components/title-bar-drag-strip'
@@ -44,7 +45,9 @@ function AppShellSkeleton() {
   return (
     <div className="flex h-full">
       <SidebarSkeleton />
-      <ProfileDetailSkeleton />
+      <div className={insetPanelClasses}>
+        <ProfileDetailSkeleton />
+      </div>
     </div>
   )
 }

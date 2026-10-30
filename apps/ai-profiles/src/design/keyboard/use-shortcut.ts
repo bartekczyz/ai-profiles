@@ -19,6 +19,11 @@ export function useShortcut(id: ShortcutId, callback: HotkeyCallback, options: O
   const definition = getShortcut(id)
   useHotkey(definition.keys, callback, {
     enabled: options.enabled,
+    // Shortcuts that act on the selected profile stand down while a text
+    // field has focus, where the same keys edit text: ⌘⌫ deletes to the start
+    // of the line, ⌘C copies the selection. App-wide ones (⌘K, ⌘F, ⌘N) still
+    // fire from a field, as they do in native apps.
+    ignoreInputs: definition.meta.scope === 'detail' ? true : undefined,
     meta: definition.meta,
   })
 }

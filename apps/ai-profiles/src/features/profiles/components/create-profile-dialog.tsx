@@ -116,9 +116,11 @@ export function CreateProfileDialog({
     <>
       <Dialog
         open={open}
+        className="w-[min(600px,calc(100%-64px))]"
         title="New profile"
         description="A profile bundles a Desktop launcher and a CLI wrapper. Pick a name and color; everything else stays isolated."
-        closeOnOutsideClick={false}
+        // Closes on a press outside until a name has been typed.
+        closeOnOutsideClick={name.trim() === ''}
         onClose={onClose}
         onSubmit={handleSubmit}
         foot={

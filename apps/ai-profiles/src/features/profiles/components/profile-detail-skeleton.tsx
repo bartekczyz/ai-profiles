@@ -18,53 +18,66 @@ export function ProfileDetailSkeleton() {
   return (
     <PaneLayout
       aside={<SessionsPanelSkeleton />}
+      toolbar={
+        <>
+          <span className="flex items-center gap-1.5">
+            <Skeleton shape="circle" className="size-3.5" />
+            <Skeleton shape="text" className="h-3 w-14" />
+            <Skeleton shape="text" className="h-3 w-20" />
+          </span>
+          {/* Edit and the "…" trigger read as one 28px-tall control group. */}
+          <Skeleton className="ml-auto h-7 w-[76px] shrink-0 rounded-md" />
+        </>
+      }
       header={
-        <div className="flex items-center gap-3.5 border-b border-border-soft pb-5">
+        <div className="flex items-center gap-4">
           <Skeleton className="h-11 w-11 rounded-xl" />
           <div className="min-w-0 flex-1">
-            <Skeleton className="h-[27px] w-40 rounded-sm" />
-            <Skeleton shape="text" className="mt-1 h-3.5 w-44" />
+            <Skeleton shape="text" className="h-5 w-36" />
+            <Skeleton shape="text" className="mt-2.5 h-3 w-64" />
           </div>
-          {/* Edit and the "…" trigger read as one 26px-tall control group. */}
-          <Skeleton className="h-[26px] w-[72px] shrink-0 rounded-md" />
         </div>
       }
     >
-      <div className="mb-3.5 rounded-[10px] border border-border-soft bg-white/30 px-[13px] py-[9px] dark:bg-white/[0.02]">
-        <div className="mb-1.5 flex min-h-[22px] items-center justify-between gap-3.5">
-          <Skeleton shape="text" className="h-2.5 w-12" />
-          <Skeleton shape="text" className="h-2.5 w-20" />
+      <div className="mb-3 rounded-[10px] border border-border bg-cream/70 px-4 py-3 dark:bg-white/[0.02]">
+        <div className="mb-3 flex min-h-[22px] items-center justify-between gap-3.5">
+          <Skeleton shape="text" className="h-3 w-12" />
+          <Skeleton shape="text" className="h-3 w-20" />
         </div>
-        <div className="flex flex-col gap-2">
-          {[0, 1, 2].map((meter) => (
-            <div
-              key={meter}
-              className="grid min-h-[15px] grid-cols-[32px_1fr_180px] items-center gap-2 lg:grid-cols-[140px_1fr_180px] lg:gap-3"
-            >
-              <Skeleton shape="text" className="h-2.5 w-full" />
+        <div className="flex flex-col gap-3">
+          {['first', 'second'].map((meter) => (
+            <div key={meter} className="grid grid-cols-[140px_1fr_120px] items-center gap-3">
+              <Skeleton shape="text" className="h-3 w-24" />
               <Skeleton className="h-1.5 w-full rounded-full" />
-              <Skeleton shape="text" className="h-2.5 w-full" />
+              <Skeleton shape="text" className="h-3 w-full" />
             </div>
           ))}
         </div>
       </div>
 
-      <div className="mb-3.5 overflow-hidden rounded-[10px] pane-wide:mb-6 border border-border bg-white/50 dark:bg-white/[0.035]">
-        {[0, 1].map((surface) => (
-          <div
-            key={surface}
-            className="flex min-h-[42px] items-center justify-between gap-3.5 border-t border-border-soft px-[13px] py-[9px] first:border-t-0"
-          >
-            <span className="flex min-w-0 items-center gap-[9px]">
-              <Skeleton className="h-6 w-6 shrink-0 rounded-[7px]" />
-              <span className="min-w-0">
-                <Skeleton shape="text" className="h-3 w-24" />
-                <Skeleton shape="text" className="mt-1.5 h-2.5 w-44" />
+      {/* The launch panel beside the cost card, as the loaded pane lays them out. */}
+      <div className="mb-3 flex items-stretch gap-3">
+        <div className="min-w-0 flex-[2] basis-0 overflow-hidden rounded-[10px] border border-border bg-cream/70 dark:bg-white/[0.02]">
+          {['desktop', 'cli'].map((surface) => (
+            <div
+              key={surface}
+              className="flex min-h-[52px] items-center justify-between gap-3.5 border-t border-border-soft px-[13px] py-[9px] first:border-t-0"
+            >
+              <span className="flex min-w-0 items-center gap-[9px]">
+                <Skeleton className="h-6 w-6 shrink-0 rounded-[7px]" />
+                <span className="min-w-0">
+                  <Skeleton shape="text" className="h-3 w-24" />
+                  <Skeleton shape="text" className="mt-2 h-2.5 w-40" />
+                </span>
               </span>
-            </span>
-            <Skeleton className="h-7 w-28 shrink-0 rounded-[7px]" />
-          </div>
-        ))}
+              <Skeleton className="h-7 w-24 shrink-0 rounded-md" />
+            </div>
+          ))}
+        </div>
+        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-between gap-3 rounded-[10px] border border-border bg-cream/70 px-4 py-3 dark:bg-white/[0.02]">
+          <Skeleton shape="text" className="h-3 w-32" />
+          <Skeleton shape="text" className="h-5 w-20" />
+        </div>
       </div>
     </PaneLayout>
   )

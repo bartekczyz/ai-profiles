@@ -6,7 +6,7 @@ import { Skeleton } from '@/design'
  * that fills the height the pane gives it, beside the details or under them.
  */
 export const sessionsPanelClasses =
-  '@container/sessions mb-6 flex min-h-0 flex-1 flex-col gap-0 overflow-clip rounded-[10px] border border-border-soft bg-white/30 dark:bg-white/[0.02]'
+  '@container/sessions flex min-h-0 flex-1 flex-col gap-0 overflow-clip rounded-[10px] border border-border bg-cream/70 dark:bg-white/[0.02]'
 
 /**
  * The card's eyebrow row: the SESSIONS label, with the tabs across from it.
@@ -39,8 +39,8 @@ export function SessionsListSkeleton() {
     <div aria-hidden className={sessionsListClasses}>
       {skeletonRowKeys.map((key) => (
         <div key={key} className="border-t border-border-soft px-[13px] py-[11px] first:border-t-0">
-          <Skeleton shape="text" className="h-3 w-48 max-w-full" />
-          <Skeleton shape="text" className="mt-2 h-2.5 w-32 max-w-full" />
+          <Skeleton shape="text" className="h-3 w-56 max-w-full" />
+          <Skeleton shape="text" className="mt-2.5 h-2.5 w-36 max-w-full" />
         </div>
       ))}
     </div>
@@ -56,12 +56,12 @@ export function SessionsPanelSkeleton() {
   return (
     <div aria-hidden className={sessionsPanelClasses}>
       <div className={sessionsHeaderClasses}>
-        <Skeleton shape="text" className="h-2.5 w-16" />
-        <Skeleton className="h-6 w-32 rounded-lg" />
+        <Skeleton shape="text" className="h-3 w-16" />
+        <Skeleton className="h-7 w-40 rounded-lg" />
       </div>
       <div className="flex items-center gap-1.5 px-[13px] pt-2 pb-[9px]">
-        <Skeleton className="h-7 min-w-0 flex-1 rounded-[7px]" />
-        <Skeleton className="h-7 w-7 shrink-0 rounded-[7px]" />
+        <Skeleton className="h-7 min-w-0 flex-1 rounded-md" />
+        <Skeleton className="h-7 w-7 shrink-0 rounded-md" />
       </div>
       <SessionsListSkeleton />
     </div>

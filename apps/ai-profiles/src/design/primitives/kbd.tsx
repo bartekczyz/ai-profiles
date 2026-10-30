@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 
+import { isValidElement } from 'react'
+
 import { formatShortcut } from '@/design/keyboard/format-shortcut'
 import { getShortcut, type ShortcutId } from '@/design/keyboard/shortcuts'
 import { cn } from '@/design/lib/cn'
@@ -29,7 +31,7 @@ const variantClasses: Record<KbdVariant, string> = {
   // sits next to in the sidebar rows.)
   default:
     'text-muted bg-cream-2 border border-border/50 dark:text-ink-soft dark:bg-white/[0.06] dark:border-white/[0.08]',
-  onOrange: 'text-white bg-white/20 border border-white/40 shadow-[inset_0_-1px_0_rgba(0,0,0,0.08)]',
+  onOrange: 'text-current opacity-70 bg-current/10 border border-current/25',
   // Subtle is for inline hint strips — borderless on light, faint border
   // on dark, slightly stronger text than `text-muted` so it still reads.
   subtle: 'text-muted bg-transparent border border-border/70 dark:text-ink-soft dark:border-white/[0.12]',
@@ -55,6 +57,22 @@ export function Kbd({ variant = 'default', shortcutId, className, children }: Kb
       {content}
     </kbd>
   )
+}
+
+/**
+ * The key a `<Kbd>` element shows, as plain text — for surfaces that state a
+ * shortcut in words (a button's tooltip) rather than as a chip. `null` for
+ * anything that isn't a `<Kbd>`.
+ */
+export function kbdText(node: ReactNode): string | null {
+  if (!isValidElement<KbdProps>(node) || node.type !== Kbd) {
+    return null
+  }
+  const { shortcutId, children } = node.props
+  if (shortcutId) {
+    return formatShortcut(getShortcut(shortcutId).keys)
+  }
+  return typeof children === 'string' ? children : null
 }
 
 type KbdGroupProps = {

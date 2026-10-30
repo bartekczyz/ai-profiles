@@ -3,7 +3,7 @@ import type { AppId } from '@/lib/app-registry'
 import { Suspense } from 'react'
 
 import { PaneLayout } from '@/components/pane-layout'
-import { Button, Kbd } from '@/design'
+import { Button } from '@/design'
 
 import { AppearanceSection } from './appearance-section'
 import { DataSection, DataSectionFallback } from './data-section'
@@ -30,15 +30,22 @@ type Props = {
 export function SettingsView({ onClose, onOpenMigration, onOpenAbout }: Props) {
   return (
     <PaneLayout
-      className="bg-background"
-      header={
-        <header className="flex items-center justify-between border-b border-border-soft pb-6">
-          <h2 className="text-[22px] font-semibold tracking-[-0.012em] text-ink">Settings</h2>
-          <Button size="sm" variant="ghost" trailingKbd={<Kbd>⎋</Kbd>} aria-keyshortcuts="Escape" onClick={onClose}>
+      toolbar={
+        <>
+          <span className="text-[13px] font-medium text-ink">Settings</span>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="ml-auto"
+            title="Done (Esc)"
+            aria-keyshortcuts="Escape"
+            onClick={onClose}
+          >
             Done
           </Button>
-        </header>
+        </>
       }
+      header={<h2 className="text-[24px] font-semibold tracking-[-0.015em] text-ink">Settings</h2>}
     >
       <AppearanceSection />
       <Suspense fallback={<SystemSectionFallback />}>

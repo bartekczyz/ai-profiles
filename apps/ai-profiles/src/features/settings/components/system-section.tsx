@@ -1,9 +1,10 @@
+import type { ReactNode } from 'react'
 import type { StatusTone } from '@/design'
 import type { Dependencies, Shell } from '@/lib/types'
 
 import { useEffect, useState } from 'react'
 
-import { RotateCw } from 'lucide-react'
+import { ArrowClockwise } from '@phosphor-icons/react'
 
 import { Button, Skeleton, StatusDot } from '@/design'
 import { useAppMetadata } from '@/features/about/api/use-app-metadata'
@@ -14,10 +15,22 @@ import { appIds, appSpecs } from '@/lib/app-registry'
 import { detectShell, installPathHook } from '@/lib/commands'
 
 type Row = {
+  /**
+   * Which row this is, for the rows that carry a control of their own.
+   */
+  id: 'app' | 'path' | 'updates'
   label: string
   tone: StatusTone
   detail: string
+  /**
+   * Whether the detail is a path, set in mono; everything else reads as text.
+   */
+  mono?: boolean
   aux?: string
+  /**
+   * A longer account of the row's state, shown as its tooltip.
+   */
+  hint?: string
 }
 
 function describeUpdaterStatus(status: UpdaterStatus): { tone: StatusTone; detail: string } {
@@ -37,10 +50,13 @@ function describeUpdaterStatus(status: UpdaterStatus): { tone: StatusTone; detai
   }
 }
 
-// Version strings aren't surfaced from the Rust side yet (see 99-todo.md).
-// Until then we render an em-dash next to each installed dependency — the
-// status dot already conveys installed vs. not-detected.
+// Version strings aren't surfaced from the Rust side yet (see 99-todo.md), so
+// an app row says whether it was found, beside the dot that says the same.
 const MISSING_DETAIL = '—'
+
+function presence(found: boolean): string {
+  return found ? 'Installed' : 'Not found'
+}
 
 const REFRESH_FLASH_MS = 1500
 
@@ -49,11 +65,17 @@ function buildAppRows(dependencies: Dependencies): Array<Row> {
     const spec = appSpecs[id]
     const deps = dependencies.apps[id]
     return [
-      { label: `${spec.displayName} Desktop`, tone: deps.guiInstalled ? 'success' : 'warning', detail: MISSING_DETAIL },
       {
+        id: 'app',
+        label: `${spec.displayName} Desktop`,
+        tone: deps.guiInstalled ? 'success' : 'warning',
+        detail: presence(deps.guiInstalled),
+      },
+      {
+        id: 'app',
         label: `${spec.cliDisplayName} CLI`,
         tone: deps.cliInstalled ? 'success' : 'warning',
-        detail: MISSING_DETAIL,
+        detail: presence(deps.cliInstalled),
       },
     ]
   })
@@ -68,11 +90,15 @@ function buildRows(
   return [
     ...buildAppRows(deps),
     {
+      id: 'path',
       label: 'Shell PATH',
       tone: deps.localBinOnPath ? 'success' : 'warning',
       detail: shell ? rcDisplay[shell] : MISSING_DETAIL,
+      mono: shell !== null,
+      hint: shellHookStatus(shell, deps.localBinOnPath && shell !== null),
     },
     {
+      id: 'updates',
       label: 'Updates',
       tone: updater.tone,
       detail: updater.detail,
@@ -114,32 +140,53 @@ export function SystemSection() {
   const action = updateAction(updater.status)
   const handleUpdateAction = action.installs ? updater.installAndRestart : updater.check
 
+  const hook = useShellHook({
+    localBinOnPath: dependencies.deps.localBinOnPath,
+    shell,
+    onInstalled: dependencies.refresh,
+  })
+
+  // The two rows that can be acted on carry their control at the row's end,
+  // where a Mac settings pane puts it, rather than in a line under the card.
+  const controls: Partial<Record<Row['id'], ReactNode>> = {
+    path: (
+      <Button size="sm" variant="secondary" disabled={!shell || hook.busy} onClick={() => void hook.install()}>
+        {hook.installed ? 'Re-install hook' : 'Install hook'}
+      </Button>
+    ),
+    updates: (
+      <Button size="sm" variant="secondary" disabled={action.busy} onClick={() => void handleUpdateAction()}>
+        {action.label}
+      </Button>
+    ),
+  }
+
   return (
     <section className="mb-8">
       <div className="mb-2.5 flex items-center justify-between">
-        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">System</span>
+        <span className="text-[12.5px] font-medium text-ink-soft">System</span>
         <RefreshControl onRefresh={refresh} />
       </div>
-      <div className="rounded-xl border border-border bg-white py-1 dark:bg-cream-2">
+      <div className="overflow-hidden rounded-[10px] border border-border bg-cream/70 dark:bg-white/[0.02]">
         {rows.map((row, index) => (
           <StatusRow
             // biome-ignore lint/suspicious/noArrayIndexKey: rows are a stable ordered list with no insert/reorder semantics
             key={index}
             row={row}
+            control={controls[row.id]}
           />
         ))}
       </div>
-      <ShellHookControls
-        localBinOnPath={dependencies.deps.localBinOnPath}
-        shell={shell}
-        onInstalled={dependencies.refresh}
-      />
-      <div className="mt-2 flex items-center gap-2.5 font-mono text-[11px] text-muted-strong">
-        <span>{updaterDescription.detail}</span>
-        <Button size="sm" variant="ghost" disabled={action.busy} onClick={() => void handleUpdateAction()}>
-          {action.label}
-        </Button>
-      </div>
+      {hook.message ? (
+        <p role="status" aria-live="polite" className="mt-2 px-1 text-[12px] text-muted">
+          {hook.message}
+        </p>
+      ) : null}
+      {hook.error ? (
+        <p role="alert" className="mt-2 px-1 text-[12px] text-red">
+          {hook.error}
+        </p>
+      ) : null}
     </section>
   )
 }
@@ -184,14 +231,14 @@ function RefreshControl({ onRefresh }: RefreshControlProps) {
   return (
     <div className="flex items-center gap-2">
       {refreshedAt !== null ? (
-        <span className="font-mono text-[11px] text-muted-strong" role="status" aria-live="polite">
+        <span className="text-[12px] text-muted-strong" role="status" aria-live="polite">
           Refreshed
         </span>
       ) : null}
       <Button
         size="sm"
         variant="secondary"
-        leadingIcon={<RotateCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={1.85} />}
+        leadingIcon={<ArrowClockwise className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />}
         disabled={refreshing}
         onClick={() => void handleRefresh()}
       >
@@ -206,25 +253,34 @@ type StatusRowProps = {
    * The dependency or subsystem the row reports on.
    */
   row: Row
+  /**
+   * The row's own control, after its detail.
+   */
+  control?: ReactNode
 }
 
 /**
- * One line of the System card: a status dot, a label, and a mono detail.
+ * One line of the System card: a status dot, a label, the detail, and the
+ * row's control when it has one.
  */
-function StatusRow({ row }: StatusRowProps) {
+function StatusRow({ row, control }: StatusRowProps) {
   return (
-    <div className="grid grid-cols-[7px_1fr_auto] items-center gap-3 border-b border-border-soft px-4 py-3 text-[13px] tracking-[-0.003em] text-ink-soft last:border-b-0">
-      <StatusDot pulse tone={row.tone} />
-      <span>
+    <div
+      title={row.hint}
+      className="flex min-h-12 items-center gap-3 border-b border-border-soft px-4 py-2 text-[13px] tracking-[-0.003em] text-ink last:border-b-0"
+    >
+      <StatusDot tone={row.tone} />
+      <span className="min-w-0 flex-1 truncate">
         {row.label}
-        {row.aux ? <span className="ml-2 font-mono text-[11.5px] text-muted">{row.aux}</span> : null}
+        {row.aux ? <span className="ml-2 text-[12px] text-muted-strong">{row.aux}</span> : null}
       </span>
-      <span className="font-mono text-[11.5px] text-muted">{row.detail}</span>
+      <span className={row.mono ? 'font-mono text-[12px] text-muted' : 'text-[12.5px] text-muted'}>{row.detail}</span>
+      {control}
     </div>
   )
 }
 
-type ShellHookControlsProps = {
+type ShellHookOptions = {
   /**
    * Whether `~/.local/bin` is on the user's PATH.
    */
@@ -240,54 +296,32 @@ type ShellHookControlsProps = {
 }
 
 /**
- * The shell hookline: which shell was detected and whether its rc file has
- * the PATH hook, with a one-click (re-)install and its outcome underneath.
+ * The PATH hook's one-click (re-)install, and what came of the last attempt.
  */
-function ShellHookControls({ localBinOnPath, shell, onInstalled }: ShellHookControlsProps) {
-  const [hookMessage, setHookMessage] = useState<string | null>(null)
-  const [hookError, setHookError] = useState<string | null>(null)
-  const [hookBusy, setHookBusy] = useState(false)
+function useShellHook({ localBinOnPath, shell, onInstalled }: ShellHookOptions) {
+  const [message, setMessage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  const hookInstalled = localBinOnPath && shell !== null
-
-  async function handleReinstall() {
+  async function install() {
     if (!shell) {
       return
     }
-    setHookBusy(true)
-    setHookMessage(null)
-    setHookError(null)
+    setBusy(true)
+    setMessage(null)
+    setError(null)
     try {
       const outcome = await installPathHook(shell)
-      setHookMessage(hookInstallMessage(shell, outcome))
+      setMessage(hookInstallMessage(shell, outcome))
       await onInstalled()
     } catch (caught) {
-      setHookError(caught instanceof Error ? caught.message : String(caught))
+      setError(caught instanceof Error ? caught.message : String(caught))
     } finally {
-      setHookBusy(false)
+      setBusy(false)
     }
   }
 
-  return (
-    <>
-      <div className="mt-2.5 flex items-center gap-2.5 font-mono text-[11px] text-muted-strong">
-        <span>{shellHookStatus(shell, hookInstalled)}</span>
-        <Button size="sm" variant="ghost" disabled={!shell || hookBusy} onClick={handleReinstall}>
-          {hookInstalled ? 'Re-install hook' : 'Install hook'}
-        </Button>
-      </div>
-      {hookMessage ? (
-        <p role="status" aria-live="polite" className="mt-1 text-[11.5px] text-muted-strong">
-          {hookMessage}
-        </p>
-      ) : null}
-      {hookError ? (
-        <p role="alert" className="mt-1 text-[11.5px] text-red">
-          {hookError}
-        </p>
-      ) : null}
-    </>
-  )
+  return { installed: localBinOnPath && shell !== null, busy, message, error, install }
 }
 
 /**
@@ -299,7 +333,7 @@ export function SystemSectionFallback() {
   return (
     <section className="mb-8">
       <div className="mb-2.5 flex items-center justify-between">
-        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">System</span>
+        <span className="text-[12.5px] font-medium text-ink-soft">System</span>
         <Skeleton className="h-7 w-[88px] rounded-md" />
       </div>
       <Skeleton className="h-[190px] w-full rounded-xl" />

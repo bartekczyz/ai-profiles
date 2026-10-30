@@ -2,9 +2,9 @@ import type { ReactNode } from 'react'
 
 import { useEffect, useRef, useState } from 'react'
 
-import { Monitor, Terminal } from 'lucide-react'
+import { ArrowUpRight, Check, Copy, Monitor, TerminalWindow } from '@phosphor-icons/react'
 
-import { ariaKeyshortcutsFor, cn, Kbd, Skeleton, useShortcut } from '@/design'
+import { ariaKeyshortcutsFor, cn, Skeleton, useShortcut } from '@/design'
 
 type Props = {
   /**
@@ -49,18 +49,18 @@ const rowClasses =
   'flex min-h-[42px] items-center justify-between gap-3.5 border-t border-border-soft px-[13px] py-[9px] first:border-t-0'
 
 const controlClasses =
-  'inline-flex h-7 shrink-0 cursor-pointer items-center rounded-[7px] leading-none outline-none transition-[background-color,border-color,color,filter,transform] duration-(--duration-snap) ease-(--ease-natural) focus-visible:ring-2 focus-visible:ring-orange/40'
+  'inline-flex h-7 shrink-0 cursor-default items-center rounded-md leading-none outline-none transition-[background-color,border-color,color,filter,transform] duration-(--duration-snap) ease-(--ease-natural) focus-visible:ring-2 focus-visible:ring-orange/40'
 
 /**
- * Filled orange treatment. Worn by the Open button, and by the command
- * token when the terminal is the only surface a profile has — so every
- * reachable state of the pane keeps exactly one obvious action.
+ * The pane's one primary treatment, in ink rather than a brand colour. Worn
+ * by the Open button, and by the command token when the terminal is the only
+ * surface a profile has — so every reachable state of the pane keeps exactly
+ * one obvious action. No hover change: native buttons don't light up under
+ * the pointer, they respond to the press.
  */
-const filledClasses =
-  'border-0 bg-[linear-gradient(180deg,var(--color-orange),var(--color-orange-deep))] text-white shadow-[0_1px_2px_rgba(191,98,64,0.35),inset_0_1px_0_rgba(255,255,255,0.2)] hover:brightness-[0.96] active:translate-y-px'
+const filledClasses = 'border-0 bg-ink text-cream shadow-[0_1px_2px_rgba(0,0,0,0.12)] active:opacity-80'
 
-const outlinedClasses =
-  'border border-border bg-white/60 text-ink-soft hover:border-border-strong hover:bg-white dark:bg-white/[0.05] dark:hover:bg-white/[0.09]'
+const outlinedClasses = 'border border-border bg-cream text-ink-soft active:bg-cream-2 dark:bg-white/[0.04]'
 
 /**
  * Worn by the Open button while a launch is under way. The fill stays — this
@@ -72,7 +72,7 @@ const busyClasses =
 
 /**
  * The surfaces block: one inset grouped panel holding a Desktop app row and
- * a Terminal row, in the manner of macOS System Settings. Each row carries a
+ * a TerminalWindow row, in the manner of macOS System Settings. Each row carries a
  * glyph, a title, a line describing that surface's own state, and its own
  * trailing control.
  *
@@ -140,10 +140,10 @@ export function ProfileDetailSurfacesPanel({
 
   return (
     <>
-      <div className="overflow-hidden rounded-[10px] border border-border bg-white/50 dark:bg-white/[0.035]">
+      <div className="h-full overflow-hidden rounded-[10px] border border-border bg-cream/70 dark:bg-white/[0.02]">
         <SurfaceRow
           enabled={guiEnabled}
-          glyph={<Monitor aria-hidden className="h-3.5 w-3.5" strokeWidth={1.85} />}
+          glyph={<Monitor aria-hidden className="h-3.5 w-3.5" />}
           title="Desktop app"
           description={guiDescription}
           control={
@@ -157,7 +157,7 @@ export function ProfileDetailSurfacesPanel({
         />
         <SurfaceRow
           enabled={cliEnabled}
-          glyph={<Terminal aria-hidden className="h-3.5 w-3.5" strokeWidth={1.85} />}
+          glyph={<TerminalWindow aria-hidden className="h-3.5 w-3.5" />}
           title="Terminal"
           description={cliDescription}
           control={
@@ -250,11 +250,12 @@ function OpenDesktopButton({ opening, onOpen }: OpenDesktopButtonProps) {
       disabled={opening}
       aria-busy={opening}
       aria-keyshortcuts={ariaKeyshortcutsFor('open-selected-desktop')}
-      className={cn(controlClasses, filledClasses, busyClasses, 'gap-[7px] px-[11px] text-[12px] font-medium')}
+      title="Open (↵)"
+      className={cn(controlClasses, filledClasses, busyClasses, 'gap-1.5 px-3 text-[12.5px] font-medium')}
       onClick={onOpen}
     >
-      {opening ? 'Opening' : 'Open'}
-      <Kbd variant="onOrange" shortcutId="open-selected-desktop" />
+      {opening ? 'Opening…' : 'Open'}
+      <ArrowUpRight aria-hidden className="size-3.5 opacity-60" />
     </button>
   )
 }
@@ -279,7 +280,7 @@ type CopyCommandButtonProps = {
 }
 
 /**
- * The Terminal row's command token, which copies the command on press.
+ * The TerminalWindow row's command token, which copies the command on press.
  */
 function CopyCommandButton({ copied, promoted, command, onCopy }: CopyCommandButtonProps) {
   return (
@@ -290,13 +291,14 @@ function CopyCommandButton({ copied, promoted, command, onCopy }: CopyCommandBut
       className={cn(
         controlClasses,
         promoted ? filledClasses : outlinedClasses,
-        'gap-2 px-[9px] font-mono text-[11.5px]',
-        !promoted && 'data-[copied=true]:border-green data-[copied=true]:bg-green/[0.06] data-[copied=true]:text-green',
+        'gap-2 px-2.5 font-mono text-[12px]',
+        !promoted && 'data-[copied=true]:text-green',
       )}
+      title="Copy command (⌘C)"
       onClick={onCopy}
     >
       {copied ? 'Copied' : command}
-      <Kbd variant={promoted ? 'onOrange' : 'default'} shortcutId="copy-selected-cli" />
+      {copied ? <Check aria-hidden className="size-3.5" /> : <Copy aria-hidden className="size-3.5 opacity-50" />}
     </button>
   )
 }

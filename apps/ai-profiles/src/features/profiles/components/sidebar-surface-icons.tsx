@@ -1,6 +1,6 @@
 import type { Surfaces } from '@/lib/types'
 
-import { Monitor, Terminal } from 'lucide-react'
+import { Monitor, TerminalWindow } from '@phosphor-icons/react'
 
 import { cn } from '@/design'
 
@@ -18,12 +18,10 @@ export function SidebarSurfaceIcons({ surfaces }: Props) {
     <span className="flex items-center gap-1 text-muted">
       <Monitor
         aria-label={surfaces.gui ? 'Desktop app enabled' : 'Desktop app disabled'}
-        strokeWidth={1.75}
         className={cn('h-3 w-3', surfaces.gui ? 'opacity-100' : 'opacity-[0.22]')}
       />
-      <Terminal
+      <TerminalWindow
         aria-label={surfaces.cli ? 'CLI enabled' : 'CLI disabled'}
-        strokeWidth={1.75}
         className={cn('h-3 w-3', surfaces.cli ? 'opacity-100' : 'opacity-[0.22]')}
       />
     </span>

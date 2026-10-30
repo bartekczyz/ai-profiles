@@ -577,8 +577,15 @@ describe('EditProfileDialog — leaving it', () => {
     return { onClose, user: userEvent.setup() }
   }
 
-  it('is not closed by a press on the page behind it, which would lose what was chosen in it', async () => {
+  it('closes on a press on the page behind it while nothing has changed', async () => {
     const { onClose } = open()
+    await pressOutside()
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('is not closed by a press on the page behind it after a change, which would lose it', async () => {
+    const { onClose, user } = open()
+    await user.type(screen.getByLabelText('Name'), ' 2')
     await pressOutside()
     expect(onClose).not.toHaveBeenCalled()
   })

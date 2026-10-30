@@ -1,4 +1,4 @@
-import { Coffee, ExternalLink, GitBranch, Globe } from 'lucide-react'
+import { ArrowSquareOut, Coffee, GitBranch, Globe } from '@phosphor-icons/react'
 
 import { Button, Dialog, Kbd, useToast } from '@/design'
 import { openExternalUrl } from '@/lib/commands'
@@ -48,7 +48,7 @@ export function AboutDialog({ open, onClose, onOpenWhatsNew }: Props) {
             <button
               type="button"
               onClick={onOpenWhatsNew}
-              className="cursor-pointer border-0 bg-transparent p-0 text-[12px] text-ink-soft outline-none transition-colors hover:text-ink hover:underline focus-visible:underline"
+              className="border-0 bg-transparent p-0 text-[12px] text-ink-soft outline-none transition-colors hover:text-ink hover:underline focus-visible:underline"
             >
               What's new
             </button>
@@ -66,22 +66,16 @@ export function AboutDialog({ open, onClose, onOpenWhatsNew }: Props) {
         ) : null}
         {metadata.repository ? (
           <Field label="Source">
-            <ExternalLinkRow
-              icon={<GitBranch className="h-3.5 w-3.5" strokeWidth={1.85} />}
-              url={metadata.repository}
-            />
+            <ExternalLinkRow icon={<GitBranch className="h-3.5 w-3.5" />} url={metadata.repository} />
           </Field>
         ) : null}
         {metadata.homepage ? (
           <Field label="Website">
-            <ExternalLinkRow icon={<Globe className="h-3.5 w-3.5" strokeWidth={1.85} />} url={metadata.homepage} />
+            <ExternalLinkRow icon={<Globe className="h-3.5 w-3.5" />} url={metadata.homepage} />
           </Field>
         ) : null}
         <Field label="Support">
-          <ExternalLinkRow
-            icon={<Coffee className="h-3.5 w-3.5" strokeWidth={1.85} />}
-            url="https://buymeacoffee.com/bartekczyz"
-          />
+          <ExternalLinkRow icon={<Coffee className="h-3.5 w-3.5" />} url="https://buymeacoffee.com/bartekczyz" />
         </Field>
       </dl>
       <p className="mt-5 border-t border-border-soft pt-4 text-[11.5px] text-muted-strong">
@@ -133,7 +127,7 @@ function ExternalLinkRow({ icon, url }: ExternalLinkRowProps) {
     <button
       type="button"
       onClick={() => void handleClick()}
-      className="group inline-flex cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left text-ink-soft outline-none"
+      className="group inline-flex items-center gap-2 border-0 bg-transparent p-0 text-left text-ink-soft outline-none"
     >
       <span aria-hidden className="text-muted-strong transition-colors group-hover:text-ink">
         {icon}
@@ -141,11 +135,7 @@ function ExternalLinkRow({ icon, url }: ExternalLinkRowProps) {
       <span className="truncate font-mono text-[12px] transition-colors group-hover:text-ink" data-selectable="true">
         {prettifyUrl(url)}
       </span>
-      <ExternalLink
-        aria-hidden
-        className="h-3 w-3 text-muted-strong transition-colors group-hover:text-ink"
-        strokeWidth={1.85}
-      />
+      <ArrowSquareOut aria-hidden className="h-3 w-3 text-muted-strong transition-colors group-hover:text-ink" />
     </button>
   )
 }

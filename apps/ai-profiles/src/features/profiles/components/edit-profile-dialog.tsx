@@ -107,9 +107,12 @@ export function EditProfileDialog({
     <>
       <Dialog
         open={open}
+        className="w-[min(600px,calc(100%-64px))]"
         title="Edit profile"
         description="Rename, repaint, or toggle surfaces. Existing data on disk stays put."
-        closeOnOutsideClick={false}
+        // A press outside only closes it while there's nothing to lose; with
+        // an unsaved change, Escape and Cancel still close it.
+        closeOnOutsideClick={!changesAnything(plan, launcherIcon.change)}
         onClose={close}
         onSubmit={handleSubmit}
         foot={

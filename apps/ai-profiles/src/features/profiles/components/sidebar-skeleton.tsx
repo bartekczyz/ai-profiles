@@ -6,14 +6,18 @@ import { Skeleton } from '@/design'
  */
 export function SidebarSkeleton() {
   return (
-    <aside className="flex w-64 flex-col gap-2 border-r border-border bg-cream-2 p-3">
-      <Skeleton className="h-6 w-32" />
-      <Skeleton className="h-8 w-full" />
-      <div className="mt-3 flex flex-col gap-1">
-        {[0, 1, 2, 3].map((row) => (
-          <div key={row} className="flex items-center gap-2 px-2 py-1.5">
-            <Skeleton shape="circle" className="h-2.5 w-2.5" />
-            <Skeleton shape="text" className="w-32" />
+    <aside className="flex w-[232px] shrink-0 flex-col px-2.5 pt-11 pb-2.5">
+      <div className="flex items-center gap-2 px-2 pt-0.5 pb-3.5">
+        <Skeleton className="size-[22px] rounded-md" />
+        <Skeleton shape="text" className="h-3.5 w-24" />
+      </div>
+      <Skeleton className="mb-2.5 h-7 w-full rounded-md" />
+      <div className="flex flex-col gap-px">
+        {['first', 'second', 'third'].map((row) => (
+          <div key={row} className="flex items-center gap-2 px-2 py-[9px]">
+            <Skeleton shape="circle" className="size-3.5" />
+            <Skeleton shape="circle" className="size-2.5" />
+            <Skeleton shape="text" className="h-3 w-24" />
           </div>
         ))}
       </div>

@@ -1,12 +1,13 @@
 import type { AppId } from '@/lib/app-registry'
 import type { ExistingInstallInfo } from '@/lib/types'
 
-import { Download } from 'lucide-react'
+import { DownloadSimple } from '@phosphor-icons/react'
 
 import { ariaKeyshortcutsFor, Button, Kbd, Skeleton } from '@/design'
 import { importableAppsFrom, useMigration } from '@/features/migration/api/use-migration'
 import { useMigrationBackups } from '@/features/migration/api/use-migration-backups'
 import { MigrationBackupsList } from '@/features/migration/components/migration-backups-list'
+import { shortenHomePath } from '@/features/profiles/components/shorten-home-path'
 import { appSpecs } from '@/lib/app-registry'
 import { formatBytes } from '@/lib/format-bytes'
 
@@ -49,11 +50,11 @@ export function DataSection({ onReimport }: Props) {
   return (
     <section className="mb-8">
       <div className="mb-2.5 flex items-center justify-between">
-        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">Data</span>
+        <span className="text-[12.5px] font-medium text-ink-soft">Data</span>
       </div>
 
       {importable.length > 0 ? (
-        <div className="flex flex-col gap-2.5">
+        <div className="divide-y divide-border-soft overflow-hidden rounded-[10px] border border-border bg-cream/70 dark:bg-white/[0.02]">
           {importable.map((app, index) => {
             const detected = actionDetail(existingByApp[app])
             if (detected === null) {
@@ -73,9 +74,7 @@ export function DataSection({ onReimport }: Props) {
       ) : null}
 
       <div className={`flex items-center justify-between gap-3 ${importable.length > 0 ? 'mt-[18px]' : ''} mb-2`}>
-        <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.1em] text-muted-strong">
-          Backups · {backups.backups.length}
-        </span>
+        <span className="text-[12.5px] font-medium text-ink-soft">Backups · {backups.backups.length}</span>
         <span className="text-[11px] tracking-[-0.003em] text-muted-strong">Removed automatically after 7 days.</span>
       </div>
       <MigrationBackupsList backups={backups.backups} onDelete={backups.remove} />
@@ -91,27 +90,29 @@ type DetectedInstallCardProps = {
 }
 
 /**
- * One per-app "Detected an existing {App} install." action card. The ⌘I
- * shortcut chip rides only the first card, since ⌘I opens the first
- * importable app.
+ * One per-app row of the detected-installs list: what was found, where, and
+ * its Re-import. The ⌘I shortcut rides only the first row, since ⌘I opens the
+ * first importable app.
  */
 function DetectedInstallCard({ app, detected, showShortcut, onReimport }: DetectedInstallCardProps) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-white px-4 py-3.5 dark:bg-cream-2">
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
       <div className="flex min-w-0 items-center gap-3">
         <span
           aria-hidden
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] bg-cream-2 text-ink-soft dark:bg-white/[0.04]"
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-cream-2 text-muted dark:bg-white/[0.04]"
         >
-          <Download className="h-4 w-4" strokeWidth={1.85} />
+          <DownloadSimple className="h-4 w-4" />
         </span>
         <div className="min-w-0">
           <div className="text-[13px] tracking-[-0.005em] text-ink">
-            Detected an existing {appSpecs[app].displayName} install.
+            Existing {appSpecs[app].displayName} install
+            {detected.size !== null ? (
+              <span className="ml-2 text-[12px] text-muted-strong">{formatBytes(detected.size)}</span>
+            ) : null}
           </div>
-          <div className="mt-0.5 truncate font-mono text-[11px] text-muted-strong">
-            {detected.size !== null ? `${formatBytes(detected.size)} · ` : ''}
-            {detected.path}/
+          <div className="mt-0.5 truncate font-mono text-[11.5px] text-muted-strong" title={detected.path}>
+            {shortenHomePath(detected.path)}
           </div>
         </div>
       </div>
@@ -137,14 +138,14 @@ export function DataSectionFallback() {
   return (
     <section className="mb-8">
       <div className="mb-2.5 flex items-center justify-between">
-        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">Data</span>
+        <span className="text-[12.5px] font-medium text-ink-soft">Data</span>
       </div>
-      <Skeleton className="h-[60px] w-full rounded-xl" />
+      <Skeleton className="h-[60px] w-full rounded-[10px]" />
       <div className="mt-[18px] mb-2 flex items-center justify-between gap-3">
         <Skeleton className="h-3 w-24 rounded-sm" />
         <Skeleton className="h-3 w-40 rounded-sm" />
       </div>
-      <Skeleton className="h-[52px] w-full rounded-xl" />
+      <Skeleton className="h-[52px] w-full rounded-[10px]" />
     </section>
   )
 }
