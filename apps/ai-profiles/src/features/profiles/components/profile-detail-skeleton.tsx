@@ -1,5 +1,5 @@
 import { PaneLayout } from '@/components/pane-layout'
-import { Skeleton } from '@/design'
+import { cn, panelClasses, Skeleton } from '@/design'
 import { SessionsPanelSkeleton } from '@/features/sessions/components/sessions-panel-skeleton'
 
 /**
@@ -39,7 +39,7 @@ export function ProfileDetailSkeleton() {
         </div>
       }
     >
-      <div className="mb-3 rounded-[10px] border border-border bg-cream/70 px-4 py-3 dark:bg-white/[0.02]">
+      <div className={cn(panelClasses, 'mb-3 px-4 py-3')}>
         <div className="mb-3 flex min-h-[22px] items-center justify-between gap-3.5">
           <Skeleton shape="text" className="h-3 w-12" />
           <Skeleton shape="text" className="h-3 w-20" />
@@ -56,27 +56,34 @@ export function ProfileDetailSkeleton() {
       </div>
 
       {/* The launch panel beside the cost card, as the loaded pane lays them out. */}
-      <div className="mb-3 flex items-stretch gap-3">
-        <div className="min-w-0 flex-[2] basis-0 overflow-hidden rounded-[10px] border border-border bg-cream/70 dark:bg-white/[0.02]">
-          {['desktop', 'cli'].map((surface) => (
-            <div
-              key={surface}
-              className="flex min-h-[52px] items-center justify-between gap-3.5 border-t border-border-soft px-[13px] py-[9px] first:border-t-0"
-            >
-              <span className="flex min-w-0 items-center gap-[9px]">
-                <Skeleton className="h-6 w-6 shrink-0 rounded-[7px]" />
-                <span className="min-w-0">
-                  <Skeleton shape="text" className="h-3 w-24" />
-                  <Skeleton shape="text" className="mt-2 h-2.5 w-40" />
+      <div className="@container mb-3">
+        <div className="flex flex-col gap-3 @[620px]:flex-row @[620px]:items-stretch">
+          <div className={cn(panelClasses, 'min-w-0 overflow-hidden @[620px]:flex-[2] @[620px]:basis-0')}>
+            {['desktop', 'cli'].map((surface) => (
+              <div
+                key={surface}
+                className="flex min-h-[52px] items-center justify-between gap-3.5 border-t border-border-soft px-[13px] py-[9px] first:border-t-0"
+              >
+                <span className="flex min-w-0 items-center gap-[9px]">
+                  <Skeleton className="h-6 w-6 shrink-0 rounded-[7px]" />
+                  <span className="min-w-0">
+                    <Skeleton shape="text" className="h-3 w-24" />
+                    <Skeleton shape="text" className="mt-2 h-2.5 w-40" />
+                  </span>
                 </span>
-              </span>
-              <Skeleton className="h-7 w-24 shrink-0 rounded-md" />
-            </div>
-          ))}
-        </div>
-        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-between gap-3 rounded-[10px] border border-border bg-cream/70 px-4 py-3 dark:bg-white/[0.02]">
-          <Skeleton shape="text" className="h-3 w-32" />
-          <Skeleton shape="text" className="h-5 w-20" />
+                <Skeleton className="h-7 w-24 shrink-0 rounded-md" />
+              </div>
+            ))}
+          </div>
+          <div
+            className={cn(
+              panelClasses,
+              'flex min-w-0 flex-col justify-between gap-3 px-4 py-3 @[620px]:flex-1 @[620px]:basis-0',
+            )}
+          >
+            <Skeleton shape="text" className="h-3 w-32" />
+            <Skeleton shape="text" className="h-5 w-20" />
+          </div>
         </div>
       </div>
     </PaneLayout>

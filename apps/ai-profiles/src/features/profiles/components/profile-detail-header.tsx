@@ -3,7 +3,7 @@ import type { AppId } from '@/lib/app-registry'
 
 import { CaretRight } from '@phosphor-icons/react'
 
-import { ariaKeyshortcutsFor } from '@/design'
+import { ariaKeyshortcutsFor, shortcutHint } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
 
 import { BrandMark } from './brand-mark'
@@ -47,7 +47,7 @@ export function ProfileDetailHeader({ name, swatch, info, subline }: Props) {
  * Deliberately carries no border radius — the group container rounds its
  * first and last child, so a lone control still reads as a normal button.
  */
-export const headerControlClasses =
+export const toolbarControlClasses =
   'inline-flex h-7 shrink-0 items-center justify-center gap-1.5 border border-border bg-cream px-2.5 text-[12.5px] font-medium leading-none text-ink-soft outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:not-disabled:border-border-strong hover:not-disabled:bg-white hover:not-disabled:text-ink focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-orange/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white/[0.03] dark:hover:not-disabled:bg-white/[0.07]'
 
 type ToolbarProps = {
@@ -61,7 +61,7 @@ type ToolbarProps = {
   name: string
   /**
    * Control that leads the action group in place of Edit, for entries that
-   * have no Edit to offer. Style it with `headerControlClasses` so it joins
+   * have no Edit to offer. Style it with `toolbarControlClasses` so it joins
    * the group rather than floating beside it.
    */
   action?: ReactNode
@@ -101,7 +101,8 @@ export function ProfileDetailToolbar({ app, name, action, menu, onEdit }: Toolba
           {onEdit ? (
             <button
               type="button"
-              className={headerControlClasses}
+              className={toolbarControlClasses}
+              title={shortcutHint('Edit', 'edit-selected')}
               aria-keyshortcuts={ariaKeyshortcutsFor('edit-selected')}
               onClick={onEdit}
             >

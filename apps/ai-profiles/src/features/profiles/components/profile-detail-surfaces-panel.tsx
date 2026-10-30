@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { ArrowUpRight, Check, Copy, Monitor, TerminalWindow } from '@phosphor-icons/react'
 
-import { ariaKeyshortcutsFor, cn, Skeleton, useShortcut } from '@/design'
+import { ariaKeyshortcutsFor, cn, panelClasses, Skeleton, shortcutHint, useShortcut } from '@/design'
 
 type Props = {
   /**
@@ -72,7 +72,7 @@ const busyClasses =
 
 /**
  * The surfaces block: one inset grouped panel holding a Desktop app row and
- * a TerminalWindow row, in the manner of macOS System Settings. Each row carries a
+ * a Terminal row, in the manner of macOS System Settings. Each row carries a
  * glyph, a title, a line describing that surface's own state, and its own
  * trailing control.
  *
@@ -140,7 +140,7 @@ export function ProfileDetailSurfacesPanel({
 
   return (
     <>
-      <div className="h-full overflow-hidden rounded-[10px] border border-border bg-cream/70 dark:bg-white/[0.02]">
+      <div className={cn(panelClasses, 'h-full overflow-hidden')}>
         <SurfaceRow
           enabled={guiEnabled}
           glyph={<Monitor aria-hidden className="h-3.5 w-3.5" />}
@@ -250,7 +250,7 @@ function OpenDesktopButton({ opening, onOpen }: OpenDesktopButtonProps) {
       disabled={opening}
       aria-busy={opening}
       aria-keyshortcuts={ariaKeyshortcutsFor('open-selected-desktop')}
-      title="Open (↵)"
+      title={shortcutHint('Open', 'open-selected-desktop')}
       className={cn(controlClasses, filledClasses, busyClasses, 'gap-1.5 px-3 text-[12.5px] font-medium')}
       onClick={onOpen}
     >
@@ -280,7 +280,7 @@ type CopyCommandButtonProps = {
 }
 
 /**
- * The TerminalWindow row's command token, which copies the command on press.
+ * The Terminal row's command token, which copies the command on press.
  */
 function CopyCommandButton({ copied, promoted, command, onCopy }: CopyCommandButtonProps) {
   return (
@@ -294,7 +294,7 @@ function CopyCommandButton({ copied, promoted, command, onCopy }: CopyCommandBut
         'gap-2 px-2.5 font-mono text-[12px]',
         !promoted && 'data-[copied=true]:text-green',
       )}
-      title="Copy command (⌘C)"
+      title={shortcutHint('Copy command', 'copy-selected-cli')}
       onClick={onCopy}
     >
       {copied ? 'Copied' : command}

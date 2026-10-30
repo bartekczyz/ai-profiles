@@ -79,8 +79,6 @@ objc2-foundation = { version = "0.3", features = [
     "NSError",
 ] }
 
-# Profile for the `profile-shim` binary build.rs embeds. One copy is written
-# into every wrapper bundle, so it is built for size.
 # `tauri dev` builds are unoptimised by default, which makes image work (the
 # launcher icon preview, resampling the vendor icon) take seconds. Optimising
 # dependencies fully and our own crate lightly keeps rebuilds quick.
@@ -90,6 +88,8 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 3
 
+# Profile for the `profile-shim` binary build.rs embeds. One copy is written
+# into every wrapper bundle, so it is built for size.
 [profile.shim]
 inherits = "release"
 opt-level = "z"

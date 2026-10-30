@@ -4,7 +4,7 @@ import { useState } from 'react'
 
 import { Folder } from '@phosphor-icons/react'
 
-import { Button, Kbd } from '@/design'
+import { Button, cn, panelClasses } from '@/design'
 import { formatBytes } from '@/lib/format-bytes'
 
 type Props = {
@@ -53,7 +53,7 @@ export function MigrationBackupsList({ backups, onDelete }: Props) {
 
   if (backups.length === 0) {
     return (
-      <p className="rounded-[10px] border border-border bg-cream/70 px-4 py-3 text-[12.5px] tracking-[-0.003em] text-muted dark:bg-white/[0.02]">
+      <p className={cn(panelClasses, 'px-4 py-3 text-[12.5px] tracking-[-0.003em] text-muted')}>
         No migration backups on this Mac.
       </p>
     )
@@ -61,7 +61,7 @@ export function MigrationBackupsList({ backups, onDelete }: Props) {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="divide-y divide-border-soft overflow-hidden rounded-[10px] border border-border bg-cream/70 dark:bg-white/[0.02]">
+      <div className={cn(panelClasses, 'divide-y divide-border-soft overflow-hidden')}>
         {backups.map((backup) => (
           <div key={backup.path} className="flex items-center gap-3 px-4 py-2.5">
             <span aria-hidden className="grid h-[22px] w-[22px] shrink-0 place-items-center text-muted-strong">
@@ -73,7 +73,7 @@ export function MigrationBackupsList({ backups, onDelete }: Props) {
             <Button
               size="sm"
               variant="danger"
-              trailingKbd={<Kbd>⌘⌫</Kbd>}
+              shortcut="Mod+Backspace"
               disabled={busyPath === backup.path}
               onClick={() => void handleDelete(backup.path)}
             >

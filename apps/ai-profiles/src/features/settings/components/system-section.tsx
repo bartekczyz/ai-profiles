@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 
 import { ArrowClockwise } from '@phosphor-icons/react'
 
-import { Button, Skeleton, StatusDot } from '@/design'
+import { Button, cn, panelClasses, Skeleton, StatusDot } from '@/design'
 import { useAppMetadata } from '@/features/about/api/use-app-metadata'
 import { useDependencies } from '@/features/dependencies/api/use-dependencies'
 import { hookInstallMessage, rcDisplay, shellHookStatus, updateAction } from '@/features/settings/lib/system-status'
@@ -16,9 +16,10 @@ import { detectShell, installPathHook } from '@/lib/commands'
 
 type Row = {
   /**
-   * Which row this is, for the rows that carry a control of their own.
+   * What the row reports on, for the rows that carry a control of their own.
+   * Not unique: every app row is an `'app'`.
    */
-  id: 'app' | 'path' | 'updates'
+  kind: 'app' | 'path' | 'updates'
   label: string
   tone: StatusTone
   detail: string
@@ -28,7 +29,7 @@ type Row = {
   mono?: boolean
   aux?: string
   /**
-   * A longer account of the row's state, shown as its tooltip.
+   * A longer account of the row's state, shown under its label.
    */
   hint?: string
 }
@@ -66,13 +67,13 @@ function buildAppRows(dependencies: Dependencies): Array<Row> {
     const deps = dependencies.apps[id]
     return [
       {
-        id: 'app',
+        kind: 'app',
         label: `${spec.displayName} Desktop`,
         tone: deps.guiInstalled ? 'success' : 'warning',
         detail: presence(deps.guiInstalled),
       },
       {
-        id: 'app',
+        kind: 'app',
         label: `${spec.cliDisplayName} CLI`,
         tone: deps.cliInstalled ? 'success' : 'warning',
         detail: presence(deps.cliInstalled),
@@ -90,7 +91,7 @@ function buildRows(
   return [
     ...buildAppRows(deps),
     {
-      id: 'path',
+      kind: 'path',
       label: 'Shell PATH',
       tone: deps.localBinOnPath ? 'success' : 'warning',
       detail: shell ? rcDisplay[shell] : MISSING_DETAIL,
@@ -98,7 +99,7 @@ function buildRows(
       hint: shellHookStatus(shell, deps.localBinOnPath && shell !== null),
     },
     {
-      id: 'updates',
+      kind: 'updates',
       label: 'Updates',
       tone: updater.tone,
       detail: updater.detail,
@@ -148,7 +149,7 @@ export function SystemSection() {
 
   // The two rows that can be acted on carry their control at the row's end,
   // where a Mac settings pane puts it, rather than in a line under the card.
-  const controls: Partial<Record<Row['id'], ReactNode>> = {
+  const controls: Partial<Record<Row['kind'], ReactNode>> = {
     path: (
       <Button size="sm" variant="secondary" disabled={!shell || hook.busy} onClick={() => void hook.install()}>
         {hook.installed ? 'Re-install hook' : 'Install hook'}
@@ -167,14 +168,9 @@ export function SystemSection() {
         <span className="text-[12.5px] font-medium text-ink-soft">System</span>
         <RefreshControl onRefresh={refresh} />
       </div>
-      <div className="overflow-hidden rounded-[10px] border border-border bg-cream/70 dark:bg-white/[0.02]">
-        {rows.map((row, index) => (
-          <StatusRow
-            // biome-ignore lint/suspicious/noArrayIndexKey: rows are a stable ordered list with no insert/reorder semantics
-            key={index}
-            row={row}
-            control={controls[row.id]}
-          />
+      <div className={cn(panelClasses, 'overflow-hidden')}>
+        {rows.map((row) => (
+          <StatusRow key={row.label} row={row} control={controls[row.kind]} />
         ))}
       </div>
       {hook.message ? (
@@ -265,14 +261,14 @@ type StatusRowProps = {
  */
 function StatusRow({ row, control }: StatusRowProps) {
   return (
-    <div
-      title={row.hint}
-      className="flex min-h-12 items-center gap-3 border-b border-border-soft px-4 py-2 text-[13px] tracking-[-0.003em] text-ink last:border-b-0"
-    >
+    <div className="flex min-h-12 items-center gap-3 border-b border-border-soft px-4 py-2 text-[13px] tracking-[-0.003em] text-ink last:border-b-0">
       <StatusDot tone={row.tone} />
-      <span className="min-w-0 flex-1 truncate">
-        {row.label}
-        {row.aux ? <span className="ml-2 text-[12px] text-muted-strong">{row.aux}</span> : null}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">
+          {row.label}
+          {row.aux ? <span className="ml-2 text-[12px] text-muted-strong">{row.aux}</span> : null}
+        </span>
+        {row.hint ? <span className="mt-0.5 block text-[12px] text-muted">{row.hint}</span> : null}
       </span>
       <span className={row.mono ? 'font-mono text-[12px] text-muted' : 'text-[12.5px] text-muted'}>{row.detail}</span>
       {control}

@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { CaretRight } from '@phosphor-icons/react'
 import { format, parseISO } from 'date-fns'
 
-import { Button, Dialog, Kbd, Segmented, Skeleton } from '@/design'
+import { Button, cn, Dialog, panelClasses, Segmented, Skeleton } from '@/design'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/design/ui/tooltip'
 
 import { useProfileApiCost } from '../api/use-profile-api-cost'
@@ -85,10 +85,13 @@ const eyebrowClasses = 'mb-2 text-[12.5px] font-medium text-muted'
 /**
  * A card beside the launch panel: a label line over the figure. `flex-1` with
  * a zero basis so it takes the third of the row the launch panel leaves it,
- * and the whole row when it renders nothing.
+ * and the whole row when it renders nothing. Under the launch row's
+ * breakpoint the two stack and it takes the full width.
  */
-const rowClasses =
-  'flex min-w-0 flex-1 basis-0 flex-col justify-between gap-3 rounded-[10px] border border-border bg-cream/70 px-4 py-3 text-left text-meta dark:bg-white/[0.02]'
+const rowClasses = cn(
+  panelClasses,
+  'flex min-w-0 flex-col justify-between gap-3 px-4 py-3 text-left text-meta @[620px]:flex-1 @[620px]:basis-0',
+)
 
 const rowLabelClasses = 'text-[12.5px] font-medium text-ink-soft'
 
@@ -186,7 +189,7 @@ function ApiCostRow({ app, cost, period, onPeriodChange }: RowProps) {
         className="top-8 w-[min(780px,calc(100%-64px))] translate-y-0"
         onClose={() => setOpen(false)}
         foot={
-          <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} onClick={() => setOpen(false)}>
+          <Button variant="ghost" size="sm" shortcut="Escape" onClick={() => setOpen(false)}>
             Close
           </Button>
         }

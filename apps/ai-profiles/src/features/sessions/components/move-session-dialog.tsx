@@ -2,7 +2,7 @@ import type { AppToQuit, MovePlan, Session } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { Button, Dialog, Kbd, useToast } from '@/design'
+import { Button, Dialog, useToast } from '@/design'
 
 import { useMoveSession, useSessionMovePlan } from '../api/use-session-actions'
 import { PrimaryAction } from './confirm-session-action-dialog'
@@ -150,7 +150,7 @@ export function MoveSessionDialog({ profileId, session, destination, onClose }: 
       onSubmit={handleConfirm}
       foot={
         <>
-          <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} onClick={onClose}>
+          <Button variant="ghost" size="sm" shortcut="Escape" onClick={onClose}>
             Cancel
           </Button>
           <PrimaryAction disabled={!canConfirm} label={primaryLabel} blocker={blocker} onConfirm={handleConfirm} />

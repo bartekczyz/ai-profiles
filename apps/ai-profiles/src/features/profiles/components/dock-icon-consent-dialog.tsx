@@ -2,7 +2,7 @@ import type { AppId } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { Button, cn, Dialog, Kbd } from '@/design'
+import { Button, cn, Dialog } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
 
 type Props = {
@@ -132,21 +132,15 @@ export function DockIconConsentDialog({ open, app, onClose, onConfirm }: Props) 
       onSubmit={onConfirm === undefined ? onClose : handleConfirm}
       foot={
         onConfirm === undefined ? (
-          <Button variant="primary" size="sm" trailingKbd={<Kbd variant="onOrange">⏎</Kbd>} onClick={onClose}>
+          <Button variant="primary" size="sm" shortcut="Enter" onClick={onClose}>
             Close
           </Button>
         ) : (
           <>
-            <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={submitting} onClick={onClose}>
+            <Button variant="ghost" size="sm" shortcut="Escape" disabled={submitting} onClick={onClose}>
               Cancel
             </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              trailingKbd={<Kbd variant="onOrange">⏎</Kbd>}
-              disabled={submitting}
-              onClick={handleConfirm}
-            >
+            <Button variant="primary" size="sm" shortcut="Enter" disabled={submitting} onClick={handleConfirm}>
               Turn on
             </Button>
           </>

@@ -15,7 +15,7 @@ import {
 import { openInFinder } from '@/lib/commands'
 
 import { useProfilePaths } from '../api/use-profile-paths'
-import { headerControlClasses } from './profile-detail-header'
+import { toolbarControlClasses } from './profile-detail-header'
 import { shortenHomePath } from './shorten-home-path'
 
 type Props = {
@@ -114,7 +114,7 @@ export function ProfileDetailOverflowMenu({ profileId, onError, onDelete, onEdit
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" aria-label="More actions" className={cn(headerControlClasses, triggerClasses)}>
+        <button type="button" aria-label="More actions" className={cn(toolbarControlClasses, triggerClasses)}>
           <DotsThree aria-hidden className="h-4 w-4" />
         </button>
       </DropdownMenuTrigger>
@@ -182,7 +182,7 @@ export function ProfileDetailOverflowMenu({ profileId, onError, onDelete, onEdit
  */
 export function ProfileDetailOverflowMenuFallback() {
   return (
-    <button aria-hidden disabled type="button" className={cn(headerControlClasses, triggerClasses)}>
+    <button aria-hidden disabled type="button" className={cn(toolbarControlClasses, triggerClasses)}>
       <DotsThree className="h-4 w-4" />
     </button>
   )

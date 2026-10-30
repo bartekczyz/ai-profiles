@@ -7,25 +7,7 @@
 
 @import "@fontsource-variable/geist";
 @import "@ai-profiles/design-tokens/tokens.css";
-
-/* Paper Mono — Geist Mono's design with the Mac key symbols (⌘ ⌥ ⌃ ⎋) it
-   lacks, so commands, paths and shortcut chips render in one face. SIL Open
-   Font License; see fonts/paper-mono/OFL.txt. */
-@font-face {
-  font-family: "Paper Mono";
-  src: url("./fonts/paper-mono/PaperMono-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Paper Mono";
-  src: url("./fonts/paper-mono/PaperMono-Medium.woff2") format("woff2");
-  font-weight: 500 700;
-  font-style: normal;
-  font-display: swap;
-}
+@import "@ai-profiles/design-tokens/fonts.css";
 
 /* The dark variant fires when the runtime sets [data-theme="dark"] on the
    <html> element. ThemeProvider handles the system-preference mirror so a

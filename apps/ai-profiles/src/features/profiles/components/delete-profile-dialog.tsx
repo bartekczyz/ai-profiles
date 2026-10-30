@@ -2,7 +2,7 @@ import type { Profile } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { Button, Dialog, Kbd } from '@/design'
+import { Button, Dialog } from '@/design'
 import { appSpecs, wrapperFileName } from '@/lib/app-registry'
 
 type Props = {
@@ -34,10 +34,10 @@ export function DeleteProfileDialog({ open, profile, onClose, onConfirm }: Props
       onClose={onClose}
       foot={
         <>
-          <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={submitting} onClick={onClose}>
+          <Button variant="ghost" size="sm" shortcut="Escape" disabled={submitting} onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="danger" size="sm" trailingKbd={<Kbd>⌘⌫</Kbd>} disabled={submitting} onClick={handleConfirm}>
+          <Button variant="danger" size="sm" shortcut="Mod+Backspace" disabled={submitting} onClick={handleConfirm}>
             Delete
           </Button>
         </>

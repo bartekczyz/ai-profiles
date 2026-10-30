@@ -2,7 +2,6 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { Button } from './button'
-import { Kbd } from './kbd'
 
 describe('Button', () => {
   it('defaults to secondary medium', () => {
@@ -27,7 +26,7 @@ describe('Button', () => {
       <Button
         leadingIcon={<span data-testid="lead">L</span>}
         trailingIcon={<span data-testid="trail">T</span>}
-        trailingKbd={<Kbd>K</Kbd>}
+        shortcut="K"
       >
         Open
       </Button>,

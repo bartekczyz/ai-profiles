@@ -1,6 +1,6 @@
 import type { ActionCheck } from '@/lib/types'
 
-import { Button, Dialog, Kbd, useToast } from '@/design'
+import { Button, Dialog, useToast } from '@/design'
 import { extractErrorMessage } from '@/lib/extract-error-message'
 
 import { useRepairSessions, useSessionRepairCheck } from '../api/use-session-actions'
@@ -87,7 +87,7 @@ export function RepairSessionsDialog({ profileId, profileLabel, repairCount, onC
       onSubmit={handleConfirm}
       foot={
         <>
-          <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} onClick={onClose}>
+          <Button variant="ghost" size="sm" shortcut="Escape" onClick={onClose}>
             Cancel
           </Button>
           <PrimaryAction disabled={!canConfirm} label={primaryLabel} blocker={blocker} onConfirm={handleConfirm} />

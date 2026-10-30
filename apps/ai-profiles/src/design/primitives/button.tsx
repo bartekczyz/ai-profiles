@@ -1,8 +1,9 @@
 import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react'
+import type { RegisterableHotkey } from '@tanstack/hotkeys'
+import type { ShortcutId } from '@/design/keyboard/shortcuts'
 
+import { shortcutHint } from '@/design/keyboard/format-shortcut'
 import { cn } from '@/design/lib/cn'
-
-import { kbdText } from './kbd'
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type ButtonSize = 'sm' | 'md'
@@ -13,11 +14,12 @@ type ButtonProps = {
   leadingIcon?: ReactNode
   trailingIcon?: ReactNode
   /**
-   * The button's keyboard shortcut, as a `<Kbd>`. Stated in the native
-   * tooltip ("Close (⎋)") rather than drawn as a chip: Mac apps show
-   * shortcuts in menus and help tags, not on the buttons themselves.
+   * The button's keyboard shortcut: a registered id, or keys for one bound
+   * locally. Stated in the native tooltip ("Close (Esc)") rather than drawn
+   * as a chip: Mac apps show shortcuts in menus and help tags, not on the
+   * buttons themselves.
    */
-  trailingKbd?: ReactNode
+  shortcut?: ShortcutId | RegisterableHotkey
   ref?: Ref<HTMLButtonElement>
   children?: ReactNode
 } & ButtonHTMLAttributes<HTMLButtonElement>
@@ -46,15 +48,14 @@ export function Button({
   size = 'md',
   leadingIcon,
   trailingIcon,
-  trailingKbd,
+  shortcut,
   ref,
   children,
   type,
   title,
   ...rest
 }: ButtonProps) {
-  const shortcut = kbdText(trailingKbd)
-  const hint = shortcut && typeof children === 'string' ? `${children} (${shortcut})` : (shortcut ?? undefined)
+  const hint = shortcut && typeof children === 'string' ? shortcutHint(children, shortcut) : undefined
   return (
     <button
       ref={ref}

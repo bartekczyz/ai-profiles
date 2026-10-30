@@ -1,6 +1,6 @@
 import { ArrowSquareOut, Coffee, GitBranch, Globe } from '@phosphor-icons/react'
 
-import { Button, Dialog, Kbd, useToast } from '@/design'
+import { Button, Dialog, useToast } from '@/design'
 import { openExternalUrl } from '@/lib/commands'
 import { extractErrorMessage } from '@/lib/extract-error-message'
 
@@ -34,7 +34,7 @@ export function AboutDialog({ open, onClose, onOpenWhatsNew }: Props) {
       title="About ai-profiles"
       onClose={onClose}
       foot={
-        <Button variant="primary" size="sm" trailingKbd={<Kbd variant="onOrange">⎋</Kbd>} onClick={onClose}>
+        <Button variant="primary" size="sm" shortcut="Escape" onClick={onClose}>
           Close
         </Button>
       }

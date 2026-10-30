@@ -552,6 +552,12 @@ describe('CreateProfileDialog — launcher icon', () => {
     expect(screen.queryByRole('button', { name: 'Reset to default' })).toBeNull()
   })
 
+  it('renders the chosen color before prefetching the other presets', async () => {
+    setup()
+    await previewShows('data:image/png;base64,Z2Vu')
+    expect(vi.mocked(generatedIconPreview).mock.calls[0]).toEqual(['claude', '#d97757'])
+  })
+
   it('creates the profile with a picked image, checked when it was picked', async () => {
     const { onCreate, user } = setup()
     await user.type(screen.getByLabelText('Name'), 'Personal')

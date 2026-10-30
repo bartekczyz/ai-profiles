@@ -1,12 +1,14 @@
-import { Skeleton } from '@/design'
+import { cn, panelClasses, Skeleton } from '@/design'
 
 /**
  * The panel's outer box, shared by the panel and its skeleton so both sit in
  * the pane the same way: a card in the Usage card's style, and a flex column
  * that fills the height the pane gives it, beside the details or under them.
  */
-export const sessionsPanelClasses =
-  '@container/sessions flex min-h-0 flex-1 flex-col gap-0 overflow-clip rounded-[10px] border border-border bg-cream/70 dark:bg-white/[0.02]'
+export const sessionsPanelClasses = cn(
+  panelClasses,
+  '@container/sessions flex min-h-0 flex-1 flex-col gap-0 overflow-clip',
+)
 
 /**
  * The card's eyebrow row: the SESSIONS label, with the tabs across from it.

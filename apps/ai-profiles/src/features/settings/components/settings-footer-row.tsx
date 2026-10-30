@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { getVersion } from '@tauri-apps/api/app'
 
-import { Button, Dialog, Kbd, useToast } from '@/design'
+import { Button, Dialog, useToast } from '@/design'
 import { useAppState } from '@/lib/app-state/use-app-state'
 
 type Props = {
@@ -81,18 +81,12 @@ export function SettingsFooterRow({ onOpenAbout }: Props) {
               disabled={submitting}
               variant="ghost"
               size="sm"
-              trailingKbd={<Kbd>⎋</Kbd>}
+              shortcut="Escape"
               onClick={() => setConfirmOpen(false)}
             >
               Cancel
             </Button>
-            <Button
-              disabled={submitting}
-              variant="primary"
-              size="sm"
-              trailingKbd={<Kbd variant="onOrange">⏎</Kbd>}
-              onClick={handleConfirm}
-            >
+            <Button disabled={submitting} variant="primary" size="sm" shortcut="Enter" onClick={handleConfirm}>
               Reset
             </Button>
           </>

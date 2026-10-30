@@ -15,9 +15,9 @@ import { useProfileLastUsed } from '../api/use-profile-last-used'
 import { useProfilePaths } from '../api/use-profile-paths'
 import { accountLabel, accountTitle } from './account-line'
 import { formatLastUsed } from './format-last-used'
-import { ProfileDetailApiCost } from './profile-detail-api-cost'
 import { ProfileDetailHeader, ProfileDetailToolbar, ProfileSwatch } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
+import { ProfileDetailLaunchRow } from './profile-detail-launch-row'
 import { ProfileDetailOverflowMenu, ProfileDetailOverflowMenuFallback } from './profile-detail-overflow-menu'
 import { ProfileDetailSurfacesPanel } from './profile-detail-surfaces-panel'
 import { ProfileDetailUsageCard } from './profile-detail-usage-card'
@@ -90,12 +90,10 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
         profileId={profile.id}
       />
 
-      {/* The launch panel and the cost card share a row under the usage
-          card; with no cost to show, the panel takes the whole row. Only
-          the panel's row descriptions wait on per-profile data, so its
-          fallback is the same panel with those slots empty. */}
-      <div className="mb-3 flex items-stretch gap-3">
-        <div className="min-w-0 flex-[2] basis-0">
+      <ProfileDetailLaunchRow
+        app={profile.app}
+        profileId={profile.id}
+        surfaces={
           <Suspense
             key={profile.id}
             fallback={
@@ -114,9 +112,8 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
               onError={setActionError}
             />
           </Suspense>
-        </div>
-        <ProfileDetailApiCost app={profile.app} profileId={profile.id} />
-      </div>
+        }
+      />
 
       {actionError ? (
         <p role="alert" className="mb-4 text-meta text-red">

@@ -5,7 +5,7 @@ import { useState } from 'react'
 
 import { CircleNotch } from '@phosphor-icons/react'
 
-import { Button, Dialog, Kbd, StatusDot } from '@/design'
+import { Button, Dialog, StatusDot } from '@/design'
 import { Input } from '@/design/ui/input'
 import { useMigrationSizes } from '@/features/migration/api/use-migration'
 // cross-feature: migration dialog reuses the profile color picker for the imported profile
@@ -131,7 +131,7 @@ type MigrationDialogFootProps = {
 function MigrationDialogFoot({ valid, submitting, onCancel, onImport }: MigrationDialogFootProps) {
   return (
     <>
-      <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={submitting} onClick={onCancel}>
+      <Button variant="ghost" size="sm" shortcut="Escape" disabled={submitting} onClick={onCancel}>
         Cancel
       </Button>
       <Button
@@ -139,7 +139,7 @@ function MigrationDialogFoot({ valid, submitting, onCancel, onImport }: Migratio
         variant="primary"
         size="sm"
         leadingIcon={submitting ? <CircleNotch aria-hidden className="h-3.5 w-3.5 animate-spin" /> : null}
-        trailingKbd={submitting ? null : <Kbd variant="onOrange">⏎</Kbd>}
+        shortcut={submitting ? undefined : 'Enter'}
         onClick={onImport}
       >
         {submitting ? 'Importing…' : 'Import'}

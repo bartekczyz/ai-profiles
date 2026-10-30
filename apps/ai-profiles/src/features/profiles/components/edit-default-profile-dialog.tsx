@@ -3,7 +3,7 @@ import type { DefaultProfileEdit } from '../lib/default-profile-edit'
 
 import { useEffect, useState } from 'react'
 
-import { Button, Dialog, Kbd, useToast } from '@/design'
+import { Button, Dialog, useToast } from '@/design'
 import { Input } from '@/design/ui/input'
 import { appSpecs } from '@/lib/app-registry'
 import { extractErrorMessage } from '@/lib/extract-error-message'
@@ -152,16 +152,10 @@ function EditDefaultProfileFoot({
           Reset
         </Button>
       ) : null}
-      <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={saving} onClick={onCancel}>
+      <Button variant="ghost" size="sm" shortcut="Escape" disabled={saving} onClick={onCancel}>
         Cancel
       </Button>
-      <Button
-        variant="primary"
-        size="sm"
-        trailingKbd={<Kbd variant="onOrange">⏎</Kbd>}
-        disabled={!canSubmit}
-        onClick={onSubmit}
-      >
+      <Button variant="primary" size="sm" shortcut="Enter" disabled={!canSubmit} onClick={onSubmit}>
         {saving ? 'Saving…' : 'Save'}
       </Button>
     </>

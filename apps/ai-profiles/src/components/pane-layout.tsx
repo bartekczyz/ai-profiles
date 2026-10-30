@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { useRef } from 'react'
 
 import { cn } from '@/design'
-import { useWindowDragRegion } from '@/features/app-shell/components/title-bar-drag-strip'
+import { useWindowDragRegion } from '@/lib/use-window-drag-region'
 
 /**
  * The rounded panel the right-hand panes sit on, inset from the window so the
@@ -15,11 +15,6 @@ export const insetPanelClasses =
 
 type Props = {
   /**
-   * A bar pinned to the top of the pane, divided from the content under it:
-   * where you are, and the pane's actions. It doubles as a window drag area.
-   */
-  toolbar?: ReactNode
-  /**
    * The top of the content column. It scrolls away with the page.
    */
   header: ReactNode
@@ -28,8 +23,14 @@ type Props = {
    */
   children: ReactNode
   /**
-   * Follows the body in the same column, at a fixed height of its own so a
-   * long list scrolls inside it rather than stretching the page.
+   * A bar pinned to the top of the pane, divided from the content under it:
+   * where you are, and the pane's actions. It doubles as a window drag area.
+   */
+  toolbar?: ReactNode
+  /**
+   * Follows the body in the same column and takes the height left under it,
+   * so a long list scrolls inside it rather than stretching the page. It keeps
+   * a floor of its own; once the pane is too short for that, the column scrolls.
    */
   aside?: ReactNode
   /**
@@ -49,7 +50,9 @@ type Props = {
  */
 export function PaneLayout({ toolbar, header, children, aside, className }: Props) {
   const hasAside = aside !== undefined
-  const column = cn('mx-auto w-full', hasAside ? 'max-w-[1040px]' : 'max-w-[720px]')
+  // With an aside, the column is at least as tall as the scroll region, and
+  // grows past it only when the content under its zero-basis aside needs to.
+  const column = cn('mx-auto w-full', hasAside ? 'flex max-w-[1040px] shrink-0 grow flex-col' : 'max-w-[720px]')
   const toolbarRef = useRef<HTMLDivElement>(null)
   useWindowDragRegion(toolbarRef)
   return (
@@ -62,11 +65,17 @@ export function PaneLayout({ toolbar, header, children, aside, className }: Prop
           {toolbar}
         </div>
       ) : null}
-      <div className={cn('flex-1 overflow-y-auto px-10 pb-4 [scrollbar-gutter:stable]', toolbar ? 'pt-8' : 'pt-10')}>
+      <div
+        className={cn(
+          'flex-1 overflow-y-auto px-10 pb-4 [scrollbar-gutter:stable]',
+          toolbar ? 'pt-8' : 'pt-10',
+          hasAside && 'flex min-h-0 flex-col',
+        )}
+      >
         <div className={column}>
           <div className="mb-6">{header}</div>
           {children}
-          {hasAside ? <div className="mt-4 mb-6 flex h-[min(560px,70vh)] min-h-80 flex-col">{aside}</div> : null}
+          {hasAside ? <div className="mt-4 mb-6 flex min-h-80 grow basis-0 flex-col">{aside}</div> : null}
         </div>
       </div>
     </main>

@@ -13,9 +13,9 @@ import { useProfileAccount } from '../api/use-profile-account'
 import { useProfilePaths } from '../api/use-profile-paths'
 import { accountLabel, accountTitle } from './account-line'
 import { EditDefaultProfileDialog } from './edit-default-profile-dialog'
-import { ProfileDetailApiCost } from './profile-detail-api-cost'
 import { BrandSwatch, ProfileDetailHeader, ProfileDetailToolbar, ProfileSwatch } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
+import { ProfileDetailLaunchRow } from './profile-detail-launch-row'
 import { ProfileDetailMigrateAction } from './profile-detail-migrate-action'
 import { ProfileDetailOverflowMenu, ProfileDetailOverflowMenuFallback } from './profile-detail-overflow-menu'
 import { ProfileDetailSurfacesPanel } from './profile-detail-surfaces-panel'
@@ -98,21 +98,18 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
     >
       <ProfileDetailUsageCard app={entry.app} profileId={entry.id} cliEnabled={entry.surfaces.cli} />
 
-      {/* The launch panel and the cost card share a row under the usage
-          card; with no cost to show, the panel takes the whole row. Only
-          the panel's row descriptions wait on per-profile data, so its
-          fallback is the same panel with those slots empty. */}
-      <div className="mb-3 flex items-stretch gap-3">
-        <div className="min-w-0 flex-[2] basis-0">
+      <ProfileDetailLaunchRow
+        app={entry.app}
+        profileId={entry.id}
+        surfaces={
           <Suspense
             key={entry.id}
             fallback={<DefaultSurfaces entry={entry} launch={launch} onError={setActionError} />}
           >
             <ResolvedDefaultSurfaces entry={entry} launch={launch} onError={setActionError} />
           </Suspense>
-        </div>
-        <ProfileDetailApiCost app={entry.app} profileId={entry.id} />
-      </div>
+        }
+      />
 
       {actionError ? (
         <p role="alert" className="mb-4 text-meta text-red">

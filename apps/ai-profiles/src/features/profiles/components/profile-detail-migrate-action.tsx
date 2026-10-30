@@ -1,4 +1,4 @@
-import { headerControlClasses } from './profile-detail-header'
+import { toolbarControlClasses } from './profile-detail-header'
 
 type Props = {
   onMigrate: () => void
@@ -25,7 +25,7 @@ type Props = {
  */
 export function ProfileDetailMigrateAction({ onMigrate }: Props) {
   return (
-    <button type="button" className={headerControlClasses} onClick={onMigrate}>
+    <button type="button" className={toolbarControlClasses} onClick={onMigrate}>
       Import…
     </button>
   )

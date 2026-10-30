@@ -7,7 +7,7 @@ import { Component, createContext, useContext, useEffect, useState } from 'react
 import { ArrowsClockwise, ArrowsLeftRight } from '@phosphor-icons/react'
 import { format } from 'date-fns'
 
-import { PortalTooltip, Skeleton } from '@/design'
+import { cn, PortalTooltip, panelClasses, Skeleton } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
 import { openCliLogin } from '@/lib/commands'
 
@@ -28,7 +28,7 @@ import { refetchIntervalMs, UsageUnavailableError, useProfileUsage } from '../ap
  * card owns it because it renders nothing at all for a profile without a
  * CLI surface, and a caller-supplied gap would then hang in empty space.
  */
-const usagePanelClasses = 'mb-3 rounded-[10px] border border-border bg-cream/70 px-4 py-3 dark:bg-white/[0.02]'
+const usagePanelClasses = cn(panelClasses, 'mb-3 px-4 py-3')
 
 type Props = {
   app: AppId

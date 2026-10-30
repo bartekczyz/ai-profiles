@@ -1,6 +1,9 @@
 import type { RegisterableHotkey } from '@tanstack/hotkeys'
+import type { ShortcutId } from './shortcuts'
 
 import { formatForDisplay } from '@tanstack/hotkeys'
+
+import { shortcuts } from './shortcuts'
 
 /**
  * Format a hotkey for chip display.
@@ -30,4 +33,19 @@ function detectPlatform(): 'mac' | 'windows' | 'linux' {
     return 'windows'
   }
   return 'linux'
+}
+
+/**
+ * A tooltip that names an action and its shortcut, "Edit (⌘E)", for buttons
+ * that state their shortcut in the native help tag rather than as a chip.
+ * `shortcut` is a registered id, so the text follows the real binding, or
+ * keys for one bound locally (a dialog's Esc and Enter).
+ */
+export function shortcutHint(label: string, shortcut: ShortcutId | RegisterableHotkey): string {
+  const keys = isShortcutId(shortcut) ? shortcuts[shortcut].keys : shortcut
+  return `${label} (${formatShortcut(keys)})`
+}
+
+function isShortcutId(value: ShortcutId | RegisterableHotkey): value is ShortcutId {
+  return typeof value === 'string' && value in shortcuts
 }

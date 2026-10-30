@@ -3,7 +3,7 @@ import type { ExistingInstallInfo } from '@/lib/types'
 
 import { DownloadSimple } from '@phosphor-icons/react'
 
-import { ariaKeyshortcutsFor, Button, Kbd, Skeleton } from '@/design'
+import { ariaKeyshortcutsFor, Button, cn, panelClasses, Skeleton } from '@/design'
 import { importableAppsFrom, useMigration } from '@/features/migration/api/use-migration'
 import { useMigrationBackups } from '@/features/migration/api/use-migration-backups'
 import { MigrationBackupsList } from '@/features/migration/components/migration-backups-list'
@@ -54,7 +54,7 @@ export function DataSection({ onReimport }: Props) {
       </div>
 
       {importable.length > 0 ? (
-        <div className="divide-y divide-border-soft overflow-hidden rounded-[10px] border border-border bg-cream/70 dark:bg-white/[0.02]">
+        <div className={cn(panelClasses, 'divide-y divide-border-soft overflow-hidden')}>
           {importable.map((app, index) => {
             const detected = actionDetail(existingByApp[app])
             if (detected === null) {
@@ -119,7 +119,7 @@ function DetectedInstallCard({ app, detected, showShortcut, onReimport }: Detect
       <Button
         size="sm"
         variant="secondary"
-        trailingKbd={showShortcut ? <Kbd shortcutId="open-detect-import" /> : undefined}
+        shortcut={showShortcut ? 'open-detect-import' : undefined}
         aria-keyshortcuts={showShortcut ? ariaKeyshortcutsFor('open-detect-import') : undefined}
         onClick={onReimport}
       >

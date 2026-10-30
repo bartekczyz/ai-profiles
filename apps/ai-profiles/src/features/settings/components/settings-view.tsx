@@ -37,7 +37,7 @@ export function SettingsView({ onClose, onOpenMigration, onOpenAbout }: Props) {
             size="sm"
             variant="secondary"
             className="ml-auto"
-            title="Done (Esc)"
+            shortcut="Escape"
             aria-keyshortcuts="Escape"
             onClick={onClose}
           >

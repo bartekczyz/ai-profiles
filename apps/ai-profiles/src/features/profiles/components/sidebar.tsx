@@ -19,7 +19,7 @@ import {
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { GearSix, Plus } from '@phosphor-icons/react'
 
-import { ariaKeyshortcutsFor, Button, Kbd } from '@/design'
+import { ariaKeyshortcutsFor, Button } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
 
 import { entryId, groupEntriesByApp, shortcutEntries } from '../api/use-sidebar-entries'
@@ -113,7 +113,7 @@ export function Sidebar({ entries, selectedId, searchInputRef, onSelect, onCreat
           size="sm"
           className="flex-1 justify-start px-2 text-ink-soft hover:not-disabled:bg-black/[0.05] dark:hover:not-disabled:bg-white/[0.06]"
           leadingIcon={<Plus className="h-3.5 w-3.5" />}
-          trailingKbd={<Kbd variant="subtle" shortcutId="open-create-profile" />}
+          shortcut="open-create-profile"
           aria-keyshortcuts={ariaKeyshortcutsFor('open-create-profile')}
           onClick={onCreate}
         >
