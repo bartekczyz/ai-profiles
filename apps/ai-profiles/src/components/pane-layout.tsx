@@ -75,7 +75,7 @@ export function PaneLayout({ toolbar, header, children, aside, className }: Prop
         <div className={column}>
           <div className="mb-6">{header}</div>
           {children}
-          {hasAside ? <div className="mt-4 mb-6 flex min-h-80 grow basis-0 flex-col">{aside}</div> : null}
+          {hasAside ? <div className="flex min-h-80 grow basis-0 flex-col">{aside}</div> : null}
         </div>
       </div>
     </main>
