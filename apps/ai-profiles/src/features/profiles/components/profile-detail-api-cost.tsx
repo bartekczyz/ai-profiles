@@ -10,6 +10,8 @@ import { Button, cn, Dialog, panelClasses, Segmented, Skeleton } from '@/design'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/design/ui/tooltip'
 
 import { useProfileApiCost } from '../api/use-profile-api-cost'
+import { useProfileUsageSnapshot } from '../api/use-profile-usage'
+import { type LimitCycle, limitCycles } from '../lib/limit-cycle'
 import { shortenHomePath } from './shorten-home-path'
 
 /**
@@ -23,10 +25,22 @@ const modelColors = ['bg-profile-orange', 'bg-profile-steel', 'bg-profile-sage',
 const shownProjects = 8
 
 /**
- * The periods the estimate can cover, as the picker names them, with the
- * length of each one counted back from today.
+ * A cycle of the profile's longest limit, offered once the usage says when
+ * that resets.
  */
-const periods: ReadonlyArray<{ value: Period; label: string; length?: string }> = [
+type CyclePeriod = 'thisCycle' | 'lastCycle'
+type CostPeriod = Period | CyclePeriod
+
+const cyclePeriods: ReadonlyArray<{ value: CyclePeriod; label: string; length?: string }> = [
+  { value: 'thisCycle', label: 'This cycle' },
+  { value: 'lastCycle', label: 'Last cycle' },
+]
+
+/**
+ * The periods of days the estimate can cover, as the picker names them, with
+ * the length of each one counted back from today.
+ */
+const dayPeriods: ReadonlyArray<{ value: Period; label: string; length?: string }> = [
   { value: 'today', label: 'Today' },
   { value: 'yesterday', label: 'Yesterday' },
   { value: 'last7Days', label: '7 days', length: '7 days' },
@@ -42,20 +56,24 @@ const periodKey = 'ai-profiles-api-cost-period'
 function readPeriod(): Period {
   try {
     const stored = window.localStorage.getItem(periodKey)
-    return periods.find((each) => each.value === stored)?.value ?? defaultPeriod
+    return dayPeriods.find((each) => each.value === stored)?.value ?? defaultPeriod
   } catch {
     return defaultPeriod
   }
 }
 
-function periodOf(period: Period): { label: string; length?: string } {
-  return periods.find((each) => each.value === period) ?? { label: period }
+function isCycle(period: CostPeriod): period is CyclePeriod {
+  return cyclePeriods.some((each) => each.value === period)
+}
+
+function periodOf(period: CostPeriod): { label: string; length?: string } {
+  return [...cyclePeriods, ...dayPeriods].find((each) => each.value === period) ?? { label: period }
 }
 
 /**
  * What the line and the summary call `period`: "Today", "Last 7 days".
  */
-function periodName(period: Period): string {
+function periodName(period: CostPeriod): string {
   const { label, length } = periodOf(period)
   return length ? `Last ${length}` : label
 }
@@ -101,59 +119,139 @@ type Props = {
 }
 
 /**
- * One line under the usage card estimating what the profile's Claude Code or
- * Codex use over the picked period would cost at API prices, which opens the
- * breakdown. Nothing for a profile without transcripts yet. Until the
- * transcripts are read, the line holds its place, so what follows doesn't
- * jump down when it arrives. The period picked in the breakdown is
- * remembered for every profile.
+ * A card estimating what the profile's Claude Code or Codex use would cost at
+ * API prices over the period of days last picked and, once the usage says when
+ * its limit resets, over the cycle running now. It opens the breakdown, where
+ * a past cycle can be looked at too. Nothing for a profile without transcripts
+ * yet. Until the transcripts are read, the card holds its place, so what
+ * follows doesn't jump down when it arrives. The period of days is remembered
+ * for every profile; a cycle picked in the breakdown lasts until the app
+ * closes and leaves the card as it is.
  *
  * It is an estimate of the recorded use, never the bill: the profile may pay
  * by API key, by subscription, or both over time, and nothing on disk says
  * which, so it isn't compared against a plan.
  */
 export function ProfileDetailApiCost({ app, profileId }: Props) {
-  const [period, setPeriod] = useState<Period>(readPeriod)
-  const { data: cost, isError } = useProfileApiCost(profileId, period)
-  function changePeriod(next: Period) {
-    setPeriod(next)
+  const { cycle, cyclePeriod, cycles, days, changePeriod } = useCostPeriods(app, profileId)
+  const { data: daysCost, isError } = useProfileApiCost(profileId, days)
+  const { data: currentCycleCost } = useProfileApiCost(profileId, cycles?.current ?? null)
+  const { data: shownCost } = useProfileApiCost(profileId, cycle ?? days)
+  if (!daysCost) {
+    return <CostPlaceholder isError={isError} />
+  }
+  if (!daysCost.hasUse) {
+    return null
+  }
+  return (
+    <ApiCostRow
+      app={app}
+      cost={shownCost ?? daysCost}
+      currentCycleCost={cycles ? currentCycleCost : null}
+      cycle={cycle}
+      days={days}
+      daysCost={daysCost}
+      hasCycles={cycles !== null}
+      period={cyclePeriod ?? days}
+      onPeriodChange={changePeriod}
+    />
+  )
+}
+
+/**
+ * The period of days remembered for every profile, the cycle picked in the
+ * breakdown, if the usage says when the profile's cycles run, and how to
+ * change them.
+ */
+function useCostPeriods(app: AppId, profileId: string) {
+  const [days, setDays] = useState<Period>(readPeriod)
+  const [pickedCycle, setPickedCycle] = useState<CyclePeriod | null>(null)
+  const { data: usage } = useProfileUsageSnapshot(profileId)
+  const cycles = limitCycles(app, usage?.quota ?? null, new Date())
+  const cyclePeriod = cycles ? pickedCycle : null
+  function changePeriod(next: CostPeriod) {
+    if (isCycle(next)) {
+      setPickedCycle(next)
+      return
+    }
+    setPickedCycle(null)
+    setDays(next)
     try {
       window.localStorage.setItem(periodKey, next)
     } catch {
       // Storage may be unavailable; the pick still holds for this session.
     }
   }
-  if (!cost) {
-    return (
-      <div className={rowClasses}>
-        <span className={rowLabelClasses}>Estimated API cost</span>
-        {isError ? (
-          <span className="text-muted">Couldn't read the transcripts</span>
-        ) : (
-          // The zero-width space gives the row the line height of the text
-          // that replaces the skeleton, so the row keeps its height.
-          <>
-            <Skeleton shape="text" className="w-28" />
-            &#8203;
-          </>
-        )}
-      </div>
-    )
-  }
-  if (!cost.hasUse) {
+  return { cycle: cycleOf(cycles, cyclePeriod), cyclePeriod, cycles, days, changePeriod }
+}
+
+function cycleOf(cycles: ReturnType<typeof limitCycles>, period: CyclePeriod | null): LimitCycle | null {
+  if (!cycles || !period) {
     return null
   }
-  return <ApiCostRow app={app} cost={cost} period={period} onPeriodChange={changePeriod} />
+  return period === 'thisCycle' ? cycles.current : cycles.previous
+}
+
+function CostPlaceholder({ isError }: { isError: boolean }) {
+  return (
+    <div className={rowClasses}>
+      <span className={rowLabelClasses}>Estimated API cost</span>
+      {isError ? (
+        <span className="text-muted">Couldn't read the transcripts</span>
+      ) : (
+        // The zero-width space gives the row the line height of the text
+        // that replaces the skeleton, so the row keeps its height.
+        <>
+          <Skeleton shape="text" className="w-28" />
+          &#8203;
+        </>
+      )}
+    </div>
+  )
 }
 
 type RowProps = {
   app: AppId
+  /**
+   * The estimate of the period picked in the breakdown.
+   */
   cost: ApiCost
-  period: Period
-  onPeriodChange: (period: Period) => void
+  /**
+   * The estimate of the cycle running now: null without one, undefined until
+   * it is read.
+   */
+  currentCycleCost: ApiCost | null | undefined
+  /**
+   * The limit cycle `period` stands for, if it is one.
+   */
+  cycle: LimitCycle | null
+  /**
+   * The period of days the card shows, whatever the breakdown shows.
+   */
+  days: Period
+  /**
+   * The estimate of `days`.
+   */
+  daysCost: ApiCost
+  /**
+   * Whether the picker offers the cycles.
+   */
+  hasCycles: boolean
+  period: CostPeriod
+  onPeriodChange: (period: CostPeriod) => void
 }
 
-function ApiCostRow({ app, cost, period, onPeriodChange }: RowProps) {
+function ApiCostRow({
+  app,
+  cost,
+  currentCycleCost,
+  cycle,
+  days,
+  daysCost,
+  hasCycles,
+  period,
+  onPeriodChange,
+}: RowProps) {
   const [open, setOpen] = useState(false)
   const source = sources[app]
 
@@ -166,18 +264,11 @@ function ApiCostRow({ app, cost, period, onPeriodChange }: RowProps) {
       >
         <span className="flex w-full items-center gap-2">
           <span className={rowLabelClasses}>Estimated API cost</span>
-          <span className="text-muted">{periodName(period)}</span>
           <CaretRight aria-hidden size={14} className="ml-auto shrink-0 text-muted-strong" />
         </span>
-        <span className="flex items-baseline gap-2">
-          {cost.coverage === 'unpriced' ? (
-            <span className="text-[22px] font-semibold tracking-[-0.015em] text-amber">Unpriced</span>
-          ) : (
-            <span className="text-[22px] font-semibold tracking-[-0.015em] text-ink tabular-nums">
-              {formatUsd(cost.totalUsd)}
-            </span>
-          )}
-          {cost.coverage === 'partial' ? <span className="text-meta text-amber">partial</span> : null}
+        <span className="grid auto-cols-fr grid-flow-col divide-x divide-border-soft">
+          <CostFigure cost={daysCost} label={periodName(days)} />
+          {currentCycleCost === null ? null : <CostFigure cost={currentCycleCost} label={periodName('thisCycle')} />}
         </span>
       </button>
       <Dialog
@@ -194,15 +285,25 @@ function ApiCostRow({ app, cost, period, onPeriodChange }: RowProps) {
           </Button>
         }
       >
-        <Segmented
-          size="small"
-          ariaLabel="Period"
-          options={periods}
-          value={period}
-          onChange={onPeriodChange}
-          className="mb-4"
-        />
-        <Summary cost={cost} period={period} kept={source.kept} />
+        <div className="mb-4 flex flex-wrap gap-2">
+          {hasCycles ? (
+            <Segmented<CostPeriod>
+              size="small"
+              ariaLabel="Limit cycle"
+              options={cyclePeriods}
+              value={period}
+              onChange={onPeriodChange}
+            />
+          ) : null}
+          <Segmented<CostPeriod>
+            size="small"
+            ariaLabel="Days"
+            options={dayPeriods}
+            value={period}
+            onChange={onPeriodChange}
+          />
+        </div>
+        <Summary cost={cost} cycle={cycle} period={period} kept={source.kept} />
         {cost.unpriced.length > 0 ? (
           <p className="m-0 mb-5 text-meta text-amber">{unpricedNote(cost.unpriced)}</p>
         ) : null}
@@ -222,10 +323,41 @@ function ApiCostRow({ app, cost, period, onPeriodChange }: RowProps) {
 }
 
 /**
+ * A figure of the card under what it covers, with a dash until it is read.
+ * The figures share the card in equal columns, a hairline apart.
+ */
+function CostFigure({ cost, label }: { cost: ApiCost | undefined; label: string }) {
+  const unpriced = cost?.coverage === 'unpriced'
+  return (
+    <span className="flex min-w-0 flex-col gap-0.5 px-4 first:pl-0 last:pr-0">
+      <span className="truncate text-muted">
+        {label}
+        {cost?.coverage === 'partial' ? <span className="text-amber"> · partial</span> : null}
+      </span>
+      <span
+        className={`text-[20px] leading-tight font-semibold tracking-[-0.015em] tabular-nums ${unpriced ? 'text-amber' : 'text-ink'}`}
+      >
+        {unpriced ? 'Unpriced' : cost ? formatUsd(cost.totalUsd) : '—'}
+      </span>
+    </span>
+  )
+}
+
+/**
  * The total and the days it covers, with how long the tool keeps transcripts,
  * `kept`, when they don't reach back to the start of a period over 30 days.
  */
-function Summary({ cost, period, kept }: { cost: ApiCost; period: Period; kept?: string }) {
+function Summary({
+  cost,
+  cycle,
+  period,
+  kept,
+}: {
+  cost: ApiCost
+  cycle: LimitCycle | null
+  period: CostPeriod
+  kept?: string
+}) {
   return (
     <section className="mb-4">
       {cost.coverage === 'unpriced' ? (
@@ -241,6 +373,7 @@ function Summary({ cost, period, kept }: { cost: ApiCost; period: Period; kept?:
         </p>
       )}
       <p className="m-0 text-meta text-muted">{summaryText(cost, period)}</p>
+      {cycle ? <p className="m-0 mt-1 text-meta text-muted">{cycleText(cycle, new Date())}</p> : null}
       {kept && cost.days.length > 30 && cost.coveredDays < cost.days.length ? (
         <p className="m-0 mt-1 text-meta text-muted">{kept}</p>
       ) : null}
@@ -282,6 +415,7 @@ function CostChart({ cost }: { cost: ApiCost }) {
   const bars = barsOf(covered, daysPerBar, cost.byModel)
   const highest = Math.max(0, ...bars.map((bar) => bar.totalUsd))
   const first = bars[0]
+  const lastDay = cost.days[cost.days.length - 1].date
   return (
     <section className="mb-5">
       <div className="flex items-baseline justify-between">
@@ -293,7 +427,7 @@ function CostChart({ cost }: { cost: ApiCost }) {
       <TooltipProvider>
         <div
           role="img"
-          aria-label={`Cost per ${unit} over the last ${dayCount(cost.coveredDays)}`}
+          aria-label={`Cost per ${unit} over ${dayCount(cost.coveredDays)}`}
           className="flex h-28 items-end gap-[3px] border-b border-border-soft"
         >
           {bars.map((bar) => (
@@ -327,7 +461,7 @@ function CostChart({ cost }: { cost: ApiCost }) {
       </TooltipProvider>
       <div className="mt-1 flex justify-between font-mono text-mono text-muted-strong">
         <span>{first ? formatDay(first.from) : null}</span>
-        <span>Today</span>
+        <span>{lastDay === format(new Date(), 'yyyy-MM-dd') ? 'Today' : formatDay(lastDay)}</span>
       </div>
       <ModelLegend byModel={cost.byModel} className="mt-2.5" />
     </section>
@@ -497,7 +631,7 @@ function Footnote({ cost, app }: { cost: ApiCost; app: AppId }) {
  */
 export function summaryText(
   cost: Pick<ApiCost, 'totalUsd' | 'days' | 'coveredDays' | 'projectedUsd' | 'coverage'>,
-  period: Period,
+  period: CostPeriod,
 ): string {
   const { label, length } = periodOf(period)
   if (cost.coveredDays === 0) {
@@ -515,9 +649,21 @@ export function summaryText(
   if (cost.totalUsd === 0) {
     return `No use ${over}.`
   }
-  const pace = cost.projectedUsd === null ? '' : ` On pace for ${formatUsd(cost.projectedUsd)} over ${length}.`
+  const pace =
+    cost.projectedUsd === null || !length ? '' : ` On pace for ${formatUsd(cost.projectedUsd)} over ${length}.`
   const partial = cost.coverage === 'partial' ? ' Partial: use without a price is left out.' : ''
   return `${over.charAt(0).toUpperCase()}${over.slice(1)}.${pace}${partial}`
+}
+
+/**
+ * When a limit cycle ran, to the minute: it resets mid-day, so its first and
+ * last bars hold only the part of the day inside it.
+ */
+export function cycleText(cycle: LimitCycle, now: Date): string {
+  const moment = (date: Date) => format(date, 'MMM d, HH:mm')
+  return cycle.to > now
+    ? `Since ${moment(cycle.from)}. Resets ${moment(cycle.to)}.`
+    : `${moment(cycle.from)} – ${moment(cycle.to)}.`
 }
 
 function dayCount(days: number): string {

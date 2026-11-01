@@ -137,6 +137,7 @@ pub fn run() {
             commands::get_app_metadata,
             commands::get_profile_usage,
             commands::get_profile_api_cost,
+            commands::get_profile_api_cost_between,
             commands::open_external_url,
             commands::open_cli_login,
             commands::list_sessions,

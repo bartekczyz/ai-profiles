@@ -20,11 +20,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::ops::RangeInclusive;
+use std::ops::{Range, RangeInclusive};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
-use chrono::{DateTime, Days, Local, Months, NaiveDate, Utc};
+use chrono::{DateTime, Days, Local, Months, NaiveDate, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::prices::{Catalog, Tier, Tokens};
@@ -69,6 +69,46 @@ impl Period {
             Period::Last90Days => back(90),
             Period::Last6Months => months(6),
             Period::Year => months(12),
+        }
+    }
+}
+
+/// What an estimate counts: the days it reports and, for a limit cycle, which
+/// resets mid-day, the instants a request must fall between to count.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Span {
+    days: RangeInclusive<NaiveDate>,
+    instants: Option<Range<DateTime<Utc>>>,
+}
+
+impl Span {
+    /// From `from` up to `to`, which is excluded, cut off at `now` as a cycle
+    /// still running has no use to report past it. A cycle ending exactly at
+    /// midnight doesn't reach into the day after.
+    pub fn between(from: DateTime<Utc>, to: DateTime<Utc>, now: DateTime<Utc>) -> Self {
+        let to = to.min(now);
+        let from = from.min(to);
+        let last = (to - TimeDelta::seconds(1)).max(from);
+        Span {
+            days: local_day(from)..=local_day(last),
+            instants: Some(from..to),
+        }
+    }
+
+    fn contains(&self, at: DateTime<Utc>) -> bool {
+        self.days.contains(&local_day(at))
+            && self
+                .instants
+                .as_ref()
+                .is_none_or(|instants| instants.contains(&at))
+    }
+}
+
+impl From<RangeInclusive<NaiveDate>> for Span {
+    fn from(days: RangeInclusive<NaiveDate>) -> Self {
+        Span {
+            days,
+            instants: None,
         }
     }
 }
@@ -366,7 +406,7 @@ static USAGE_CACHE: LazyLock<LineCache<UsageScan, UsageScan>> = LazyLock::new(Li
 /// The estimated API cost of the Claude Code use recorded in `config_dir` over
 /// `period`, at `prices`. Walks every transcript, so it belongs on a blocking
 /// thread.
-pub fn read(config_dir: &Path, prices: &Catalog, period: RangeInclusive<NaiveDate>) -> ApiCost {
+pub fn read(config_dir: &Path, prices: &Catalog, period: Span) -> ApiCost {
     USAGE_CACHE.forget_gone();
     let projects = config_dir.join("projects");
     let mut paths = Vec::new();
@@ -467,12 +507,8 @@ fn label_of(model: &str) -> String {
 
 /// The estimated API cost at `prices` of the requests in `turns`, each with
 /// the folder its session started in, over `period`.
-fn tally(
-    turns: Vec<(&Turn, Option<&str>)>,
-    prices: &Catalog,
-    period: RangeInclusive<NaiveDate>,
-) -> ApiCost {
-    let (start, end) = (*period.start(), *period.end());
+fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, period: Span) -> ApiCost {
+    let (start, end) = (*period.days.start(), *period.days.end());
     let mut oldest: Option<NaiveDate> = None;
     let mut by_kind = KindCosts::default();
     let mut by_day: HashMap<NaiveDate, HashMap<String, f64>> = HashMap::new();
@@ -484,7 +520,7 @@ fn tally(
     for (turn, project) in turns {
         let day = local_day(turn.at);
         oldest = Some(oldest.map_or(day, |oldest| oldest.min(day)));
-        if !period.contains(&day) {
+        if !period.contains(turn.at) {
             continue;
         }
         let costs = match prices.model(&turn.model) {
@@ -696,7 +732,7 @@ mod tests {
     }
 
     fn cost_of(config: &Path) -> ApiCost {
-        read(config, &prices(), Period::Last30Days.days(today()))
+        read(config, &prices(), Period::Last30Days.days(today()).into())
     }
 
     fn assert_usd(actual: f64, expected: f64) {
@@ -936,7 +972,11 @@ mod tests {
         // 29 days on, the first response has left the window, which the
         // second still covers in full.
         let later = today() + Days::new(29);
-        let cost = read(config.path(), &prices(), Period::Last30Days.days(later));
+        let cost = read(
+            config.path(),
+            &prices(),
+            Period::Last30Days.days(later).into(),
+        );
         assert_usd(cost.total_usd, 2.0);
         assert_eq!(cost.covered_days, 30);
         assert_eq!(cost.projected_usd, None);
@@ -965,7 +1005,7 @@ mod tests {
                 response(NOW, "msg_3", "claude-opus-5-5", usage),
             ],
         );
-        let cost = |period: Period| read(config.path(), &prices(), period.days(today()));
+        let cost = |period: Period| read(config.path(), &prices(), period.days(today()).into());
 
         let yesterday = cost(Period::Yesterday);
         assert_usd(yesterday.total_usd, 2.0);
@@ -995,10 +1035,33 @@ mod tests {
         let before = read(
             since_today.path(),
             &prices(),
-            Period::Yesterday.days(today()),
+            Period::Yesterday.days(today()).into(),
         );
         assert_eq!(before.covered_days, 0);
         assert!(before.has_use);
+    }
+
+    #[test]
+    fn a_span_counts_only_the_instants_of_its_cycle_not_the_rest_of_its_days() {
+        let at = |text: &str| text.parse::<DateTime<Utc>>().unwrap();
+        let span = Span::between(
+            at("2026-10-08T14:00:00Z"),
+            at("2026-10-15T14:00:00Z"),
+            at("2026-10-20T00:00:00Z"),
+        );
+        assert!(!span.contains(at("2026-10-08T13:59:59Z")));
+        assert!(span.contains(at("2026-10-08T14:00:00Z")));
+        assert!(span.contains(at("2026-10-15T13:59:59Z")));
+        assert!(!span.contains(at("2026-10-15T14:00:00Z")));
+    }
+
+    #[test]
+    fn a_running_cycle_stops_at_now() {
+        let at = |text: &str| text.parse::<DateTime<Utc>>().unwrap();
+        let now = at("2026-10-10T12:00:00Z");
+        let span = Span::between(at("2026-10-08T14:00:00Z"), at("2026-10-15T14:00:00Z"), now);
+        assert_eq!(*span.days.end(), local_day(now - TimeDelta::seconds(1)));
+        assert!(!span.contains(now));
     }
 
     #[test]
@@ -1037,7 +1100,7 @@ mod tests {
         let later = read(
             config.path(),
             &prices(),
-            Period::Last30Days.days(today() + Days::new(1)),
+            Period::Last30Days.days(today() + Days::new(1)).into(),
         );
         assert_eq!(later.covered_days, 7);
         assert!(later.projected_usd.is_some());

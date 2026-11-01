@@ -1,15 +1,18 @@
 import type { ApiCost } from '@/lib/types'
 
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { addDays, format, parseISO } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getProfileApiCost } from '@/lib/commands'
+import { getProfileApiCost, getProfileApiCostBetween } from '@/lib/commands'
+import { queryKeys } from '@/lib/query/keys'
 import { renderWithQuery } from '@/test/render-with-query'
 
 import {
   barsOf,
+  cycleText,
   formatShare,
   formatUsd,
   kindRows,
@@ -20,6 +23,7 @@ import {
 
 vi.mock('@/lib/commands', () => ({
   getProfileApiCost: vi.fn(),
+  getProfileApiCostBetween: vi.fn(),
 }))
 
 function makeCost(overrides: Partial<ApiCost> = {}): ApiCost {
@@ -217,11 +221,95 @@ describe('ProfileDetailApiCost', () => {
   })
 })
 
+describe('limit cycles', () => {
+  function clientWithUsage() {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+    })
+    const resetsAt = addDays(new Date(), 3).toISOString()
+    client.setQueryData(queryKeys.profileUsage('p1'), {
+      quota: { primary: null, secondary: { utilization: 10, resetsAt }, scopedWeekly: [] },
+    })
+    return client
+  }
+
+  it('reads the cost between the resets of the picked cycle', async () => {
+    vi.mocked(getProfileApiCost).mockResolvedValue(makeCost())
+    vi.mocked(getProfileApiCostBetween).mockResolvedValue(makeCost({ totalUsd: 42 }))
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />, { client: clientWithUsage() })
+    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+
+    fireEvent.click(await screen.findByRole('radio', { name: 'Last cycle' }))
+
+    await waitFor(() => expect(getProfileApiCostBetween).toHaveBeenCalled())
+    const [, from, to] = vi.mocked(getProfileApiCostBetween).mock.lastCall ?? []
+    expect(new Date(to as string).getTime() - new Date(from as string).getTime()).toBe(7 * 24 * 60 * 60 * 1000)
+    expect(new Date(to as string).getTime()).toBeLessThan(Date.now())
+  })
+
+  it("shows the card's period of days and the running cycle, whatever the breakdown shows", async () => {
+    window.localStorage.removeItem('ai-profiles-api-cost-period')
+    vi.mocked(getProfileApiCost).mockResolvedValue(makeCost({ totalUsd: 30 }))
+    vi.mocked(getProfileApiCostBetween).mockImplementation(async (_, __, to) =>
+      makeCost({ totalUsd: new Date(to) > new Date() ? 7 : 5 }),
+    )
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />, { client: clientWithUsage() })
+    const row = await screen.findByRole('button', { name: /Estimated API cost/ })
+    await waitFor(() => expect(row.textContent).toContain('$7'))
+    expect(row.textContent).toContain('$30')
+    expect(row.textContent).toContain('Last 30 days')
+    expect(row.textContent).toContain('This cycle')
+
+    fireEvent.click(row)
+    fireEvent.click(await screen.findByRole('radio', { name: 'Last cycle' }))
+
+    await screen.findByText('$5')
+    expect(row.textContent).toContain('$7')
+    expect(row.textContent).toContain('$30')
+    expect(row.textContent).not.toContain('Last cycle')
+  })
+
+  it('splits the cycles from the days, with one period picked across both', async () => {
+    vi.mocked(getProfileApiCost).mockResolvedValue(makeCost())
+    vi.mocked(getProfileApiCostBetween).mockResolvedValue(makeCost())
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />, { client: clientWithUsage() })
+    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+
+    const cycles = await screen.findByRole('radiogroup', { name: 'Limit cycle' })
+    const days = screen.getByRole('radiogroup', { name: 'Days' })
+    expect(within(cycles).getAllByRole('radio')).toHaveLength(2)
+    expect(within(days).getAllByRole('radio')).toHaveLength(7)
+
+    fireEvent.click(within(cycles).getByRole('radio', { name: 'This cycle' }))
+    expect(within(days).queryByRole('radio', { checked: true })).toBeNull()
+
+    fireEvent.click(within(days).getByRole('radio', { name: '7 days' }))
+    expect(within(cycles).queryByRole('radio', { checked: true })).toBeNull()
+  })
+
+  it('offers no cycles when the usage is unknown', async () => {
+    vi.mocked(getProfileApiCost).mockResolvedValue(makeCost())
+    renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
+    const row = await screen.findByRole('button', { name: /Estimated API cost/ })
+    expect(row.textContent).not.toContain('This cycle')
+    fireEvent.click(row)
+
+    await screen.findByRole('radio', { name: '7 days' })
+    expect(screen.queryByRole('radio', { name: 'This cycle' })).toBeNull()
+  })
+
+  it('says when a running cycle resets, and when a finished one ran', () => {
+    const cycle = { from: new Date(2026, 9, 28, 2), to: new Date(2026, 10, 4, 2) }
+    expect(cycleText(cycle, new Date(2026, 10, 1))).toBe('Since Oct 28, 02:00. Resets Nov 4, 02:00.')
+    expect(cycleText(cycle, new Date(2026, 10, 5))).toBe('Oct 28, 02:00 – Nov 4, 02:00.')
+  })
+})
+
 it('charts only the days the transcripts cover', async () => {
   vi.mocked(getProfileApiCost).mockResolvedValue(makeCost({ coveredDays: 1 }))
   renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
   fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
-  expect(await screen.findByRole('img', { name: 'Cost per day over the last 1 day' })).toBeTruthy()
+  expect(await screen.findByRole('img', { name: 'Cost per day over 1 day' })).toBeTruthy()
 })
 
 it('shows the day and what each model cost then when pointing at its bar', async () => {

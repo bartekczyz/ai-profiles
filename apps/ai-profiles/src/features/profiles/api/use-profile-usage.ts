@@ -66,3 +66,15 @@ export function useProfileUsage(profileId: string) {
     retry: false,
   })
 }
+
+/**
+ * The usage the usage card last fetched, for what follows from it. Never
+ * fetches itself: the quota endpoints see no more calls than the card makes.
+ */
+export function useProfileUsageSnapshot(profileId: string) {
+  return useQuery({
+    queryKey: queryKeys.profileUsage(profileId),
+    queryFn: async () => ensureUsable(narrowProfileUsage(await getProfileUsage(profileId))),
+    enabled: false,
+  })
+}
