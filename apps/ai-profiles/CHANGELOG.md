@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/bartekczyz/ai-profiles/compare/v1.6.0...v1.7.0) (2026-11-01)
+
+
+### Added
+
+* **profiles:** show estimated API cost per limit cycle ([#85](https://github.com/bartekczyz/ai-profiles/issues/85)) ([cbe6f60](https://github.com/bartekczyz/ai-profiles/commit/cbe6f60a39a856b2f2fd50f7e26c11b161b6c07d))
+
 ## [1.6.0](https://github.com/bartekczyz/ai-profiles/compare/v1.5.0...v1.6.0) (2026-11-01)
 
 
