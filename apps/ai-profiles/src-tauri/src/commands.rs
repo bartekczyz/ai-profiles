@@ -24,7 +24,8 @@ use crate::usage::{
     api_cost::{self, ApiCost, Period},
     codex::CodexQuotaProvider,
     prices,
-    quota::{ClaudeQuotaCache, ClaudeQuotaProvider},
+    quota::{ClaudeQuotaCache, ClaudeQuotaProvider, ReqwestUsageClient},
+    token_account::TokenAccountCache,
     ProfileUsage,
 };
 
@@ -554,6 +555,8 @@ static CLAUDE_QUOTA_CACHE: OnceLock<ClaudeQuotaCache> = OnceLock::new();
 static CLAUDE_DEAD_CREDS: OnceLock<usage::dead_credentials::DeadCredentialRegistry> =
     OnceLock::new();
 
+static CLAUDE_TOKEN_ACCOUNTS: OnceLock<TokenAccountCache> = OnceLock::new();
+
 #[tauri::command]
 pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
     let app = resolve_app(&profile_id)?;
@@ -563,6 +566,7 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
         return Ok(ProfileUsage {
             quota: None,
             quota_error: None,
+            stored_account_email: None,
             fetched_at: chrono::Utc::now().to_rfc3339(),
         });
     }
@@ -572,11 +576,18 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
             let cache = CLAUDE_QUOTA_CACHE.get_or_init(ClaudeQuotaCache::new);
             let dead_credentials =
                 CLAUDE_DEAD_CREDS.get_or_init(usage::dead_credentials::DeadCredentialRegistry::new);
-            let provider = ClaudeQuotaProvider::new(user_agent, cache, dead_credentials)
-                .map_err(|_| AppError::Io(std::io::Error::other("could not build HTTP client")))?;
+            let http_error = |_| AppError::Io(std::io::Error::other("could not build HTTP client"));
+            let provider = ClaudeQuotaProvider::new(user_agent.clone(), cache, dead_credentials)
+                .map_err(http_error)?;
             let refresher = CLAUDE_REFRESHER.get_or_init(usage::refresh::ClaudeCliRefresher::new);
-            Ok(
+            let usage =
                 usage::build_with_cli_refresh(&config_dir, &provider, refresher, dead_credentials)
+                    .await;
+            let sign_in = accounts::claude_sign_in(&profile_id, &config_dir).unwrap_or_default();
+            let client = ReqwestUsageClient::new(user_agent).map_err(http_error)?;
+            let token_accounts = CLAUDE_TOKEN_ACCOUNTS.get_or_init(TokenAccountCache::new);
+            Ok(
+                usage::token_account::guard(usage, &config_dir, &sign_in, &client, token_accounts)
                     .await,
             )
         }

@@ -5,6 +5,7 @@ pub(crate) mod dead_credentials;
 pub(crate) mod prices;
 pub(crate) mod quota;
 pub(crate) mod refresh;
+pub(crate) mod token_account;
 
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +14,10 @@ use serde::{Deserialize, Serialize};
 pub struct ProfileUsage {
     pub quota: Option<QuotaUsage>,
     pub quota_error: Option<QuotaError>,
+    /// With `QuotaError::AccountMismatch`, the email of the account the stored
+    /// login belongs to, when the profile endpoint named one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stored_account_email: Option<String>,
     pub fetched_at: String,
 }
 
@@ -96,6 +101,12 @@ pub enum QuotaError {
     /// must sign in to this profile again. Distinct from the transient
     /// `Unauthorized`, which a CLI refresh can fix.
     NeedsLogin,
+    /// The stored login belongs to an account this entry isn't signed in
+    /// under, so its quota isn't this entry's to show.
+    AccountMismatch,
+    /// No stored login, but the entry's desktop app is signed in. That app
+    /// keeps its token to itself, so there's nothing to read usage with.
+    DesktopOnly,
     RateLimited,
     Network,
     Unknown,
@@ -153,6 +164,7 @@ pub async fn build(config_dir: &Path, provider: &dyn QuotaProvider) -> ProfileUs
     ProfileUsage {
         quota,
         quota_error,
+        stored_account_email: None,
         fetched_at: Utc::now().to_rfc3339(),
     }
 }
@@ -192,6 +204,7 @@ pub async fn build_with_cli_refresh(
         return ProfileUsage {
             quota: None,
             quota_error: Some(QuotaError::NeedsLogin),
+            stored_account_email: None,
             fetched_at: Utc::now().to_rfc3339(),
         };
     }
