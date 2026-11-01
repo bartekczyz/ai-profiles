@@ -1,6 +1,6 @@
 import type { ActionCheck, Session, SessionAction } from '@/lib/types'
 
-import { Button, Dialog, Kbd, useToast } from '@/design'
+import { Button, Dialog, useToast } from '@/design'
 import { shortenHomePath } from '@/features/profiles/components/shorten-home-path'
 
 import { useSessionAction, useSessionActionCheck } from '../api/use-session-actions'
@@ -130,7 +130,7 @@ export function ConfirmSessionActionDialog({ profileId, session, action, onClose
       onSubmit={handleConfirm}
       foot={
         <>
-          <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} onClick={onClose}>
+          <Button variant="ghost" size="sm" shortcut="Escape" onClick={onClose}>
             Cancel
           </Button>
           <PrimaryAction disabled={!canConfirm} label={primaryLabel} blocker={blocker} onConfirm={handleConfirm} />
@@ -180,7 +180,7 @@ export function PrimaryAction({ disabled, label, blocker, onConfirm }: PrimaryPr
     return <p className="max-w-[60%] text-right text-meta text-muted-strong">{blocker}</p>
   }
   return (
-    <Button disabled={disabled} variant="primary" size="sm" trailingKbd={<Kbd>↵</Kbd>} onClick={onConfirm}>
+    <Button disabled={disabled} variant="primary" size="sm" shortcut="Enter" onClick={onConfirm}>
       {label}
     </Button>
   )

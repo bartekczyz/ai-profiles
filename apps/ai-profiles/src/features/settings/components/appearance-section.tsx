@@ -1,6 +1,6 @@
 import type { SegmentedOption, ThemeMode } from '@/design'
 
-import { Monitor, Moon, Sun } from 'lucide-react'
+import { Monitor, Moon, Sun } from '@phosphor-icons/react'
 
 import { Segmented, useTheme } from '@/design'
 import { useAppState } from '@/lib/app-state/use-app-state'
@@ -10,19 +10,19 @@ const themeOptions: ReadonlyArray<SegmentedOption<ThemeMode>> = [
     value: 'light',
     label: 'Light',
     ariaLabel: 'Light theme',
-    icon: <Sun className="h-[13px] w-[13px]" strokeWidth={1.75} />,
+    icon: <Sun className="h-[13px] w-[13px]" />,
   },
   {
     value: 'system',
     label: 'System',
     ariaLabel: 'System theme',
-    icon: <Monitor className="h-[13px] w-[13px]" strokeWidth={1.75} />,
+    icon: <Monitor className="h-[13px] w-[13px]" />,
   },
   {
     value: 'dark',
     label: 'Dark',
     ariaLabel: 'Dark theme',
-    icon: <Moon className="h-[13px] w-[13px]" strokeWidth={1.75} />,
+    icon: <Moon className="h-[13px] w-[13px]" />,
   },
 ]
 
@@ -51,9 +51,7 @@ export function AppearanceSection() {
   return (
     <section className="mb-8">
       <div className="mb-2.5 flex items-center justify-between">
-        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-muted-strong">
-          Appearance
-        </span>
+        <span className="text-[12.5px] font-medium text-ink-soft">Appearance</span>
       </div>
       <Segmented<ThemeMode> ariaLabel="Theme" options={themeOptions} value={theme.mode} onChange={handleChange} />
     </section>

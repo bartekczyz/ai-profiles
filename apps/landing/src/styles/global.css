@@ -2,7 +2,7 @@
 @import "@ai-profiles/design-tokens/tokens.css";
 
 @import "@fontsource-variable/geist/index.css";
-@import "@fontsource-variable/geist-mono/index.css";
+@import "@ai-profiles/design-tokens/fonts.css";
 
 @utility shadow-button-primary {
   box-shadow: var(--shadow-button-primary);

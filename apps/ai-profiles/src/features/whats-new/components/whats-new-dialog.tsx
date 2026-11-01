@@ -1,6 +1,6 @@
 import type { ChangelogRelease, ChangelogSection } from '../lib/changelog'
 
-import { Button, Dialog, Kbd } from '@/design'
+import { Button, Dialog } from '@/design'
 
 type WhatsNewDialogProps = {
   /**
@@ -29,7 +29,7 @@ export function WhatsNewDialog({ open, releases, onClose }: WhatsNewDialogProps)
       title="What's new"
       onClose={onClose}
       foot={
-        <Button variant="primary" size="sm" trailingKbd={<Kbd variant="onOrange">⎋</Kbd>} onClick={onClose}>
+        <Button variant="primary" size="sm" shortcut="Escape" onClick={onClose}>
           Close
         </Button>
       }

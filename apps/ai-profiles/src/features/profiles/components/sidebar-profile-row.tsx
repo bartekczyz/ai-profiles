@@ -32,7 +32,7 @@ type Props = {
  * transition.
  */
 const rowClassName =
-  'group/row grid w-full transform-gpu grid-cols-[13px_10px_1fr_auto_auto] items-center gap-1.5 rounded-md py-[7px] pr-1.5 pl-2 text-left cursor-pointer transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-white/45 dark:hover:bg-white/[0.04] data-[active=true]:bg-white/72 data-[active=true]:shadow-[0_1px_2px_rgba(40,30,20,0.04),inset_0_0_0_1px_rgba(229,224,210,0.55)] dark:data-[active=true]:bg-white/[0.08] dark:data-[active=true]:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_0_0_1px_rgba(255,255,255,0.05)]'
+  'group/row grid w-full transform-gpu grid-cols-[14px_10px_1fr_auto_auto] items-center gap-2 rounded-md py-[7px] pr-2 pl-2 text-left transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-black/[0.045] dark:hover:bg-white/[0.05] data-[active=true]:bg-black/[0.08] dark:data-[active=true]:bg-white/[0.1]'
 
 export function SidebarProfileRow({ name, swatch, surfaces, selected, glyph, shortcutIndex, onSelect }: Props) {
   const hasShortcut = shortcutIndex !== undefined && shortcutIndex < 9
@@ -52,7 +52,7 @@ export function SidebarProfileRow({ name, swatch, surfaces, selected, glyph, sho
         {glyph}
       </span>
       {swatch}
-      <span className="truncate text-[12.5px] font-medium tracking-[-0.005em] text-ink">{name}</span>
+      <span className="truncate text-[13px] font-medium tracking-[-0.005em] text-ink">{name}</span>
       <SidebarSurfaceIcons surfaces={surfaces} />
       {hasShortcut ? (
         // Bare label rather than a Kbd chip: at 200px the sidebar cannot spare

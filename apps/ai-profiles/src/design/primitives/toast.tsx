@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 
-import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react'
+import { CheckCircle, Info, WarningCircle, X } from '@phosphor-icons/react'
 import { Toast as ToastPrimitive } from 'radix-ui'
 
 import { cn } from '@/design/lib/cn'
@@ -43,9 +43,9 @@ const ToastContext = createContext<ToastContextValue | null>(null)
 const DEFAULT_DURATION_MS = 5000
 
 const toneIcons: Record<ToastTone, ReactNode> = {
-  success: <CheckCircle2 className="h-4 w-4 text-green" strokeWidth={2} />,
-  error: <AlertCircle className="h-4 w-4 text-red" strokeWidth={2} />,
-  info: <Info className="h-4 w-4 text-orange" strokeWidth={2} />,
+  success: <CheckCircle className="h-4 w-4 text-green" />,
+  error: <WarningCircle className="h-4 w-4 text-red" />,
+  info: <Info className="h-4 w-4 text-orange" />,
 }
 
 /**
@@ -160,9 +160,9 @@ function ToastItemRoot({ toast, onDismiss }: ToastItemRootProps) {
       </div>
       <ToastPrimitive.Close
         aria-label="Dismiss"
-        className="grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-md text-muted-strong outline-none transition-colors hover:bg-cream-2 hover:text-ink dark:hover:bg-white/[0.06]"
+        className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted-strong outline-none transition-colors hover:bg-cream-2 hover:text-ink dark:hover:bg-white/[0.06]"
       >
-        <X className="h-3.5 w-3.5" strokeWidth={1.85} />
+        <X className="h-3.5 w-3.5" />
       </ToastPrimitive.Close>
     </ToastPrimitive.Root>
   )

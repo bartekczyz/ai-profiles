@@ -510,8 +510,15 @@ describe('CreateProfileDialog — explaining the Dock icon', () => {
 })
 
 describe('CreateProfileDialog — leaving it', () => {
-  it('is not closed by a press on the page behind it, which would lose what was filled in', async () => {
+  it('closes on a press on the page behind it while nothing has been typed', async () => {
     const { onClose } = setup()
+    await pressOutside()
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('is not closed by a press on the page behind it once a name is typed, which would lose it', async () => {
+    const { onClose, user } = setup()
+    await user.type(screen.getByLabelText('Name'), 'Personal')
     await pressOutside()
     expect(onClose).not.toHaveBeenCalled()
   })
@@ -541,8 +548,14 @@ describe('CreateProfileDialog — launcher icon', () => {
   it('previews the generated icon of the app and color chosen, under the Dock icon option', async () => {
     setup()
     await previewShows('data:image/png;base64,Z2Vu')
-    expect(generatedIconPreview).toHaveBeenLastCalledWith('claude', '#d97757')
+    expect(generatedIconPreview).toHaveBeenCalledWith('claude', '#d97757')
     expect(screen.queryByRole('button', { name: 'Reset to default' })).toBeNull()
+  })
+
+  it('renders the chosen color before prefetching the other presets', async () => {
+    setup()
+    await previewShows('data:image/png;base64,Z2Vu')
+    expect(vi.mocked(generatedIconPreview).mock.calls[0]).toEqual(['claude', '#d97757'])
   })
 
   it('creates the profile with a picked image, checked when it was picked', async () => {

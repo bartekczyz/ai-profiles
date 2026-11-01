@@ -2,8 +2,8 @@ import type { ReactNode } from 'react'
 import type { AppId } from '@/lib/app-registry'
 import type { DefaultEntry, Profile, SidebarEntry } from '@/lib/types'
 
+import { ArrowElbowDownLeft, DownloadSimple, Gear, MagnifyingGlass, Plus, TerminalWindow } from '@phosphor-icons/react'
 import { Command } from 'cmdk'
-import { CornerDownLeft, Download, Plus, Search, Settings as SettingsIcon, Terminal } from 'lucide-react'
 
 import { cn, Kbd } from '@/design'
 import { OutlinedSwatch } from '@/features/profiles/components/outlined-swatch'
@@ -78,10 +78,9 @@ export function CommandPalette({
       contentClassName="fixed left-1/2 top-[12vh] z-50 flex max-h-[calc(100%-128px)] w-[min(640px,calc(100%-64px))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-[color:rgba(40,30,20,0.1)] bg-cream shadow-modal outline-none animate-[design-modal-in_0.22s_cubic-bezier(0.16,1,0.3,1)] dark:border-white/[0.06]"
     >
       <div className="relative border-b border-border-soft">
-        <Search
+        <MagnifyingGlass
           aria-hidden
           className="pointer-events-none absolute top-1/2 left-4 h-3.5 w-3.5 -translate-y-1/2 text-muted-strong"
-          strokeWidth={2}
         />
         <Command.Input
           autoFocus
@@ -121,7 +120,7 @@ export function CommandPalette({
             keywords={['new', 'create', 'profile', 'add']}
             kbd="⌘N"
             onSelect={() => runAndClose(onCreate)}
-            leading={<Plus className="h-3.5 w-3.5 text-muted" strokeWidth={1.85} />}
+            leading={<Plus className="h-3.5 w-3.5 text-muted" />}
           >
             Create new profile
           </PaletteItem>
@@ -130,7 +129,7 @@ export function CommandPalette({
             keywords={['settings', 'preferences', 'config']}
             kbd="⌘,"
             onSelect={() => runAndClose(onSettings)}
-            leading={<SettingsIcon className="h-3.5 w-3.5 text-muted" strokeWidth={1.85} />}
+            leading={<Gear className="h-3.5 w-3.5 text-muted" />}
           >
             Open settings
           </PaletteItem>
@@ -141,7 +140,7 @@ export function CommandPalette({
               keywords={['detect', 'import', 'migration', 'existing', appId, appSpecs[appId].displayName]}
               kbd="⌘I"
               onSelect={() => runAndClose(() => onImport(appId))}
-              leading={<Download className="h-3.5 w-3.5 text-muted" strokeWidth={1.85} />}
+              leading={<DownloadSimple className="h-3.5 w-3.5 text-muted" />}
             >
               Detect and import {appSpecs[appId].displayName}…
             </PaletteItem>
@@ -155,7 +154,7 @@ export function CommandPalette({
         </span>
         <span className="inline-flex items-center gap-1.5">
           <Kbd variant="subtle">
-            <CornerDownLeft className="h-2.5 w-2.5" strokeWidth={2} />
+            <ArrowElbowDownLeft className="h-2.5 w-2.5" />
           </Kbd>
           <span>run</span>
         </span>
@@ -195,7 +194,7 @@ function ProfileRows({ profile, onLaunch, onCopy, onSwitch }: ProfileRowsProps) 
           keywords={['copy', 'cli', 'terminal', 'clipboard', profile.name, profile.slug]}
           kbd="⌘C"
           onSelect={onCopy}
-          leading={<Terminal className="h-3.5 w-3.5 text-muted-strong" strokeWidth={1.85} />}
+          leading={<TerminalWindow className="h-3.5 w-3.5 text-muted-strong" />}
         >
           Copy <code className="font-mono text-ink">{wrapperCommand(profile.app, profile.slug)}</code>
         </PaletteItem>
@@ -250,7 +249,7 @@ function PaletteItem({ value, keywords, kbd, disabled, leading, onSelect, childr
       onSelect={onSelect}
       disabled={disabled}
       className={cn(
-        'grid grid-cols-[14px_1fr_auto] items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] tracking-[-0.003em] text-ink-soft cursor-pointer outline-none',
+        'grid grid-cols-[14px_1fr_auto] items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] tracking-[-0.003em] text-ink-soft outline-none',
         'data-[selected=true]:bg-white/55 data-[selected=true]:text-ink data-[selected=true]:shadow-[inset_0_0_0_1px_rgba(229,224,210,0.55)]',
         'data-[disabled=true]:cursor-not-allowed data-[disabled=true]:opacity-50',
         'dark:data-[selected=true]:bg-white/[0.06] dark:data-[selected=true]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]',

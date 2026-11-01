@@ -13,20 +13,19 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@ai-profiles/design-tokens": "workspace:*",
     "@astrojs/react": "5.0.5",
     "@astrojs/sitemap": "3.7.2",
     "@c15t/react": "2.1.0",
-    "@ai-profiles/design-tokens": "workspace:*",
     "@fontsource-variable/geist": "5.2.9",
-    "@fontsource-variable/geist-mono": "5.2.8",
     "astro": "6.3.7",
     "posthog-js": "1.376.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },
   "devDependencies": {
-    "@astrojs/check": "0.9.9",
     "@ai-profiles/tsconfig": "workspace:*",
+    "@astrojs/check": "0.9.9",
     "@tailwindcss/vite": "4.3.0",
     "@types/react": "19.2.15",
     "@types/react-dom": "19.2.3",

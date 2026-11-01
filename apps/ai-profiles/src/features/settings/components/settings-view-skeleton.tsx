@@ -8,18 +8,17 @@ import { Skeleton } from '@/design'
 export function SettingsViewSkeleton() {
   return (
     <PaneLayout
-      className="bg-background"
       header={
-        <div className="flex items-center justify-between border-b border-border-soft pb-6">
-          <Skeleton className="h-7 w-32" />
-          <Skeleton className="h-7 w-20 rounded-md" />
+        <div className="flex items-center justify-between">
+          <Skeleton shape="text" className="h-5 w-28" />
+          <Skeleton className="h-7 w-16 rounded-md" />
         </div>
       }
     >
-      {[0, 1, 2].map((section) => (
+      {['appearance', 'system', 'data'].map((section) => (
         <div key={section} className="mb-8">
-          <Skeleton shape="text" className="mb-3 w-24" />
-          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton shape="text" className="mb-3 h-3 w-24" />
+          <Skeleton className="h-24 w-full rounded-[10px]" />
         </div>
       ))}
     </PaneLayout>

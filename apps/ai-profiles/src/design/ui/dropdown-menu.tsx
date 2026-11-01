@@ -1,6 +1,6 @@
 import type * as React from 'react'
 
-import { CheckIcon, ChevronRightIcon } from 'lucide-react'
+import { CaretRight, Check } from '@phosphor-icons/react'
 import { DropdownMenu as DropdownMenuPrimitive } from 'radix-ui'
 
 import { cn } from '@/design/lib/cn'
@@ -91,7 +91,7 @@ function DropdownMenuCheckboxItem({
         data-slot="dropdown-menu-checkbox-item-indicator"
       >
         <DropdownMenuPrimitive.ItemIndicator>
-          <CheckIcon />
+          <Check />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -126,7 +126,7 @@ function DropdownMenuRadioItem({
         data-slot="dropdown-menu-radio-item-indicator"
       >
         <DropdownMenuPrimitive.ItemIndicator>
-          <CheckIcon />
+          <Check />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -197,7 +197,7 @@ function DropdownMenuSubTrigger({
       {...props}
     >
       {children}
-      <ChevronRightIcon className="ml-auto" />
+      <CaretRight className="ml-auto" />
     </DropdownMenuPrimitive.SubTrigger>
   )
 }

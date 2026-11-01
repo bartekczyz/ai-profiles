@@ -1,4 +1,4 @@
-import { Button, Kbd } from '@/design'
+import { Button } from '@/design'
 
 type ProfileDialogFootProps = {
   /**
@@ -40,16 +40,10 @@ export function ProfileDialogFoot({
 }: ProfileDialogFootProps) {
   return (
     <>
-      <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} disabled={submitting} onClick={onCancel}>
+      <Button variant="ghost" size="sm" shortcut="Escape" disabled={submitting} onClick={onCancel}>
         Cancel
       </Button>
-      <Button
-        variant="primary"
-        size="sm"
-        trailingKbd={<Kbd variant="onOrange">⏎</Kbd>}
-        disabled={!canSubmit || submitting}
-        onClick={onSubmit}
-      >
+      <Button variant="primary" size="sm" shortcut="Enter" disabled={!canSubmit || submitting} onClick={onSubmit}>
         {submitting ? submittingLabel : submitLabel}
       </Button>
     </>

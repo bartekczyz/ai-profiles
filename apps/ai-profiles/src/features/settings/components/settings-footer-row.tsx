@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { getVersion } from '@tauri-apps/api/app'
 
-import { Button, Dialog, Kbd, useToast } from '@/design'
+import { Button, Dialog, useToast } from '@/design'
 import { useAppState } from '@/lib/app-state/use-app-state'
 
 type Props = {
@@ -56,16 +56,16 @@ export function SettingsFooterRow({ onOpenAbout }: Props) {
           type="button"
           onClick={onOpenAbout}
           title="About ai-profiles"
-          className="cursor-pointer rounded-md px-2 py-1 font-mono text-[10.5px] text-muted-strong transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-cream-2 hover:text-ink dark:hover:bg-white/[0.04]"
+          className="rounded-md px-2 py-1 text-[12px] text-muted-strong transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-cream-2 hover:text-ink dark:hover:bg-white/[0.04]"
         >
           ai-profiles {version ? `v${version}` : '…'} · MIT · Not affiliated with Anthropic or OpenAI
         </button>
         <button
           type="button"
           onClick={() => setConfirmOpen(true)}
-          className="cursor-pointer rounded-md px-2 py-1 text-[11.5px] text-muted transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-cream-2 hover:text-ink dark:hover:bg-white/[0.04]"
+          className="rounded-md px-2 py-1 text-[12px] text-muted transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-cream-2 hover:text-ink dark:hover:bg-white/[0.04]"
         >
-          Reset onboarding flags →
+          Reset onboarding…
         </button>
       </div>
 
@@ -81,18 +81,12 @@ export function SettingsFooterRow({ onOpenAbout }: Props) {
               disabled={submitting}
               variant="ghost"
               size="sm"
-              trailingKbd={<Kbd>⎋</Kbd>}
+              shortcut="Escape"
               onClick={() => setConfirmOpen(false)}
             >
               Cancel
             </Button>
-            <Button
-              disabled={submitting}
-              variant="primary"
-              size="sm"
-              trailingKbd={<Kbd variant="onOrange">⏎</Kbd>}
-              onClick={handleConfirm}
-            >
+            <Button disabled={submitting} variant="primary" size="sm" shortcut="Enter" onClick={handleConfirm}>
               Reset
             </Button>
           </>

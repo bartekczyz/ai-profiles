@@ -3,10 +3,10 @@ import type { ApiCost, ModelCost, Period } from '@/lib/types'
 
 import { useState } from 'react'
 
+import { CaretRight } from '@phosphor-icons/react'
 import { format, parseISO } from 'date-fns'
-import { ChevronRight } from 'lucide-react'
 
-import { Button, Dialog, Kbd, Segmented, Skeleton } from '@/design'
+import { Button, cn, Dialog, panelClasses, Segmented, Skeleton } from '@/design'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/design/ui/tooltip'
 
 import { useProfileApiCost } from '../api/use-profile-api-cost'
@@ -80,12 +80,20 @@ const sources: Record<AppId, { tool: string; api: string; cacheWrites: string; l
   },
 }
 
-const eyebrowClasses = 'mb-2 font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted'
+const eyebrowClasses = 'mb-2 text-[12.5px] font-medium text-muted'
 
-const rowClasses =
-  'mb-3.5 flex w-full items-center gap-2 rounded-[10px] border border-border-soft bg-white/30 px-[13px] py-[9px] text-left text-meta dark:bg-white/[0.02]'
+/**
+ * A card beside the launch panel: a label line over the figure. `flex-1` with
+ * a zero basis so it takes the third of the row the launch panel leaves it,
+ * and the whole row when it renders nothing. Under the launch row's
+ * breakpoint the two stack and it takes the full width.
+ */
+const rowClasses = cn(
+  panelClasses,
+  'flex min-w-0 flex-col justify-between gap-3 px-4 py-3 text-left text-meta @[620px]:flex-1 @[620px]:basis-0',
+)
 
-const rowLabelClasses = 'text-ink-soft'
+const rowLabelClasses = 'text-[12.5px] font-medium text-ink-soft'
 
 type Props = {
   app: AppId
@@ -154,17 +162,23 @@ function ApiCostRow({ app, cost, period, onPeriodChange }: RowProps) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className={`${rowClasses} cursor-pointer transition-colors hover:bg-white/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-white/[0.05]`}
+        className={`${rowClasses} transition-colors hover:bg-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-white/[0.05]`}
       >
-        <span className={rowLabelClasses}>Estimated API cost</span>
-        <span className="text-muted">{periodName(period)}</span>
-        {cost.coverage === 'unpriced' ? (
-          <span className="font-medium text-amber">Unpriced</span>
-        ) : (
-          <span className="font-medium text-ink tabular-nums">{formatUsd(cost.totalUsd)}</span>
-        )}
-        {cost.coverage === 'partial' ? <span className="font-mono text-mono text-amber">partial</span> : null}
-        <ChevronRight aria-hidden size={14} className="ml-auto shrink-0 text-muted-strong" />
+        <span className="flex w-full items-center gap-2">
+          <span className={rowLabelClasses}>Estimated API cost</span>
+          <span className="text-muted">{periodName(period)}</span>
+          <CaretRight aria-hidden size={14} className="ml-auto shrink-0 text-muted-strong" />
+        </span>
+        <span className="flex items-baseline gap-2">
+          {cost.coverage === 'unpriced' ? (
+            <span className="text-[22px] font-semibold tracking-[-0.015em] text-amber">Unpriced</span>
+          ) : (
+            <span className="text-[22px] font-semibold tracking-[-0.015em] text-ink tabular-nums">
+              {formatUsd(cost.totalUsd)}
+            </span>
+          )}
+          {cost.coverage === 'partial' ? <span className="text-meta text-amber">partial</span> : null}
+        </span>
       </button>
       <Dialog
         open={open}
@@ -175,7 +189,7 @@ function ApiCostRow({ app, cost, period, onPeriodChange }: RowProps) {
         className="top-8 w-[min(780px,calc(100%-64px))] translate-y-0"
         onClose={() => setOpen(false)}
         foot={
-          <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} onClick={() => setOpen(false)}>
+          <Button variant="ghost" size="sm" shortcut="Escape" onClick={() => setOpen(false)}>
             Close
           </Button>
         }

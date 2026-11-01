@@ -4,10 +4,10 @@ import type { ProfileUsage, QuotaError, RateLimitResetCredits, Spend, UsageWindo
 
 import { Component, createContext, useContext, useEffect, useState } from 'react'
 
+import { ArrowsClockwise, ArrowsLeftRight } from '@phosphor-icons/react'
 import { format } from 'date-fns'
-import { ArrowLeftRight, RefreshCw } from 'lucide-react'
 
-import { PortalTooltip, Skeleton } from '@/design'
+import { cn, PortalTooltip, panelClasses, Skeleton } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
 import { openCliLogin } from '@/lib/commands'
 
@@ -28,8 +28,7 @@ import { refetchIntervalMs, UsageUnavailableError, useProfileUsage } from '../ap
  * card owns it because it renders nothing at all for a profile without a
  * CLI surface, and a caller-supplied gap would then hang in empty space.
  */
-const usagePanelClasses =
-  'mb-3.5 rounded-[10px] border border-border-soft bg-white/30 px-[13px] py-[9px] dark:bg-white/[0.02]'
+const usagePanelClasses = cn(panelClasses, 'mb-3 px-4 py-3')
 
 type Props = {
   app: AppId
@@ -122,8 +121,8 @@ function UsageCardInner({ app, profileId, cliCommand }: { app: AppId; profileId:
     <UsageDisplayContext.Provider value={app === 'codex' ? display : 'used'}>
       <section className={usagePanelClasses}>
         <header className="mb-1.5 flex min-h-[22px] items-center justify-between gap-3.5">
-          <div className="flex min-w-0 items-center gap-1 font-mono text-muted-strong">
-            <span className="text-eyebrow font-medium uppercase tracking-[0.1em]">Usage</span>
+          <div className="flex min-w-0 items-center gap-1 text-ink-soft">
+            <span className="text-[12.5px] font-medium">Usage</span>
             {app === 'codex' ? (
               <>
                 <span aria-hidden className="text-mono">
@@ -134,10 +133,10 @@ function UsageCardInner({ app, profileId, cliCommand }: { app: AppId; profileId:
                     type="button"
                     aria-label={toggleCopy.ariaLabel}
                     onClick={() => changeDisplay(toggleUsageDisplay(display))}
-                    className="inline-flex min-h-[22px] cursor-pointer items-center gap-1 rounded px-1 text-mono transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    className="inline-flex min-h-[22px] items-center gap-1 rounded px-1 text-mono transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                   >
                     {toggleCopy.buttonLabel}
-                    <ArrowLeftRight aria-hidden size={10} className="opacity-60" />
+                    <ArrowsLeftRight aria-hidden size={10} className="opacity-60" />
                   </button>
                 </PortalTooltip>
               </>
@@ -150,9 +149,9 @@ function UsageCardInner({ app, profileId, cliCommand }: { app: AppId; profileId:
               aria-label="Refresh usage"
               disabled={isFetching}
               onClick={() => refetch()}
-              className="grid h-[22px] w-[22px] cursor-pointer place-items-center rounded-full text-muted-strong transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:not-disabled:bg-ink/[0.06] hover:not-disabled:text-ink disabled:cursor-default disabled:opacity-50"
+              className="grid h-[22px] w-[22px] place-items-center rounded-full text-muted-strong transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:not-disabled:bg-ink/[0.06] hover:not-disabled:text-ink disabled:cursor-default disabled:opacity-50"
             >
-              <RefreshCw size={14} className={isFetching ? 'animate-spin' : undefined} />
+              <ArrowsClockwise size={14} className={isFetching ? 'animate-spin' : undefined} />
             </button>
           </div>
         </header>
@@ -294,7 +293,7 @@ function ReloginButton({ profileId }: { profileId: string }) {
       onClick={() => {
         void openCliLogin(profileId)
       }}
-      className="cursor-pointer self-start font-mono text-mono text-muted-strong underline hover:text-ink"
+      className="self-start font-mono text-mono text-muted-strong underline hover:text-ink"
     >
       Refresh sign-in
     </button>

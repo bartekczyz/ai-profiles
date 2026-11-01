@@ -24,7 +24,7 @@ export function RefreshFailedNote({ retrying, onRetry }: Props) {
       <button
         type="button"
         disabled={retrying}
-        className="cursor-pointer text-ink-soft underline underline-offset-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40 disabled:cursor-default disabled:opacity-60"
+        className="text-ink-soft underline underline-offset-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40 disabled:cursor-default disabled:opacity-60"
         onClick={onRetry}
       >
         Retry

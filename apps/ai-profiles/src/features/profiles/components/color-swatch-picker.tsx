@@ -22,7 +22,7 @@ export function ColorSwatchPicker({ value, onChange }: Props) {
             aria-pressed={selected}
             onClick={() => onChange(preset)}
             data-selected={selected ? 'true' : 'false'}
-            className="relative h-[26px] w-[26px] cursor-pointer rounded-full border-0 p-0 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)] outline-none transition-transform duration-(--duration-snap) ease-(--ease-natural) hover:scale-[1.08] data-[selected=true]:after:absolute data-[selected=true]:after:-inset-1 data-[selected=true]:after:rounded-full data-[selected=true]:after:border-[1.5px] data-[selected=true]:after:border-ink data-[selected=true]:after:content-['']"
+            className="relative h-[26px] w-[26px] rounded-full border-0 p-0 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)] outline-none transition-transform duration-(--duration-snap) ease-(--ease-natural) hover:scale-[1.08] data-[selected=true]:after:absolute data-[selected=true]:after:-inset-1 data-[selected=true]:after:rounded-full data-[selected=true]:after:border-[1.5px] data-[selected=true]:after:border-ink data-[selected=true]:after:content-['']"
             style={{ background: preset }}
           />
         )

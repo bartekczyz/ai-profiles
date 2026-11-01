@@ -3,7 +3,7 @@ import type { AppId, Dependencies, Surfaces } from '@/lib/types'
 import type { SurfaceToggle } from '../lib/profile-form'
 import type { LauncherIconField } from './launcher-icon-controls'
 
-import { Check, Info } from 'lucide-react'
+import { Check, Info } from '@phosphor-icons/react'
 
 import { Button, cn } from '@/design'
 
@@ -202,7 +202,7 @@ function ToggleRow({
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          'flex w-full items-start gap-3 p-3 text-left cursor-pointer',
+          'flex w-full items-start gap-3 p-3 text-left',
           // Inside the row, so the card's edge does not clip it.
           'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-orange/40',
           'disabled:cursor-not-allowed disabled:opacity-60',
@@ -220,7 +220,7 @@ function ToggleRow({
             checked ? 'border-orange bg-orange' : 'border-border bg-cream',
           )}
         >
-          {checked ? <Check className="h-[11px] w-[11px] text-white" strokeWidth={3} /> : null}
+          {checked ? <Check className="h-[11px] w-[11px] text-white" /> : null}
         </span>
         <span className="flex-1">
           <span className="block text-[13px] font-medium text-ink">{title}</span>

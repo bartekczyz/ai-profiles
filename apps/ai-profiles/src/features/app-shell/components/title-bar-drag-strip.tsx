@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { useWindowDragRegion } from '@/lib/use-window-drag-region'
 
 /**
  * Tauri overlay-style title bar dragger.
@@ -27,25 +27,7 @@ export function TitleBarDragStrip() {
   // Tauri's own docs use) intercepts the event early enough that drag works
   // in both active and inactive window states.
   const dragStripRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const node = dragStripRef.current
-    if (!node) {
-      return
-    }
-    function handleMouseDown(event: MouseEvent) {
-      if (event.buttons !== 1) {
-        return
-      }
-      const appWindow = getCurrentWindow()
-      if (event.detail === 2) {
-        void appWindow.toggleMaximize()
-      } else {
-        void appWindow.startDragging()
-      }
-    }
-    node.addEventListener('mousedown', handleMouseDown)
-    return () => node.removeEventListener('mousedown', handleMouseDown)
-  }, [])
+  useWindowDragRegion(dragStripRef)
 
   return <div ref={dragStripRef} aria-hidden className="absolute inset-x-0 top-0 z-10 h-7" />
 }

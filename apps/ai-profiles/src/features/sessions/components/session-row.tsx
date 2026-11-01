@@ -1,7 +1,7 @@
 import type { AppId, Session, SessionKind, SessionState } from '@/lib/types'
 import type { SessionRowAction } from './session-row-actions'
 
-import { Monitor, Terminal } from 'lucide-react'
+import { Monitor, TerminalWindow } from '@phosphor-icons/react'
 
 import { cn, StatusDot } from '@/design'
 import { shortenHomePath } from '@/features/profiles/components/shorten-home-path'
@@ -116,10 +116,10 @@ export function SessionRow({ session, app, actions = [] }: Props) {
  * Desktop or CLI, as a small outlined tag beside the title.
  */
 function KindPill({ kind }: KindPillProps) {
-  const Icon = kind === 'desktop' ? Monitor : Terminal
+  const Icon = kind === 'desktop' ? Monitor : TerminalWindow
   return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-[5px] border border-border px-1.5 py-px font-mono text-[9.5px] font-medium uppercase tracking-[0.08em] text-muted-strong">
-      <Icon aria-hidden className="h-2.5 w-2.5" strokeWidth={2} />
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-[5px] border border-border px-1.5 py-px text-[11px] font-medium text-muted-strong">
+      <Icon aria-hidden className="h-2.5 w-2.5" />
       {kindLabels[kind]}
     </span>
   )

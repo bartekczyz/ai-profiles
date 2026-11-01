@@ -13,9 +13,9 @@ import { useProfileAccount } from '../api/use-profile-account'
 import { useProfilePaths } from '../api/use-profile-paths'
 import { accountLabel, accountTitle } from './account-line'
 import { EditDefaultProfileDialog } from './edit-default-profile-dialog'
-import { ProfileDetailApiCost } from './profile-detail-api-cost'
-import { BrandSwatch, ProfileDetailHeader, ProfileSwatch } from './profile-detail-header'
+import { BrandSwatch, ProfileDetailHeader, ProfileDetailToolbar, ProfileSwatch } from './profile-detail-header'
 import { ProfileDetailInfo } from './profile-detail-info'
+import { ProfileDetailLaunchRow } from './profile-detail-launch-row'
 import { ProfileDetailMigrateAction } from './profile-detail-migrate-action'
 import { ProfileDetailOverflowMenu, ProfileDetailOverflowMenuFallback } from './profile-detail-overflow-menu'
 import { ProfileDetailSurfacesPanel } from './profile-detail-surfaces-panel'
@@ -57,23 +57,11 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
   return (
     <PaneLayout
       aside={<SessionsPanel key={entry.id} profileId={entry.id} app={entry.app} />}
-      header={
-        <ProfileDetailHeader
+      toolbar={
+        <ProfileDetailToolbar
+          app={entry.app}
           name={entry.customName ?? displayName}
-          swatch={entry.color ? <ProfileSwatch color={entry.color} /> : <BrandSwatch app={entry.app} />}
           action={<ProfileDetailMigrateAction onMigrate={onMigrate} />}
-          subline={
-            signedInAs ? (
-              <>
-                <span>{stockInstall}</span>
-                <span className="mx-2 text-border">·</span>
-                <span title={accountTitle(account)}>{signedInAs}</span>
-              </>
-            ) : (
-              stockInstall
-            )
-          }
-          info={<ProfileDetailInfo app={entry.app} />}
           menu={
             // Its own boundary, as on the managed pane: the identity block and
             // Import render immediately and only the paths behind the reveal
@@ -89,17 +77,39 @@ export function DefaultProfileDetail({ entry, onMigrate }: Props) {
           }
         />
       }
+      header={
+        <ProfileDetailHeader
+          name={entry.customName ?? displayName}
+          swatch={entry.color ? <ProfileSwatch color={entry.color} /> : <BrandSwatch app={entry.app} />}
+          subline={
+            signedInAs ? (
+              <>
+                <span>{stockInstall}</span>
+                <span className="mx-2 text-border">·</span>
+                <span title={accountTitle(account)}>{signedInAs}</span>
+              </>
+            ) : (
+              stockInstall
+            )
+          }
+          info={<ProfileDetailInfo app={entry.app} />}
+        />
+      }
     >
       <ProfileDetailUsageCard app={entry.app} profileId={entry.id} cliEnabled={entry.surfaces.cli} />
-      <ProfileDetailApiCost app={entry.app} profileId={entry.id} />
 
-      {/* Stacked, the sessions card follows 14px below, as the cards above
-          space themselves; beside it, this ends the column. */}
-      <div className="mb-3.5 pane-wide:mb-6">
-        <Suspense key={entry.id} fallback={<DefaultSurfaces entry={entry} launch={launch} onError={setActionError} />}>
-          <ResolvedDefaultSurfaces entry={entry} launch={launch} onError={setActionError} />
-        </Suspense>
-      </div>
+      <ProfileDetailLaunchRow
+        app={entry.app}
+        profileId={entry.id}
+        surfaces={
+          <Suspense
+            key={entry.id}
+            fallback={<DefaultSurfaces entry={entry} launch={launch} onError={setActionError} />}
+          >
+            <ResolvedDefaultSurfaces entry={entry} launch={launch} onError={setActionError} />
+          </Suspense>
+        }
+      />
 
       {actionError ? (
         <p role="alert" className="mb-4 text-meta text-red">

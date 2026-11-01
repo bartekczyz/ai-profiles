@@ -167,16 +167,18 @@ type ListFooterProps = {
 const tabContentClasses = 'flex min-h-0 flex-col'
 
 /**
- * The Active / Archived tabs: a small segmented control in the card's
- * eyebrow row.
+ * The Active / Archived tabs: a macOS-style segmented control — a recessed
+ * track with the selected segment raised out of it.
  */
-const tabListClasses = 'h-auto gap-[2px] rounded-[7px] border border-border bg-cream-2 p-[2px]'
+const tabListClasses =
+  'h-7 gap-0.5 rounded-lg bg-black/[0.05] p-0.5 group-data-horizontal/tabs:h-7 dark:bg-white/[0.06]'
 
 /**
- * An Active or Archived tab: a mono segment, raised while selected.
+ * An Active or Archived tab. No hover change, as on a native segmented
+ * control; only the selected segment stands out.
  */
 const tabTriggerClasses =
-  'h-[18px] flex-none rounded-[5px] px-[7px] font-mono text-[10.5px] text-muted hover:text-ink data-active:bg-cream data-active:text-ink data-active:shadow-[0_1px_2px_rgba(0,0,0,0.08),inset_0_0_0_1px_var(--color-border)] dark:data-active:border-transparent dark:data-active:bg-cream'
+  'h-6 flex-none cursor-default gap-1.5 rounded-md border-0 px-3 text-[12px] font-medium text-muted data-active:bg-cream data-active:text-ink data-active:shadow-[0_1px_2px_rgba(0,0,0,0.1),0_0_0_0.5px_rgba(0,0,0,0.06)] dark:data-active:bg-white/[0.12] dark:data-active:shadow-none'
 
 /**
  * What the footer says for each order.
@@ -306,7 +308,7 @@ function useMoveTargets(profileId: string, app: AppId): MoveTargets {
 function SessionsHeader({ counts }: SessionsHeaderProps) {
   return (
     <header className={sessionsHeaderClasses}>
-      <h2 className="font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong">Sessions</h2>
+      <h2 className="text-[12.5px] font-medium text-ink-soft">Sessions</h2>
       <TabsList aria-label="Sessions" className={tabListClasses}>
         <TabsTrigger value="active" className={tabTriggerClasses}>
           <TabLabel label="Active" count={counts?.active} />
@@ -379,7 +381,7 @@ function TabLabel({ label, count }: TabLabelProps) {
   return (
     <>
       {label}
-      {count === undefined ? null : <span className="text-muted-strong tabular-nums">{count}</span>}
+      {count === undefined ? null : <span className="font-normal text-muted-strong tabular-nums">{count}</span>}
     </>
   )
 }
