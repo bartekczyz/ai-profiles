@@ -1,6 +1,6 @@
 import type * as React from 'react'
 
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
+import { CaretDown, CaretUp, Check } from '@phosphor-icons/react'
 import { Select as SelectPrimitive } from 'radix-ui'
 
 import { cn } from '@/design/lib/cn'
@@ -31,7 +31,7 @@ function SelectTrigger({ className, children, ...props }: React.ComponentProps<t
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <ChevronDownIcon className="pointer-events-none size-4 text-muted-strong" />
+        <CaretDown className="pointer-events-none size-4 text-muted-strong" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   )
@@ -95,14 +95,14 @@ function SelectItem({ className, children, ...props }: React.ComponentProps<type
         // pl-2 + the viewport's p-1 (4px) = 12px text inset, matching the
         // trigger's px-3 so the selected item sits exactly over the trigger
         // value when the menu opens (item-aligned).
-        "relative flex w-full cursor-pointer items-center gap-1.5 rounded-md py-2 pr-8 pl-2 text-[13.5px] outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        "relative flex w-full items-center gap-1.5 rounded-md py-2 pr-8 pl-2 text-[13.5px] outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
         className,
       )}
       {...props}
     >
       <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center">
         <SelectPrimitive.ItemIndicator>
-          <CheckIcon className="pointer-events-none" />
+          <Check className="pointer-events-none" />
         </SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
@@ -130,7 +130,7 @@ function SelectScrollUpButton({ className, ...props }: React.ComponentProps<type
       )}
       {...props}
     >
-      <ChevronUpIcon />
+      <CaretUp />
     </SelectPrimitive.ScrollUpButton>
   )
 }
@@ -148,7 +148,7 @@ function SelectScrollDownButton({
       )}
       {...props}
     >
-      <ChevronDownIcon />
+      <CaretDown />
     </SelectPrimitive.ScrollDownButton>
   )
 }

@@ -4,6 +4,8 @@ import type { DescribedFailure } from '../lib/describe-failure'
 import type { MoveTarget } from './move-session-dialog'
 import type { SessionRowAction } from './session-row-actions'
 
+import { ChatsCircle } from '@phosphor-icons/react'
+
 import { cn } from '@/design'
 import { TooltipProvider } from '@/design/ui/tooltip'
 
@@ -164,7 +166,7 @@ const actionLabels: Record<SessionAction, string> = {
  * pill.
  */
 const quietButtonClasses =
-  'inline-flex h-7 shrink-0 cursor-pointer items-center rounded-[7px] border border-border bg-white/60 px-2.5 text-[12px] text-ink-soft outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:border-border-strong hover:bg-white focus-visible:ring-2 focus-visible:ring-orange/40 disabled:cursor-default disabled:opacity-60 dark:bg-white/[0.05] dark:hover:bg-white/[0.09]'
+  'inline-flex h-7 shrink-0 items-center rounded-[7px] border border-border bg-white/60 px-2.5 text-[12px] text-ink-soft outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:border-border-strong hover:bg-white focus-visible:ring-2 focus-visible:ring-orange/40 disabled:cursor-default disabled:opacity-60 dark:bg-white/[0.05] dark:hover:bg-white/[0.09]'
 
 /**
  * The open tab's body: a skeleton while the first listing loads, why the
@@ -193,7 +195,7 @@ export function SessionsList({
   if (failure?.missingTool) {
     return (
       <Notice>
-        <p className="text-[12.5px] text-ink">{failure.message}</p>
+        <p className="text-[13px] font-medium text-ink">{failure.message}</p>
       </Notice>
     )
   }
@@ -206,7 +208,7 @@ export function SessionsList({
   if (sessions.length === 0) {
     return (
       <Notice>
-        <p className="text-[12.5px] text-ink">No sessions match</p>
+        <p className="text-[13px] font-medium text-ink">No sessions match</p>
         <button type="button" className={cn(quietButtonClasses, 'mt-2')} onClick={onClearSearch}>
           Clear search
         </button>
@@ -243,8 +245,8 @@ function SessionRows({ sessions, app, moveTargets, onAction, onMove }: SessionRo
 function EmptyNotice({ title, hint }: EmptyNoticeProps) {
   return (
     <Notice>
-      <p className="text-[12.5px] text-ink">{title}</p>
-      {hint === undefined ? null : <p className="mt-0.5 text-[11px] text-muted-strong">{hint}</p>}
+      <p className="text-[13px] font-medium text-ink">{title}</p>
+      {hint === undefined ? null : <p className="mt-1 text-[12px] text-muted">{hint}</p>}
     </Notice>
   )
 }
@@ -297,14 +299,19 @@ function ListError({ retrying, message, onRetry }: ListErrorProps) {
 }
 
 /**
- * A centred message in place of the rows.
+ * A message in place of the rows, centred in the space they would fill: a
+ * quiet glyph over the text, in the manner of an empty Mail or Notes list.
  */
 function Notice({ children }: NoticeProps) {
   return (
-    <div className="flex-1 border-t border-border-soft p-3">
-      <div className="flex flex-col items-center rounded-[10px] border border-dashed border-border px-[13px] py-6 text-center">
-        {children}
-      </div>
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 border-t border-border-soft px-6 py-10 text-center">
+      <span
+        aria-hidden
+        className="grid size-10 place-items-center rounded-xl border border-border bg-cream-2 text-muted-strong dark:bg-white/[0.04]"
+      >
+        <ChatsCircle className="size-5" />
+      </span>
+      <div className="flex max-w-[340px] flex-col items-center">{children}</div>
     </div>
   )
 }

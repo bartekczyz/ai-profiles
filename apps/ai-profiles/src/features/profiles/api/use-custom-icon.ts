@@ -1,9 +1,11 @@
 import type { AppId } from '@/lib/types'
 import type { IconChange } from '../lib/launcher-icon'
 
+import { useEffect } from 'react'
+
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { isValidHexColor } from '@/lib/colors'
+import { isValidHexColor, presetColors } from '@/lib/colors'
 import { clearCustomIcon, customIcon, generatedIconPreview, setCustomIcon } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 
@@ -32,12 +34,38 @@ export function useCustomIcon(profileId: string | null, enabled: boolean): strin
  * typed, which there is no icon for.
  */
 export function useGeneratedIconPreview(app: AppId | '', color: string, enabled: boolean): string | null {
-  const { data = null } = useQuery({
+  const queryClient = useQueryClient()
+  const { data = null, isPlaceholderData } = useQuery({
     queryKey: queryKeys.generatedIconPreview(app, color),
     queryFn: async () => pngDataUrl(await generatedIconPreview(app as AppId, color)),
     placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[1] === app ? previous : undefined),
     enabled: enabled && app !== '' && isValidHexColor(color),
   })
+  const shown = data !== null && !isPlaceholderData
+  // Once the chosen colour's icon is on screen, draw the other presets one at
+  // a time, so picking one later shows its icon at once. Only after, and only
+  // one by one: each render is real work on the backend, and a batch fired up
+  // front would queue ahead of the icon the form is waiting for.
+  useEffect(() => {
+    if (!shown || app === '') {
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      for (const preset of presetColors) {
+        if (cancelled) {
+          return
+        }
+        await queryClient.prefetchQuery({
+          queryKey: queryKeys.generatedIconPreview(app, preset),
+          queryFn: async () => pngDataUrl(await generatedIconPreview(app, preset)),
+        })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [app, shown, queryClient])
   return data
 }
 

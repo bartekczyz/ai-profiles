@@ -4,6 +4,7 @@ import type { SidebarEntry } from '@/lib/types'
 
 import { Activity, Suspense, useRef } from 'react'
 
+import { insetPanelClasses } from '@/components/pane-layout'
 import { useShortcut } from '@/design'
 import { ProfileDetail } from '@/features/profiles/components/profile-detail'
 import { DefaultProfileDetail } from '@/features/profiles/components/profile-detail-default'
@@ -177,28 +178,32 @@ export function Workspace({
           ProfileDetail manages its own Suspense for the per-profile paths fetch
           — the header identity block renders with sidebar-provided data
           immediately. */}
-      <Activity mode={detailVisible ? 'visible' : 'hidden'}>
-        <SelectedEntryDetail
-          selected={selected}
-          shortcutsEnabled={detailShortcutsEnabled}
-          onEdit={onEdit}
-          onDelete={onDelete}
-          onMigrate={onOpenMigration}
-        />
-      </Activity>
-      <Activity mode={rightPane === 'settings' ? 'visible' : 'hidden'}>
-        <Suspense fallback={<SettingsViewSkeleton />}>
-          <QueryErrorBoundary>
-            <SettingsView
-              onClose={() => onRightPaneChange('profile')}
-              onOpenMigration={(app) => {
-                void onOpenMigration(app)
-              }}
-              onOpenAbout={onOpenAbout}
-            />
-          </QueryErrorBoundary>
-        </Suspense>
-      </Activity>
+      {/* The content sits on an inset panel; the window's sidebar material
+          shows in the gutter around it as well as behind the sidebar. */}
+      <div className={insetPanelClasses}>
+        <Activity mode={detailVisible ? 'visible' : 'hidden'}>
+          <SelectedEntryDetail
+            selected={selected}
+            shortcutsEnabled={detailShortcutsEnabled}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onMigrate={onOpenMigration}
+          />
+        </Activity>
+        <Activity mode={rightPane === 'settings' ? 'visible' : 'hidden'}>
+          <Suspense fallback={<SettingsViewSkeleton />}>
+            <QueryErrorBoundary>
+              <SettingsView
+                onClose={() => onRightPaneChange('profile')}
+                onOpenMigration={(app) => {
+                  void onOpenMigration(app)
+                }}
+                onOpenAbout={onOpenAbout}
+              />
+            </QueryErrorBoundary>
+          </Suspense>
+        </Activity>
+      </div>
     </div>
   )
 }

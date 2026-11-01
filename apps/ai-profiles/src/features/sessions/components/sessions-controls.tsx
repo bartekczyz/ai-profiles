@@ -1,7 +1,7 @@
 import type { SegmentedOption } from '@/design'
 import type { KindFilter, SortDirection } from '../lib/session-filters'
 
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, Monitor, Search, Terminal } from 'lucide-react'
+import { MagnifyingGlass, Monitor, SortAscending, SortDescending, TerminalWindow } from '@phosphor-icons/react'
 
 import { Segmented, TooltipBubble } from '@/design'
 import { Input } from '@/design/ui/input'
@@ -60,7 +60,7 @@ const kindOptions: ReadonlyArray<SegmentedOption<KindFilter>> = [
     ariaLabel: 'CLI',
     label: (
       <>
-        <Terminal aria-hidden className="h-3.5 w-3.5" />
+        <TerminalWindow aria-hidden className="h-3.5 w-3.5" />
         <TooltipBubble>CLI only</TooltipBubble>
       </>
     ),
@@ -89,11 +89,11 @@ export function SessionsControls({
   onKindChange,
   onDirectionChange,
 }: Props) {
-  const SortIcon = direction === 'desc' ? ArrowDownWideNarrow : ArrowUpNarrowWide
+  const SortIcon = direction === 'desc' ? SortDescending : SortAscending
   return (
     <div className="flex shrink-0 items-center gap-1.5 px-[13px] pt-2 pb-[9px]">
       <div className="relative min-w-0 flex-1">
-        <Search
+        <MagnifyingGlass
           aria-hidden
           className="pointer-events-none absolute top-1/2 left-[9px] h-[13px] w-[13px] -translate-y-1/2 text-muted-strong"
         />
@@ -122,7 +122,7 @@ export function SessionsControls({
             <button
               type="button"
               aria-label={`Last used, ${directionLabels[direction].toLowerCase()}`}
-              className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border bg-white text-muted outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:border-border-strong hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40 dark:bg-cream-2"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] border border-border bg-white text-muted outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:border-border-strong hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40 dark:bg-cream-2"
               onClick={() => onDirectionChange(direction === 'desc' ? 'asc' : 'desc')}
             >
               <SortIcon aria-hidden className="h-3.5 w-3.5" />

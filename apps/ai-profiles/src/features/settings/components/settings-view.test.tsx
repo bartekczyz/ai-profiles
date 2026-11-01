@@ -136,7 +136,7 @@ describe('SettingsView', () => {
       },
     })
     renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} onOpenAbout={vi.fn()} />)
-    expect(await screen.findByText(/Detected an existing Claude install/)).toBeInTheDocument()
+    expect(await screen.findByText(/Existing Claude install/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Re-import/ })).toBeInTheDocument()
   })
 
@@ -144,7 +144,7 @@ describe('SettingsView', () => {
     primeInitialLoads()
     renderSettings(<SettingsView onClose={vi.fn()} onOpenMigration={vi.fn()} onOpenAbout={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('Claude Desktop')).toBeInTheDocument())
-    expect(screen.queryByText(/Detected an existing Claude install/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Existing Claude install/)).not.toBeInTheDocument()
   })
 
   it('Re-import button calls onOpenMigration', async () => {
@@ -176,7 +176,7 @@ describe('SettingsView', () => {
     })
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: /Reset onboarding flags/ }))
+    await user.click(screen.getByRole('button', { name: /Reset onboarding/ }))
 
     expect(screen.getByRole('dialog', { name: /Reset onboarding state\?/ })).toBeInTheDocument()
     expect(mockInvoke).not.toHaveBeenCalled()
@@ -205,7 +205,7 @@ describe('SettingsView', () => {
     })
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: /Reset onboarding flags/ }))
+    await user.click(screen.getByRole('button', { name: /Reset onboarding/ }))
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
     expect(mockInvoke).not.toHaveBeenCalled()

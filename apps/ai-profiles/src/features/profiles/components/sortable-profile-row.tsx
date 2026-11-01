@@ -3,7 +3,7 @@ import type { Surfaces } from '@/lib/types'
 
 import { type AnimateLayoutChanges, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical } from 'lucide-react'
+import { DotsSixVertical } from '@phosphor-icons/react'
 
 import { SidebarProfileRow } from './sidebar-profile-row'
 
@@ -100,7 +100,7 @@ export function SortableProfileRow({
         aria-label={`Reorder ${name}`}
         className="absolute top-1/2 left-1.5 grid h-6 w-4 -translate-y-1/2 cursor-grab place-items-center text-muted-strong outline-none opacity-0 transition-opacity duration-(--duration-snap) ease-(--ease-natural) group-hover/sortable:opacity-100 group-focus-within/sortable:opacity-100 active:cursor-grabbing"
       >
-        <GripVertical className="h-3.5 w-3.5" strokeWidth={1.75} />
+        <DotsSixVertical className="h-3.5 w-3.5" />
       </button>
     </div>
   )

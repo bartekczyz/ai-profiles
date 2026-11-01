@@ -4,7 +4,7 @@ import { formatShortcut } from '@/design/keyboard/format-shortcut'
 import { getShortcut, type ShortcutId } from '@/design/keyboard/shortcuts'
 import { cn } from '@/design/lib/cn'
 
-type KbdVariant = 'default' | 'onOrange' | 'subtle'
+type KbdVariant = 'default' | 'subtle'
 
 type KbdProps = {
   variant?: KbdVariant
@@ -29,7 +29,6 @@ const variantClasses: Record<KbdVariant, string> = {
   // sits next to in the sidebar rows.)
   default:
     'text-muted bg-cream-2 border border-border/50 dark:text-ink-soft dark:bg-white/[0.06] dark:border-white/[0.08]',
-  onOrange: 'text-white bg-white/20 border border-white/40 shadow-[inset_0_-1px_0_rgba(0,0,0,0.08)]',
   // Subtle is for inline hint strips — borderless on light, faint border
   // on dark, slightly stronger text than `text-muted` so it still reads.
   subtle: 'text-muted bg-transparent border border-border/70 dark:text-ink-soft dark:border-white/[0.12]',
@@ -41,7 +40,7 @@ export function Kbd({ variant = 'default', shortcutId, className, children }: Kb
     // Kbd chips are decorative — the accompanying button label or row name
     // already conveys the action. Hiding the chip from the a11y tree keeps
     // accessible names tight ("Delete" rather than "Delete ⌘ Backspace") and
-    // lets buttons with trailingKbd be looked up by their visible label.
+    // lets controls beside a chip be looked up by their visible label.
     <kbd
       aria-hidden
       className={cn(

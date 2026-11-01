@@ -1,4 +1,4 @@
-import { Button, Dialog, Kbd } from '@/design'
+import { Button, Dialog } from '@/design'
 
 type Props = {
   open: boolean
@@ -14,7 +14,7 @@ export function WelcomeDialog({ open, onContinue }: Props) {
       onClose={onContinue}
       onSubmit={onContinue}
       foot={
-        <Button variant="primary" size="sm" trailingKbd={<Kbd variant="onOrange">⏎</Kbd>} onClick={onContinue}>
+        <Button variant="primary" size="sm" shortcut="Enter" onClick={onContinue}>
           Continue
         </Button>
       }

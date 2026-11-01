@@ -1,6 +1,7 @@
+import type { Icon as PhosphorIcon } from '@phosphor-icons/react'
 import type { ShortcutId } from '@/design'
 
-import { MoreHorizontal } from 'lucide-react'
+import { AppWindow, DotsThree, FolderOpen, PencilSimple, TerminalWindow, Trash, Wrench } from '@phosphor-icons/react'
 
 import { ariaKeyshortcutsFor, cn, Kbd, useShortcut } from '@/design'
 import {
@@ -14,7 +15,7 @@ import {
 import { openInFinder } from '@/lib/commands'
 
 import { useProfilePaths } from '../api/use-profile-paths'
-import { headerControlClasses } from './profile-detail-header'
+import { toolbarControlClasses } from './profile-detail-header'
 import { shortenHomePath } from './shorten-home-path'
 
 type Props = {
@@ -35,12 +36,27 @@ type Props = {
 type RevealTarget = {
   shortcutId: ShortcutId
   label: string
+  icon: PhosphorIcon
   path: string | null
 }
 
 type OfferedTarget = RevealTarget & { path: string }
 
 const triggerClasses = 'w-7 px-0 text-muted hover:not-disabled:text-ink'
+
+/** Every row leads with its icon on a small tile, so the menu reads as a list of places. */
+const itemClasses = 'gap-2.5 rounded-md px-2 py-1.5 text-[12.5px]'
+
+function ItemIcon({ icon: Icon }: { icon: PhosphorIcon }) {
+  return (
+    <span
+      aria-hidden
+      className="grid size-7 shrink-0 place-items-center rounded-md border border-border bg-cream-2 text-muted dark:bg-white/[0.04]"
+    >
+      <Icon className="size-3.5" />
+    </span>
+  )
+}
 
 /**
  * Everything rare about a profile, behind one "…" trigger: the four
@@ -88,45 +104,49 @@ export function ProfileDetailOverflowMenu({ profileId, onError, onDelete, onEdit
   })
 
   const targets: ReadonlyArray<RevealTarget> = [
-    { shortcutId: 'reveal-gui-data', label: 'Desktop app data', path: paths.guiDataDir },
-    { shortcutId: 'reveal-gui-launcher', label: 'Launcher', path: paths.guiLauncherPath },
-    { shortcutId: 'reveal-cli-config', label: 'CLI config', path: paths.cliConfigDir },
-    { shortcutId: 'reveal-cli-wrapper', label: 'CLI wrapper', path: paths.cliWrapperPath },
+    { shortcutId: 'reveal-gui-data', label: 'Desktop app data', icon: FolderOpen, path: paths.guiDataDir },
+    { shortcutId: 'reveal-gui-launcher', label: 'Launcher', icon: AppWindow, path: paths.guiLauncherPath },
+    { shortcutId: 'reveal-cli-config', label: 'CLI config', icon: Wrench, path: paths.cliConfigDir },
+    { shortcutId: 'reveal-cli-wrapper', label: 'CLI wrapper', icon: TerminalWindow, path: paths.cliWrapperPath },
   ]
   const offered = targets.filter((target): target is OfferedTarget => target.path !== null)
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" aria-label="More actions" className={cn(headerControlClasses, triggerClasses)}>
-          <MoreHorizontal aria-hidden className="h-4 w-4" />
+        <button type="button" aria-label="More actions" className={cn(toolbarControlClasses, triggerClasses)}>
+          <DotsThree aria-hidden className="h-4 w-4" />
         </button>
       </DropdownMenuTrigger>
       {/* The generated content pins its width to the trigger, which here is a
           28px icon button — override it or the resolved paths wrap to shreds. */}
-      <DropdownMenuContent align="end" className="w-72">
-        <DropdownMenuLabel className="px-2 pt-1.5 pb-1 font-mono text-eyebrow font-medium uppercase tracking-[0.1em] text-muted-strong">
+      <DropdownMenuContent align="end" className="w-80 p-1">
+        <DropdownMenuLabel className="px-2 pt-1.5 pb-1 text-[11.5px] font-medium text-muted-strong">
           Reveal in Finder
         </DropdownMenuLabel>
         {offered.map((target) => (
           <DropdownMenuItem
             key={target.shortcutId}
-            className="flex-col items-stretch gap-0.5 px-2 py-1.5 text-[12px]"
+            className={itemClasses}
             aria-keyshortcuts={ariaKeyshortcutsFor(target.shortcutId)}
             onSelect={() => reveal(target.path)}
           >
-            <span className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate">{target.label}</span>
-              <Kbd variant="subtle" shortcutId={target.shortcutId} />
+            <ItemIcon icon={target.icon} />
+            <span className="flex min-w-0 flex-1 flex-col gap-px">
+              <span className="truncate text-ink">{target.label}</span>
+              <span className="truncate text-[11px] text-muted-strong" title={target.path}>
+                {shortenHomePath(target.path)}
+              </span>
             </span>
-            <span className="truncate font-mono text-[10px] text-muted-strong">{shortenHomePath(target.path)}</span>
+            <Kbd variant="subtle" shortcutId={target.shortcutId} />
           </DropdownMenuItem>
         ))}
         {onEdit === undefined ? null : (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="px-2 py-1.5 text-[12px]" onSelect={onEdit}>
-              <span className="flex-1">Edit name and color…</span>
+            <DropdownMenuItem className={itemClasses} onSelect={onEdit}>
+              <ItemIcon icon={PencilSimple} />
+              <span className="flex-1 text-ink">Edit name and color…</span>
             </DropdownMenuItem>
           </>
         )}
@@ -135,10 +155,16 @@ export function ProfileDetailOverflowMenu({ profileId, onError, onDelete, onEdit
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
-              className="px-2 py-1.5 text-[12px]"
+              className={itemClasses}
               aria-keyshortcuts={ariaKeyshortcutsFor('delete-selected')}
               onSelect={onDelete}
             >
+              <span
+                aria-hidden
+                className="grid size-7 shrink-0 place-items-center rounded-md border border-red/25 bg-red/[0.06]"
+              >
+                <Trash className="size-3.5" />
+              </span>
               <span className="flex-1">Delete profile…</span>
               <Kbd variant="subtle" shortcutId="delete-selected" />
             </DropdownMenuItem>
@@ -156,8 +182,8 @@ export function ProfileDetailOverflowMenu({ profileId, onError, onDelete, onEdit
  */
 export function ProfileDetailOverflowMenuFallback() {
   return (
-    <button aria-hidden disabled type="button" className={cn(headerControlClasses, triggerClasses)}>
-      <MoreHorizontal className="h-4 w-4" />
+    <button aria-hidden disabled type="button" className={cn(toolbarControlClasses, triggerClasses)}>
+      <DotsThree className="h-4 w-4" />
     </button>
   )
 }

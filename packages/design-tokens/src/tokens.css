@@ -13,38 +13,35 @@
 @theme {
   /* ---------- Fonts ---------- */
   --font-sans: "Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", monospace;
-  /* Keyboard chips only. Geist Mono has no glyphs for the modifier symbols
-     (⌘ ⌥ ⌫ ↵), so a chip like "⌘F" silently mixes two typefaces — the symbol
-     arrives from a fallback at a different weight and optical size than the
-     letter beside it. The system mono covers the symbols and the
-     alphanumerics, so one font draws the whole chip. */
-  --font-kbd: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --font-mono: "Paper Mono", ui-monospace, "SF Mono", monospace;
+  /* Keyboard chips. Paper Mono carries the modifier symbols, so the chip's
+     "⌘" and "F" come from one face; the system fonts are only a fallback. */
+  --font-kbd: "Paper Mono", ui-monospace, "SF Mono", -apple-system, system-ui, monospace;
 
   /* ---------- Surface ---------- */
-  --color-cream: #faf9f5;
-  --color-cream-2: #f0eee6;
-  --color-cream-3: #e9e6da;
-  --color-base: #ede9dc;
+  --color-cream: #ffffff;
+  --color-cream-2: #f4f4f3;
+  --color-cream-3: #ebebea;
+  --color-base: #fbfbfa;
 
   /* ---------- Content ---------- */
-  --color-ink: #1a1815;
-  --color-ink-soft: #2a2722;
-  --color-muted: #6b665c;
-  --color-muted-strong: #8e887d;
+  --color-ink: #18181b;
+  --color-ink-soft: #3f3f46;
+  --color-muted: #63636b;
+  --color-muted-strong: #8e8e96;
 
   /* ---------- Accent + status ---------- */
   --color-orange: #d97757;
   --color-orange-deep: #bf6240;
   --color-chatgpt: #6b6bd6;
-  --color-green: #5b8f5a;
-  --color-red: #b15a4e;
-  --color-amber: #c19a4a;
+  --color-green: #16a34a;
+  --color-red: #dc2626;
+  --color-amber: #d97706;
 
   /* ---------- Chrome borders ---------- */
-  --color-border: #e5e0d2;
-  --color-border-soft: #ece8db;
-  --color-border-strong: #d8d1bd;
+  --color-border: #e6e6e4;
+  --color-border-soft: #eeeeec;
+  --color-border-strong: #d4d4d1;
 
   /* ---------- Profile palette ---------- */
   --color-profile-orange: #d97757;
@@ -110,7 +107,7 @@
   --duration-modal: 220ms;
 
   /* ---------- Noise overlay opacity (per-theme override) ---------- */
-  --noise-opacity: 0.5;
+  --noise-opacity: 0;
 
   /* ---------- shadcn-compat aliases ----------
      Existing shadcn primitives reference these names; aliasing to the
@@ -138,26 +135,26 @@
    mode === 'system' + prefers-color-scheme: dark, so a single selector
    covers both cases. */
 [data-theme="dark"] {
-  --color-cream: #1a1714;
-  --color-cream-2: #221e1a;
-  --color-cream-3: #2a2520;
-  --color-base: #0f0d0b;
+  --color-cream: #161618;
+  --color-cream-2: #1c1c1f;
+  --color-cream-3: #242428;
+  --color-base: #0f0f10;
 
-  --color-ink: #f0eee6;
-  --color-ink-soft: #ddd8cc;
-  --color-muted: #a8a095;
-  --color-muted-strong: #7d7669;
+  --color-ink: #ededef;
+  --color-ink-soft: #d4d4d8;
+  --color-muted: #a1a1aa;
+  --color-muted-strong: #6e6e78;
 
   --color-orange: #e8916b;
   --color-orange-deep: #d97757;
   --color-chatgpt: #8d8df0;
-  --color-green: #7ba876;
-  --color-red: #d08372;
-  --color-amber: #d4a96b;
+  --color-green: #4ade80;
+  --color-red: #f87171;
+  --color-amber: #fbbf24;
 
-  --color-border: #332e27;
-  --color-border-soft: #2a2520;
-  --color-border-strong: #3d3730;
+  --color-border: #2a2a2e;
+  --color-border-soft: #222225;
+  --color-border-strong: #36363b;
 
   --color-profile-orange: #e8916b;
   --color-profile-sage: #9bb88e;
@@ -173,5 +170,5 @@
   --shadow-modal: 0 30px 60px -20px rgba(0, 0, 0, 0.65), 0 8px 24px -10px rgba(0, 0, 0, 0.4);
   --shadow-pulse-success: 0 0 0 3px rgba(123, 168, 118, 0.18);
 
-  --noise-opacity: 0.35;
+  --noise-opacity: 0;
 }

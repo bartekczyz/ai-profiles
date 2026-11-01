@@ -310,7 +310,7 @@ describe('ProfileDetail — surfaces', () => {
     const user = userEvent.setup()
     await user.click(await findLaunchControl())
 
-    const button = await screen.findByRole('button', { name: 'Opening' })
+    const button = await screen.findByRole('button', { name: 'Opening…' })
     expect(button).toBeDisabled()
     await user.keyboard('{Enter}')
     expect(launchedProfileIds()).toEqual(['p1'])
@@ -336,7 +336,7 @@ describe('ProfileDetail — surfaces', () => {
     renderDetail()
     const user = userEvent.setup()
     await user.click(await findLaunchControl())
-    await screen.findByRole('button', { name: 'Opening' })
+    await screen.findByRole('button', { name: 'Opening…' })
 
     await act(async () => {
       landPaths()
@@ -344,7 +344,7 @@ describe('ProfileDetail — surfaces', () => {
 
     // The resolved panel is the one on screen now, so the swap really happened.
     expect(await screen.findByText('Isolated launcher installed')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Opening' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Opening…' })).toBeDisabled()
     launch.finish()
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled()

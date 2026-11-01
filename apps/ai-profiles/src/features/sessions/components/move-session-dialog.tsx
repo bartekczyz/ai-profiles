@@ -2,7 +2,7 @@ import type { AppToQuit, MovePlan, Session } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { Button, Dialog, Kbd, useToast } from '@/design'
+import { Button, Dialog, useToast } from '@/design'
 
 import { useMoveSession, useSessionMovePlan } from '../api/use-session-actions'
 import { PrimaryAction } from './confirm-session-action-dialog'
@@ -150,7 +150,7 @@ export function MoveSessionDialog({ profileId, session, destination, onClose }: 
       onSubmit={handleConfirm}
       foot={
         <>
-          <Button variant="ghost" size="sm" trailingKbd={<Kbd>⎋</Kbd>} onClick={onClose}>
+          <Button variant="ghost" size="sm" shortcut="Escape" onClick={onClose}>
             Cancel
           </Button>
           <PrimaryAction disabled={!canConfirm} label={primaryLabel} blocker={blocker} onConfirm={handleConfirm} />
@@ -224,12 +224,12 @@ function PlanDetails({ replaceNewer, plan, destinationLabel, onReplaceNewerChang
         </p>
       ))}
       {plan.destinationNewer ? (
-        <label className="flex cursor-pointer items-start gap-2 text-body text-ink-soft">
+        <label className="flex items-start gap-2 text-body text-ink-soft">
           <input
             checked={replaceNewer}
             type="checkbox"
             onChange={(event) => onReplaceNewerChange(event.target.checked)}
-            className="mt-[3px] h-4 w-4 cursor-pointer accent-orange"
+            className="mt-[3px] h-4 w-4 accent-orange"
           />
           <span>
             Replace newer copy
@@ -241,7 +241,7 @@ function PlanDetails({ replaceNewer, plan, destinationLabel, onReplaceNewerChang
       ) : null}
       {plan.items.length === 0 ? null : (
         <details className="text-meta text-muted-strong">
-          <summary className="cursor-pointer">Files</summary>
+          <summary className="">Files</summary>
           <ul className="mt-1 flex flex-col gap-0.5 font-mono text-mono">
             {plan.items.map((item) => (
               <li key={item.path} className="flex justify-between gap-3">

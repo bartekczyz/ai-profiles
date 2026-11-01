@@ -60,7 +60,7 @@ export function slugifyPreview(name: string): string {
 /**
  * Shared form body for the create and edit modals.
  *
- * Layout: app-type Select, tracked-uppercase eyebrow label + name input + live
+ * Layout: app-type Select, field label + name input + live
  * slug helper, color swatch row, two surface toggle cards with the Dock icon
  * option under the desktop one. Surface cards self-disable when the underlying
  * dependency is missing; the parent renders the actionable copy ("Install …
@@ -209,10 +209,7 @@ type FieldProps = {
 function Field({ label, htmlFor, children }: FieldProps) {
   return (
     <div>
-      <label
-        htmlFor={htmlFor}
-        className="mb-1.5 block font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted"
-      >
+      <label htmlFor={htmlFor} className="mb-1.5 block text-[12.5px] font-medium text-ink-soft">
         {label}
       </label>
       {children}

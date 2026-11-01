@@ -2,9 +2,9 @@ import type { Dependencies } from '@/lib/types'
 
 import { useState } from 'react'
 
-import { Plus, RotateCw } from 'lucide-react'
+import { ArrowClockwise, Plus } from '@phosphor-icons/react'
 
-import { ariaKeyshortcutsFor, Button, Kbd } from '@/design'
+import { ariaKeyshortcutsFor, Button } from '@/design'
 
 type Props = {
   dependencies: Dependencies
@@ -61,8 +61,8 @@ function NoProfilesYet({ onCreate }: NoProfilesYetProps) {
       <Button
         variant="primary"
         size="md"
-        leadingIcon={<Plus className="h-3.5 w-3.5" strokeWidth={2.25} />}
-        trailingKbd={<Kbd variant="onOrange" shortcutId="open-create-profile" />}
+        leadingIcon={<Plus className="h-3.5 w-3.5" />}
+        shortcut="open-create-profile"
         aria-keyshortcuts={ariaKeyshortcutsFor('open-create-profile')}
         onClick={onCreate}
       >
@@ -124,7 +124,7 @@ function ClaudeNotDetected({ onRefresh }: ClaudeNotDetectedProps) {
       <Button
         variant="primary"
         size="md"
-        leadingIcon={<RotateCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={2.25} />}
+        leadingIcon={<ArrowClockwise className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />}
         disabled={refreshing}
         onClick={() => void handleRefresh()}
       >

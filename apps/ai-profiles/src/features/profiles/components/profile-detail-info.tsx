@@ -1,6 +1,6 @@
 import type { AppId } from '@/lib/app-registry'
 
-import { Info } from 'lucide-react'
+import { Info } from '@phosphor-icons/react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/design/ui/popover'
 import { appSpecs } from '@/lib/app-registry'
@@ -32,9 +32,9 @@ export function ProfileDetailInfo({ app, command }: Props) {
         <button
           type="button"
           aria-label="About this profile"
-          className="inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-strong outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-cream-2 hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40"
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-0 bg-transparent text-muted-strong outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-cream-2 hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40"
         >
-          <Info className="h-3.5 w-3.5" strokeWidth={1.9} />
+          <Info className="h-3.5 w-3.5" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 gap-2 text-meta leading-[1.5] text-muted">

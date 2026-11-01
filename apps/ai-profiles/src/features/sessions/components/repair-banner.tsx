@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { X } from 'lucide-react'
+import { X } from '@phosphor-icons/react'
 
 import { StatusDot } from '@/design'
 import { useAppState } from '@/lib/app-state/use-app-state'
@@ -29,13 +29,13 @@ type Props = {
  * The banner's Repair button: a small bordered button, raised off the card.
  */
 const repairButtonClasses =
-  'inline-flex h-6 shrink-0 cursor-pointer items-center rounded-md border border-border bg-white px-2.5 text-[11.5px] font-medium text-ink shadow-[0_1px_2px_rgba(0,0,0,0.06)] outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:border-border-strong focus-visible:ring-2 focus-visible:ring-orange/40 dark:bg-cream-2 dark:hover:bg-white/[0.09]'
+  'inline-flex h-6 shrink-0 items-center rounded-md border border-border bg-white px-2.5 text-[11.5px] font-medium text-ink shadow-[0_1px_2px_rgba(0,0,0,0.06)] outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:border-border-strong focus-visible:ring-2 focus-visible:ring-orange/40 dark:bg-cream-2 dark:hover:bg-white/[0.09]'
 
 /**
  * The banner's Not now button: a quiet icon that fades in on hover.
  */
 const dismissButtonClasses =
-  'grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-md text-muted-strong outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-ink/[0.06] hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40'
+  'grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted-strong outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:bg-ink/[0.06] hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40'
 
 /**
  * Heads the Active list while some of the profile's sessions need repair:

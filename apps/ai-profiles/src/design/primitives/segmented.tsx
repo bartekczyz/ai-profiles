@@ -51,7 +51,7 @@ export function Segmented<Value extends string>({
             aria-label={option.ariaLabel}
             onClick={() => onChange(option.value)}
             className={cn(
-              'group relative inline-flex items-center gap-1.5 rounded-md font-medium tracking-[-0.005em] cursor-pointer transition-all duration-(--duration-snap) ease-(--ease-natural)',
+              'group relative inline-flex items-center gap-1.5 rounded-md font-medium tracking-[-0.005em] transition-all duration-(--duration-snap) ease-(--ease-natural)',
               size === 'small' ? 'h-[22px] px-2 text-[11.5px]' : 'h-7 px-3.5 text-[12.5px]',
               isActive
                 ? 'bg-cream text-ink shadow-[0_1px_2px_rgba(0,0,0,0.08),inset_0_0_0_1px_var(--color-border)]'

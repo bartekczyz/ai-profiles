@@ -17,6 +17,7 @@
             ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
             : stored
           document.documentElement.setAttribute('data-theme', resolved)
+          if (window.__TAURI_INTERNALS__) document.documentElement.setAttribute('data-shell', 'native')
         } catch {
           /* private mode, no localStorage — leave attribute unset, CSS falls back to light */
         }
@@ -32,11 +33,13 @@
     <style>
       html, body { margin: 0; height: 100%; }
       body {
-        background: #ede9dc;
-        color: #2a221c;
+        background: #ececeb;
+        color: #18181b;
         font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
       }
-      [data-theme="dark"] body { background: #0f0d0b; color: #ecdfd0; }
+      [data-theme="dark"] body { background: #1d1d20; color: #ededef; }
+      /* Native shell: the window's own sidebar material shows through. */
+      [data-shell="native"] body { background: transparent; }
       #root { height: 100%; }
       .boot-loader {
         position: fixed;
@@ -50,7 +53,7 @@
         width: 9px;
         height: 9px;
         border-radius: 50%;
-        background: #d97757;
+        background: #8e8e96;
         animation: boot-pulse 1.2s ease-in-out infinite;
       }
       @keyframes boot-pulse {

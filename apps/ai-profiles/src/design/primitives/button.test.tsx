@@ -2,7 +2,6 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { Button } from './button'
-import { Kbd } from './kbd'
 
 describe('Button', () => {
   it('defaults to secondary medium', () => {
@@ -22,18 +21,19 @@ describe('Button', () => {
     }
   })
 
-  it('renders leading icon, trailing icon, and trailing kbd slots', () => {
+  it('renders the icon slots and states the shortcut in the tooltip', () => {
     render(
       <Button
         leadingIcon={<span data-testid="lead">L</span>}
         trailingIcon={<span data-testid="trail">T</span>}
-        trailingKbd={<Kbd>K</Kbd>}
+        shortcut="K"
       >
         Open
       </Button>,
     )
     expect(screen.getByTestId('lead')).toBeInTheDocument()
     expect(screen.getByTestId('trail')).toBeInTheDocument()
-    expect(screen.getByText('K')).toBeInTheDocument()
+    expect(screen.queryByText('K')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open' })).toHaveAttribute('title', 'Open (K)')
   })
 })
