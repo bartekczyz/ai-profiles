@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.0](https://github.com/bartekczyz/ai-profiles/compare/v1.5.0...v1.6.0) (2026-11-01)
+
+
+### Added
+
+* **ui:** redesign the app around a native macOS layout ([#82](https://github.com/bartekczyz/ai-profiles/issues/82)) ([baefd12](https://github.com/bartekczyz/ai-profiles/commit/baefd12f41bf834ac8c782ad83a3f52b8546b065))
+
+
+### Fixed
+
+* **usage:** don't show another account's quota on a usage card ([#83](https://github.com/bartekczyz/ai-profiles/issues/83)) ([84f4609](https://github.com/bartekczyz/ai-profiles/commit/84f46099f6ac2da986f12040f2c36b8ef19dbdfd)), closes [#81](https://github.com/bartekczyz/ai-profiles/issues/81)
+
 ## [1.5.0](https://github.com/bartekczyz/ai-profiles/compare/v1.4.0...v1.5.0) (2026-10-24)
 
 
