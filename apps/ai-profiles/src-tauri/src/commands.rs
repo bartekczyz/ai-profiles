@@ -21,7 +21,7 @@ use crate::sessions::{
 };
 use crate::usage::{
     self,
-    api_cost::{self, ApiCost, Period},
+    api_cost::{self, ApiCost, Period, Span},
     codex::CodexQuotaProvider,
     prices,
     quota::{ClaudeQuotaCache, ClaudeQuotaProvider, ReqwestUsageClient},
@@ -606,21 +606,31 @@ pub async fn get_profile_usage(profile_id: String) -> AppResult<ProfileUsage> {
 /// request was paid for. On a blocking thread, as it walks every transcript.
 #[tauri::command]
 pub async fn get_profile_api_cost(profile_id: String, period: Period) -> AppResult<ApiCost> {
+    let today = chrono::Local::now().date_naive();
+    read_api_cost(profile_id, period.days(today).into()).await
+}
+
+/// As [`get_profile_api_cost`], over a limit cycle: from `from` up to `to`,
+/// or up to now while the cycle is still running.
+#[tauri::command]
+pub async fn get_profile_api_cost_between(
+    profile_id: String,
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+) -> AppResult<ApiCost> {
+    read_api_cost(profile_id, Span::between(from, to, chrono::Utc::now())).await
+}
+
+async fn read_api_cost(profile_id: String, span: Span) -> AppResult<ApiCost> {
     let read = match resolve_app(&profile_id)? {
         AppKind::Claude => api_cost::read,
         AppKind::Codex => api_cost::codex::read,
     };
     let config_dir = resolve_cli_config_dir(&profile_id)?;
     prices::refresh_if_stale();
-    tokio::task::spawn_blocking(move || {
-        read(
-            &config_dir,
-            &prices::current(),
-            period.days(chrono::Local::now().date_naive()),
-        )
-    })
-    .await
-    .map_err(|error| AppError::Io(std::io::Error::other(error)))
+    tokio::task::spawn_blocking(move || read(&config_dir, &prices::current(), span))
+        .await
+        .map_err(|error| AppError::Io(std::io::Error::other(error)))
 }
 
 /// The sessions profile `profile_id` (or `default:<app>`) owns. Async so a

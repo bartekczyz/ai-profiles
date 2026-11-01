@@ -23,6 +23,7 @@ export const queryKeys = {
   // Outside the `profiles` subtree for the same reason: it walks every
   // transcript the profile has.
   profileApiCost: (id: string, period: Period) => ['profile-api-cost', id, period] as const,
+  profileApiCostBetween: (id: string, from: string, to: string) => ['profile-api-cost', id, from, to] as const,
   dependencies: ['dependencies'] as const,
   migration: {
     existing: ['migration', 'existing'] as const,

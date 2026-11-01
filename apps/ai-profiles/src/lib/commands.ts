@@ -190,6 +190,10 @@ export function getProfileApiCost(profileId: string, period: Period): Promise<Ap
   return invoke<ApiCost>('get_profile_api_cost', { profileId, period })
 }
 
+export function getProfileApiCostBetween(profileId: string, from: string, to: string): Promise<ApiCost> {
+  return invoke<ApiCost>('get_profile_api_cost_between', { profileId, from, to })
+}
+
 /**
  * The sessions profile `profileId` (or `default:<app>`) owns, active and archived.
  */

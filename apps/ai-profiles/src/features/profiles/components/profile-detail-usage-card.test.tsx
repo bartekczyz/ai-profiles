@@ -829,6 +829,9 @@ describe('Meters', () => {
 describe('codexWindowLabel', () => {
   it.each([
     [10080, 'Weekly', 'W'],
+    [43200, 'Monthly', 'M'],
+    [44640, 'Monthly', 'M'],
+    [20160, '14-day window', '14d'],
     [300, '5-hour window', '5h'],
     [60, '1-hour window', '1h'],
     [45, '45-minute window', '45m'],

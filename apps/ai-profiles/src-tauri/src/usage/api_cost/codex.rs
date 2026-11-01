@@ -28,15 +28,14 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::io::BufReader;
-use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
-use chrono::{DateTime, NaiveDate, TimeDelta, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{files, tally, ApiCost, Turn};
+use super::{files, tally, ApiCost, Span, Turn};
 use crate::line_cache::{LineCache, LineScan};
 use crate::usage::prices::{Catalog, Tier, Tokens};
 
@@ -302,7 +301,7 @@ static ROLLOUT_CACHE: LazyLock<LineCache<RolloutScan, RolloutScan>> =
 /// The estimated API cost of the Codex use recorded in `codex_home` over
 /// `period`, at `prices`. Walks every rollout, so it belongs on a blocking
 /// thread.
-pub fn read(codex_home: &Path, prices: &Catalog, period: RangeInclusive<NaiveDate>) -> ApiCost {
+pub fn read(codex_home: &Path, prices: &Catalog, period: Span) -> ApiCost {
     ROLLOUT_CACHE.forget_gone();
     let mut paths = Vec::new();
     for dir in ["sessions", "archived_sessions"] {
@@ -461,7 +460,7 @@ mod tests {
 
     const NOW: &str = "2026-10-15T12:00:00Z";
 
-    fn today() -> NaiveDate {
+    fn today() -> chrono::NaiveDate {
         local_day(NOW.parse().unwrap())
     }
 
@@ -558,7 +557,7 @@ mod tests {
     const ROLLOUT: &str = "sessions/2026/10/15/rollout-2026-10-15T12-00-00-t1.jsonl";
 
     fn cost_of(home: &Path) -> ApiCost {
-        read(home, &prices(), Period::Last30Days.days(today()))
+        read(home, &prices(), Period::Last30Days.days(today()).into())
     }
 
     fn assert_usd(actual: f64, expected: f64) {

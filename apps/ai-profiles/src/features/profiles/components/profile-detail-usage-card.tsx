@@ -436,6 +436,12 @@ export function codexWindowLabel(minutes: number | null | undefined): CodexWindo
   if (minutes == null) {
     return { label: 'Usage window', shortLabel: 'Usage' }
   }
+  if (minutes >= 28 * 1440 && minutes <= 31 * 1440) {
+    return { label: 'Monthly', shortLabel: 'M' }
+  }
+  if (minutes % 1440 === 0) {
+    return { label: `${minutes / 1440}-day window`, shortLabel: `${minutes / 1440}d` }
+  }
   if (minutes % 60 === 0) {
     return { label: `${minutes / 60}-hour window`, shortLabel: `${minutes / 60}h` }
   }
