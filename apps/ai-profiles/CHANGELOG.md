@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.1](https://github.com/bartekczyz/ai-profiles/compare/v1.7.0...v1.7.1) (2026-11-03)
+
+
+### Fixed
+
+* **usage:** refresh an expired Claude token instead of showing "rate limited" ([#87](https://github.com/bartekczyz/ai-profiles/issues/87)) ([0350e38](https://github.com/bartekczyz/ai-profiles/commit/0350e387b55d1fb04601a2e58e0393883f304841))
+
 ## [1.7.0](https://github.com/bartekczyz/ai-profiles/compare/v1.6.0...v1.7.0) (2026-11-01)
 
 

@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "ai-profiles"
-version = "1.7.0"
+version = "1.7.1"
 dependencies = [
  "async-trait",
  "chrono",
