@@ -245,6 +245,12 @@ fn refresh_env(
 fn run_pty_refresh(binary: &Path, cli_config_dir: &Path, cwd: &Path, set_config: bool) {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
+    // Captured before claude starts: with an already-expired token it
+    // refreshes on startup, before any prompt, and the wait below should end
+    // on that rotation rather than sit out the whole timeout for a second
+    // one that never comes.
+    let token_before = crate::usage::credentials::read_access_token(cli_config_dir).ok();
+
     let Ok(pair) = native_pty_system().openpty(PtySize {
         rows: 40,
         cols: 120,
@@ -312,7 +318,6 @@ fn run_pty_refresh(binary: &Path, cli_config_dir: &Path, cwd: &Path, set_config:
 
     // A trivial prompt forces an API interaction → claude refreshes + persists
     // its token. `\r` is Enter inside a TTY.
-    let token_before = crate::usage::credentials::read_access_token(cli_config_dir).ok();
     let _ = writer.write_all(b"hi\r");
     let _ = writer.flush();
 

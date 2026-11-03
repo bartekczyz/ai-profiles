@@ -1,6 +1,7 @@
 use std::path::Path;
 #[cfg(target_os = "macos")]
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -28,9 +29,51 @@ struct ClaudeOauth {
     #[serde(default)]
     #[serde(rename = "accessToken")]
     access_token: Option<String>,
+    /// Unix milliseconds at which Claude Code expects the access token to
+    /// stop being accepted. Absent in older blobs.
+    #[serde(default)]
+    #[serde(rename = "expiresAt")]
+    expires_at: Option<i64>,
 }
 
-/// Reads the OAuth access token for a profile.
+/// A profile's stored Claude Code login, as far as the usage layer needs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredCredential {
+    pub access_token: String,
+    /// When the access token expires, in Unix milliseconds, if the blob
+    /// records it.
+    pub expires_at: Option<i64>,
+}
+
+impl StoredCredential {
+    /// Pure: whether the access token is past its recorded expiry at
+    /// `now_ms`. A blob without an expiry is taken at face value.
+    ///
+    /// This matters because the usage endpoint doesn't answer an expired
+    /// token with a 401: it answers 429 with an hour-long `Retry-After`,
+    /// which reads as "rate limited" to anyone who only looks at the status.
+    /// Knowing the expiry locally is how we tell the two apart.
+    pub fn is_expired_at(&self, now_ms: i64) -> bool {
+        self.expires_at
+            .is_some_and(|expires_at| now_ms >= expires_at)
+    }
+
+    /// [`Self::is_expired_at`] against the wall clock.
+    pub fn is_expired(&self) -> bool {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis() as i64)
+            .unwrap_or(0);
+        self.is_expired_at(now_ms)
+    }
+}
+
+/// Reads the OAuth access token for a profile. See [`read_credential`].
+pub fn read_access_token(cli_config_dir: &Path) -> Result<String, QuotaError> {
+    read_credential(cli_config_dir).map(|credential| credential.access_token)
+}
+
+/// Reads the stored OAuth login for a profile.
 ///
 /// Order:
 /// 1. `<cli_config_dir>/.credentials.json` (Linux/Windows; older macOS Claude Code).
@@ -44,7 +87,7 @@ struct ClaudeOauth {
 /// failing as `Unknown` from a missing `/usr/bin/security`.
 ///
 /// On any failure returns a categorised `QuotaError`. Never panics.
-pub fn read_access_token(cli_config_dir: &Path) -> Result<String, QuotaError> {
+pub fn read_credential(cli_config_dir: &Path) -> Result<StoredCredential, QuotaError> {
     let file_path = cli_config_dir.join(".credentials.json");
     if file_path.exists() {
         return read_from_file(&file_path);
@@ -52,7 +95,7 @@ pub fn read_access_token(cli_config_dir: &Path) -> Result<String, QuotaError> {
     read_from_keychain(cli_config_dir)
 }
 
-fn read_from_file(path: &Path) -> Result<String, QuotaError> {
+fn read_from_file(path: &Path) -> Result<StoredCredential, QuotaError> {
     let metadata = match std::fs::metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -67,11 +110,11 @@ fn read_from_file(path: &Path) -> Result<String, QuotaError> {
         Ok(text) => text,
         Err(_) => return Err(QuotaError::Unknown),
     };
-    extract_token(&raw)
+    extract_credential(&raw)
 }
 
 #[cfg(target_os = "macos")]
-fn read_from_keychain(cli_config_dir: &Path) -> Result<String, QuotaError> {
+fn read_from_keychain(cli_config_dir: &Path) -> Result<StoredCredential, QuotaError> {
     let service = keychain_service_for(cli_config_dir);
     // Account name is the current macOS user. Fall back to the empty
     // string if USER isn't set — `security` will then return whatever
@@ -104,7 +147,7 @@ fn read_from_keychain(cli_config_dir: &Path) -> Result<String, QuotaError> {
         Ok(text) => text,
         Err(_) => return Err(QuotaError::Unknown),
     };
-    extract_token(raw.trim())
+    extract_credential(raw.trim())
 }
 
 /// Picks the macOS Keychain service name Claude Code actually wrote to for
@@ -126,7 +169,7 @@ fn keychain_service_for(cli_config_dir: &Path) -> String {
 /// to Claude Code on this profile yet. Surfacing `NoCredentials` keeps
 /// the UI consistent across platforms.
 #[cfg(not(target_os = "macos"))]
-fn read_from_keychain(_cli_config_dir: &Path) -> Result<String, QuotaError> {
+fn read_from_keychain(_cli_config_dir: &Path) -> Result<StoredCredential, QuotaError> {
     Err(QuotaError::NoCredentials)
 }
 
@@ -169,9 +212,9 @@ pub fn codex_is_signed_in(codex_home: &Path) -> bool {
 }
 
 /// Pure: parse the credentials JSON blob (same shape on disk and in
-/// keychain) and extract the access token. Empty / missing token →
+/// keychain) and extract the login. Empty / missing token →
 /// `NoCredentials`. Malformed JSON → `Unknown`.
-fn extract_token(raw: &str) -> Result<String, QuotaError> {
+fn extract_credential(raw: &str) -> Result<StoredCredential, QuotaError> {
     let parsed: CredentialsFile = match serde_json::from_str(raw) {
         Ok(value) => value,
         Err(_) => return Err(QuotaError::Unknown),
@@ -179,17 +222,17 @@ fn extract_token(raw: &str) -> Result<String, QuotaError> {
     // Trim whitespace from the stored token before returning it. A
     // trailing newline or stray space would otherwise be sent as part
     // of the `Authorization: Bearer …` header and rejected as 401.
-    match parsed.claude_ai_oauth.access_token {
-        Some(token) => {
-            let trimmed = token.trim();
-            if trimmed.is_empty() {
-                Err(QuotaError::NoCredentials)
-            } else {
-                Ok(trimmed.to_string())
-            }
-        }
-        None => Err(QuotaError::NoCredentials),
+    let Some(token) = parsed.claude_ai_oauth.access_token else {
+        return Err(QuotaError::NoCredentials);
+    };
+    let trimmed = token.trim();
+    if trimmed.is_empty() {
+        return Err(QuotaError::NoCredentials);
     }
+    Ok(StoredCredential {
+        access_token: trimmed.to_string(),
+        expires_at: parsed.claude_ai_oauth.expires_at,
+    })
 }
 
 #[cfg(test)]
@@ -317,9 +360,49 @@ mod tests {
     // -- extract_token (pure) --
 
     #[test]
-    fn extract_token_parses_keychain_style_blob() {
+    fn extract_credential_parses_keychain_style_blob() {
         let blob = r#"{"claudeAiOauth":{"accessToken":"sk-ant-from-keychain","refreshToken":"sk-ant-refresh","email":"x@y.z","expiresAt":1234567890000}}"#;
-        assert_eq!(extract_token(blob).unwrap(), "sk-ant-from-keychain");
+        assert_eq!(
+            extract_credential(blob).unwrap(),
+            StoredCredential {
+                access_token: "sk-ant-from-keychain".to_string(),
+                expires_at: Some(1234567890000),
+            }
+        );
+    }
+
+    #[test]
+    fn a_blob_without_an_expiry_still_yields_the_token() {
+        let blob = r#"{"claudeAiOauth":{"accessToken":"sk-old-format"}}"#;
+        let credential = extract_credential(blob).unwrap();
+        assert_eq!(credential.access_token, "sk-old-format");
+        assert_eq!(credential.expires_at, None);
+    }
+
+    // -- expiry (pure) --
+
+    fn credential_expiring_at(expires_at: Option<i64>) -> StoredCredential {
+        StoredCredential {
+            access_token: "sk-test".to_string(),
+            expires_at,
+        }
+    }
+
+    #[test]
+    fn a_token_before_its_expiry_is_not_expired() {
+        assert!(!credential_expiring_at(Some(10_000)).is_expired_at(9_999));
+    }
+
+    #[test]
+    fn a_token_at_or_past_its_expiry_is_expired() {
+        assert!(credential_expiring_at(Some(10_000)).is_expired_at(10_000));
+        assert!(credential_expiring_at(Some(10_000)).is_expired_at(10_001));
+    }
+
+    #[test]
+    fn a_token_without_a_recorded_expiry_is_never_taken_as_expired() {
+        // Older blobs don't say; the endpoint's answer has to decide.
+        assert!(!credential_expiring_at(None).is_expired_at(i64::MAX));
     }
 
     #[test]
@@ -339,6 +422,9 @@ mod tests {
         // A trailing newline or stray space in the stored value would
         // otherwise be sent as part of the Bearer header and 401.
         let blob = r#"{"claudeAiOauth":{"accessToken":"  sk-ant-padded \n"}}"#;
-        assert_eq!(extract_token(blob).unwrap(), "sk-ant-padded");
+        assert_eq!(
+            extract_credential(blob).unwrap().access_token,
+            "sk-ant-padded"
+        );
     }
 }

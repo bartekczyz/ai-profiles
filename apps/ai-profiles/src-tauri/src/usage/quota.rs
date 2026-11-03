@@ -8,7 +8,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex as TokioMutex;
 
-use crate::usage::credentials::read_access_token;
+use crate::usage::credentials::read_credential;
 use crate::usage::dead_credentials::DeadCredentialRegistry;
 use crate::usage::{QuotaError, QuotaUsage, Spend, Window};
 
@@ -141,7 +141,7 @@ async fn fetch_quota(
     cli_config_dir: &Path,
     client: &dyn UsageClient,
 ) -> Result<QuotaUsage, QuotaError> {
-    let token = read_access_token(cli_config_dir)?;
+    let token = crate::usage::credentials::read_access_token(cli_config_dir)?;
     let response = client.fetch(&token).await?;
     parse_response(response)
 }
@@ -153,20 +153,32 @@ async fn fetch_quota(
 /// rate-limit budget. With it, each token makes at most one upstream call
 /// per window, and during a cooldown we serve the rate-limited state from
 /// cache instead of re-poking (and re-tripping) the endpoint.
+///
+/// An access token past its stored expiry is reported as `Unauthorized`
+/// without asking the endpoint, and a `429` that comes back for one is
+/// reported the same way rather than cached. The endpoint answers an
+/// expired token with a 429 and an hour-long `Retry-After`, not a 401; taken
+/// at face value that would show "rate limited" for up to an hour on every
+/// profile left alone past its token's lifetime, with the CLI refresh that
+/// fixes it never asked for.
 pub async fn fetch_quota_cached(
     cli_config_dir: &Path,
     client: &dyn UsageClient,
     cache: &ClaudeQuotaCache,
     dead_credentials: &DeadCredentialRegistry,
 ) -> Result<QuotaUsage, QuotaError> {
-    let token = read_access_token(cli_config_dir)?;
+    let credential = read_credential(cli_config_dir)?;
+    let token = credential.access_token.as_str();
     // Credentials already known unrecoverable: surface NeedsLogin without a
     // network request or any cache poke. Re-auth rotates the token, which is a
     // different hash, so this naturally stops short-circuiting after sign-in.
-    if dead_credentials.is_dead(&token) {
+    if dead_credentials.is_dead(token) {
         return Err(QuotaError::NeedsLogin);
     }
-    let key = token_cache_key(&token);
+    if credential.is_expired() {
+        return Err(QuotaError::Unauthorized);
+    }
+    let key = token_cache_key(token);
     if let Some(cached) = cache.get(&key) {
         return cached;
     }
@@ -179,13 +191,16 @@ pub async fn fetch_quota_cached(
         return cached;
     }
 
-    let response = client.fetch(&token).await?;
+    let response = client.fetch(token).await?;
     let retry_after = response.retry_after;
     match parse_response(response) {
         Ok(usage) => {
             cache.store_success(key, usage.clone());
             Ok(usage)
         }
+        // The token ran out while the request was in flight: this 429 is
+        // the endpoint's way of saying so, not a rate limit worth sitting out.
+        Err(QuotaError::RateLimited) if credential.is_expired() => Err(QuotaError::Unauthorized),
         // Only rate limits are negatively cached. Network errors are
         // transient and Unauthorized drives the token-refresh retry in
         // `build_with_cli_refresh`, so neither must be pinned here.
@@ -1176,6 +1191,119 @@ mod tests {
         let _ = fetch_quota_cached(dir.path(), &client, &cache, &registry).await;
         let _ = fetch_quota_cached(dir.path(), &client, &cache, &registry).await;
         assert_eq!(*client.calls.lock().unwrap(), 2);
+    }
+
+    /// Writes a credentials file whose token carries the given `expiresAt`.
+    fn dir_with_token_expiring_at(expires_at_ms: i64) -> TempDir {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join(".credentials.json"),
+            format!(
+                r#"{{"claudeAiOauth":{{"accessToken":"sk-test","expiresAt":{expires_at_ms}}}}}"#
+            ),
+        )
+        .unwrap();
+        dir
+    }
+
+    /// Far enough out that no test run reaches it.
+    const YEAR_2100_MS: i64 = 4_102_444_800_000;
+
+    #[tokio::test]
+    async fn an_expired_token_asks_for_a_refresh_without_calling_upstream() {
+        // The endpoint would answer an expired token with a 429, which is
+        // not what it means. Don't ask: say the token needs refreshing, which
+        // is what `build_with_cli_refresh` acts on.
+        let dir = dir_with_token_expiring_at(1);
+        let cache = ClaudeQuotaCache::new();
+        let registry = DeadCredentialRegistry::new();
+        let client = CountingClient {
+            calls: std::sync::Mutex::new(0),
+            status: 429,
+            body: b"".to_vec(),
+            retry_after: Some(Duration::from_secs(3600)),
+        };
+
+        let result = fetch_quota_cached(dir.path(), &client, &cache, &registry).await;
+
+        assert!(matches!(result.unwrap_err(), QuotaError::Unauthorized));
+        assert_eq!(*client.calls.lock().unwrap(), 0, "must not call upstream");
+    }
+
+    #[tokio::test]
+    async fn a_rate_limit_on_a_token_that_expired_in_flight_is_a_refresh_not_a_cooldown() {
+        // The request left while the token was still valid and a 429 came
+        // back after the token's expiry passed: that 429 is the endpoint's
+        // answer to an expired token, and must neither read as rate limited
+        // nor be pinned as one for an hour.
+        struct SlowClient;
+        #[async_trait]
+        impl UsageClient for SlowClient {
+            async fn fetch(&self, _: &str) -> Result<HttpResponse, QuotaError> {
+                tokio::time::sleep(Duration::from_millis(600)).await;
+                Ok(HttpResponse {
+                    status: 429,
+                    body: Vec::new(),
+                    retry_after: Some(Duration::from_secs(3600)),
+                })
+            }
+        }
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let dir = dir_with_token_expiring_at(now_ms + 300);
+        let cache = ClaudeQuotaCache::new();
+        let registry = DeadCredentialRegistry::new();
+
+        let result = fetch_quota_cached(dir.path(), &SlowClient, &cache, &registry).await;
+
+        assert!(matches!(result.unwrap_err(), QuotaError::Unauthorized));
+        assert!(
+            cache.get(&token_cache_key("sk-test")).is_none(),
+            "no cooldown may be pinned for the expired token"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rate_limit_on_a_live_token_is_still_a_rate_limit() {
+        // A token well within its lifetime that gets a 429 really is rate
+        // limited; the expiry check must not swallow that.
+        let dir = dir_with_token_expiring_at(YEAR_2100_MS);
+        let cache = ClaudeQuotaCache::new();
+        let registry = DeadCredentialRegistry::new();
+        let client = CountingClient {
+            calls: std::sync::Mutex::new(0),
+            status: 429,
+            body: b"".to_vec(),
+            retry_after: Some(Duration::from_secs(1800)),
+        };
+
+        let result = fetch_quota_cached(dir.path(), &client, &cache, &registry).await;
+
+        assert!(matches!(result.unwrap_err(), QuotaError::RateLimited));
+        assert_eq!(*client.calls.lock().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_dead_token_stays_needs_login_even_once_expired() {
+        // Dead wins: spawning a refresh for a refresh token already known
+        // not to work would only repeat the failure every poll.
+        let dir = dir_with_token_expiring_at(1);
+        let cache = ClaudeQuotaCache::new();
+        let registry = DeadCredentialRegistry::new();
+        registry.mark_dead("sk-test");
+        let client = CountingClient {
+            calls: std::sync::Mutex::new(0),
+            status: 429,
+            body: b"".to_vec(),
+            retry_after: None,
+        };
+
+        let result = fetch_quota_cached(dir.path(), &client, &cache, &registry).await;
+
+        assert!(matches!(result.unwrap_err(), QuotaError::NeedsLogin));
+        assert_eq!(*client.calls.lock().unwrap(), 0);
     }
 
     #[tokio::test]
