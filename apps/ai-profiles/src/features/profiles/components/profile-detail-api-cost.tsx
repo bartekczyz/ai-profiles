@@ -129,9 +129,10 @@ type Props = {
  * for every profile; a cycle picked in the breakdown lasts until the app
  * closes and leaves the card as it is.
  *
- * It is an estimate of the recorded use, never the bill: the profile may pay
- * by API key, by subscription, or both over time, and nothing on disk says
- * which, so it isn't compared against a plan.
+ * It is an API-equivalent: the recorded use at API list prices, the same
+ * whether a plan covered it or it was paid for (API key, usage credits). The
+ * profile may pay each way over time, and nothing on disk says which paid for
+ * what, so it isn't compared against a plan.
  */
 export function ProfileDetailApiCost({ app, profileId }: Props) {
   const { cycle, cyclePeriod, cycles, days, changePeriod } = useCostPeriods(app, profileId)
@@ -196,7 +197,7 @@ function cycleOf(cycles: ReturnType<typeof limitCycles>, period: CyclePeriod | n
 function CostPlaceholder({ isError }: { isError: boolean }) {
   return (
     <div className={rowClasses}>
-      <span className={rowLabelClasses}>Estimated API cost</span>
+      <span className={rowLabelClasses}>API-equivalent cost</span>
       {isError ? (
         <span className="text-muted">Couldn't read the transcripts</span>
       ) : (
@@ -264,7 +265,7 @@ function ApiCostRow({
         className={`${rowClasses} transition-colors hover:bg-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-white/[0.05]`}
       >
         <span className="flex w-full items-center gap-2">
-          <span className={rowLabelClasses}>Estimated API cost</span>
+          <span className={rowLabelClasses}>API-equivalent cost</span>
           <CaretRight aria-hidden size={14} className="ml-auto shrink-0 text-muted-strong" />
         </span>
         <span className="grid auto-cols-fr grid-flow-col divide-x divide-border-soft">
@@ -274,8 +275,8 @@ function ApiCostRow({
       </button>
       <Dialog
         open={open}
-        title="Estimated API cost"
-        description={`What ${source.tool} use on this profile would cost at ${source.api} prices. An estimate, not your bill.`}
+        title="API-equivalent cost"
+        description={`What ${source.tool} use on this profile would cost at ${source.api} prices.`}
         // Held at the top, not centred: each period is a different height,
         // and centred, the picker would move out from under the pointer.
         className="top-8 w-[min(780px,calc(100%-64px))] translate-y-0"
@@ -618,8 +619,8 @@ function Footnote({ cost, app }: { cost: ApiCost; app: AppId }) {
     <section className="text-meta text-muted">
       <p className="m-0">
         From this profile's {sources[app].tool} transcripts, at the API list prices in LiteLLM's price list as of{' '}
-        {format(parseISO(cost.pricesAsOf), 'MMM d, yyyy')}, whenever the use happened. It estimates the use they record,
-        not what you were billed, whether you pay by API key or by subscription. {sources[app].leftOut}
+        {format(parseISO(cost.pricesAsOf), 'MMM d, yyyy')}, whenever the use happened. It is an API-equivalent, the same
+        whether a plan covered the use or it was paid for: the transcripts don't record which. {sources[app].leftOut}
       </p>
     </section>
   )
