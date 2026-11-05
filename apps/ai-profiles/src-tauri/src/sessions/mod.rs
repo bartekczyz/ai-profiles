@@ -22,7 +22,7 @@ use crate::app_kind::AppKind;
 pub use actions::{ActionCheck, SessionAction};
 pub use claude::repair::RepairReport;
 pub use home::home_for;
-pub use list::{list_sessions, SessionList};
+pub use list::{claude_session_transcripts, list_sessions, SessionList};
 pub use move_plan::{MovePlan, MoveReport};
 
 /// Where one profile, or one app's stock install, keeps its sessions.

@@ -1,7 +1,8 @@
 //! An estimate of what a profile's Claude Code or Codex use would cost at API
-//! prices. It is not the profile's bill: the transcripts don't say how each
-//! request was paid for (API key or subscription), so nothing is compared
-//! against a plan. Ordinary chats in the Claude and ChatGPT apps and on the
+//! prices: what an API key, or Claude's extra usage beyond a plan's limits, is
+//! billed for it. Within a plan's limits the plan covers it, and the
+//! transcripts don't say how each request was paid for (API key, plan or extra
+//! usage), so nothing is compared against a plan. Ordinary chats in the Claude and ChatGPT apps and on the
 //! web keep no token counts on disk and aren't part of it.
 //!
 //! Claude Code's use ([`read`]) is read from the transcripts in the profile's config dir,
@@ -11,7 +12,8 @@
 //! a resumed or forked session copies earlier responses into its new
 //! transcript, so responses are counted once per profile. Transcripts left
 //! elsewhere (archived, moved to another profile) are not counted here.
-//! Codex's ([`codex::read`]) is read from its rollouts.
+//! Codex's ([`codex::read`]) is read from its rollouts. What each session of
+//! the Sessions list would cost is read the same way ([`sessions`]).
 //!
 //! Prices come from LiteLLM's price list ([`super::prices`]): nothing about
 //! the use leaves the machine. A request of a model the list doesn't have, or
@@ -31,6 +33,7 @@ use super::prices::{Catalog, Tier, Tokens};
 use crate::line_cache::{LineCache, LineScan};
 
 pub(crate) mod codex;
+pub(crate) mod sessions;
 
 /// The days an estimate covers, as picked in the app. Claude Code deletes
 /// transcripts after 30 days unless told otherwise (`cleanupPeriodDays`), so
@@ -118,8 +121,8 @@ impl From<RangeInclusive<NaiveDate>> for Span {
 const MIN_PROJECTED_DAYS: u32 = 7;
 
 /// What a profile's Claude Code or Codex use over a [`Period`] would cost at
-/// API list prices, in USD: an estimate of the recorded use, not what the
-/// profile was billed, whether it pays by API key or by subscription.
+/// API list prices, in USD: an estimate of the recorded use, whichever way it
+/// was paid for, as the transcripts don't say.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiCost {
@@ -253,6 +256,10 @@ struct Turn {
     tokens: Tokens,
     web_searches: u64,
     tier: Tier,
+    /// The session that recorded it: its record's `sessionId`, which a copy
+    /// in a resumed or forked session's transcript keeps, as do a subagent's
+    /// records. `None` for Codex, and for records without one.
+    session: Option<String>,
 }
 
 /// What a transcript's lines say so far.
@@ -276,6 +283,7 @@ const USAGE_MARKER: &str = "\"usage\":{";
 struct Record {
     timestamp: Option<String>,
     request_id: Option<String>,
+    session_id: Option<String>,
     message: Option<Message>,
 }
 
@@ -396,6 +404,7 @@ fn turn_of(record: Record) -> Option<(String, Turn)> {
                 Some("fast") => Tier::Fast,
                 _ => Tier::Standard,
             },
+            session: record.session_id.filter(|id| !id.is_empty()),
         },
     ))
 }
@@ -410,27 +419,27 @@ pub fn read(config_dir: &Path, prices: &Catalog, period: Span) -> ApiCost {
     USAGE_CACHE.forget_gone();
     let projects = config_dir.join("projects");
     let mut paths = Vec::new();
-    files(
-        &projects,
-        &|path| path.extension().is_some_and(|ext| ext == "jsonl"),
-        &mut paths,
-    );
-    let scans: Vec<UsageScan> = paths
-        .iter()
-        .filter_map(|path| {
-            USAGE_CACHE.read(path, |scan, tail, _| match tail {
-                Some(tail) => {
-                    let mut whole = scan.clone();
-                    whole.read(tail);
-                    whole
-                }
-                None => scan.clone(),
-            })
-        })
-        .collect();
+    files(&projects, &is_transcript, &mut paths);
+    let scans: Vec<UsageScan> = paths.iter().filter_map(|path| usage_scan(path)).collect();
     let read: HashSet<PathBuf> = paths.into_iter().collect();
     USAGE_CACHE.retain(|path| !path.starts_with(&projects) || read.contains(path));
     tally(once_each(&scans), prices, period)
+}
+
+/// What the transcript at `path` says, the line still being written included.
+fn usage_scan(path: &Path) -> Option<UsageScan> {
+    USAGE_CACHE.read(path, |scan, tail, _| match tail {
+        Some(tail) => {
+            let mut whole = scan.clone();
+            whole.read(tail);
+            whole
+        }
+        None => scan.clone(),
+    })
+}
+
+fn is_transcript(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "jsonl")
 }
 
 /// Every file in `dir` and the folders in it that is `wanted`, into
@@ -523,13 +532,7 @@ fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, period: Span) -> A
         if !period.contains(turn.at) {
             continue;
         }
-        let costs = match prices.model(&turn.model) {
-            Some(rates) => rates
-                .cost(&turn.tokens, turn.web_searches, turn.tier)
-                .map_err(Some),
-            None => Err(None),
-        };
-        let costs = match costs {
+        let costs = match priced(turn, prices) {
             Ok(costs) => costs,
             Err(missing) => {
                 *unpriced
@@ -557,16 +560,7 @@ fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, period: Span) -> A
         *by_project.entry(project).or_default() += usd;
     }
 
-    let mut by_model: Vec<ModelCost> = by_model
-        .into_iter()
-        .map(|(model, usd)| ModelCost { model, usd })
-        .collect();
-    by_model.sort_by(|left, right| {
-        right
-            .usd
-            .total_cmp(&left.usd)
-            .then(left.model.cmp(&right.model))
-    });
+    let by_model = ranked_models(by_model);
     let days = start
         .iter_days()
         .take_while(|day| *day <= end)
@@ -598,21 +592,7 @@ fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, period: Span) -> A
             .total_cmp(&left.usd)
             .then(left.path.cmp(&right.path))
     });
-    let mut unpriced: Vec<UnpricedUse> = unpriced
-        .into_iter()
-        .map(|((model, missing), tokens)| UnpricedUse {
-            model,
-            missing,
-            tokens,
-        })
-        .collect();
-    unpriced.sort_by(|left, right| {
-        right
-            .tokens
-            .cmp(&left.tokens)
-            .then(left.model.cmp(&right.model))
-            .then(left.missing.cmp(&right.missing))
-    });
+    let unpriced = ranked_unpriced(unpriced);
 
     let period_days = u32::try_from((end - start).num_days() + 1).unwrap_or(u32::MAX);
     let covered_days = oldest.filter(|oldest| *oldest <= end).map_or(0, |oldest| {
@@ -635,6 +615,53 @@ fn tally(turns: Vec<(&Turn, Option<&str>)>, prices: &Catalog, period: Span) -> A
         coverage,
         prices_as_of: prices.as_of(),
     }
+}
+
+/// What `turn` cost at `prices`, by what was billed. When the list has no
+/// rate for it, what it lacks: `None` for the model itself.
+fn priced(turn: &Turn, prices: &Catalog) -> Result<KindCosts, Option<&'static str>> {
+    match prices.model(&turn.model) {
+        Some(rates) => rates
+            .cost(&turn.tokens, turn.web_searches, turn.tier)
+            .map_err(Some),
+        None => Err(None),
+    }
+}
+
+/// The costs of `by_model`, most expensive first.
+fn ranked_models(by_model: HashMap<String, f64>) -> Vec<ModelCost> {
+    let mut by_model: Vec<ModelCost> = by_model
+        .into_iter()
+        .map(|(model, usd)| ModelCost { model, usd })
+        .collect();
+    by_model.sort_by(|left, right| {
+        right
+            .usd
+            .total_cmp(&left.usd)
+            .then(left.model.cmp(&right.model))
+    });
+    by_model
+}
+
+/// The use of `unpriced`, by model and what the list lacks, most tokens
+/// first.
+fn ranked_unpriced(unpriced: HashMap<(String, Option<&'static str>), u64>) -> Vec<UnpricedUse> {
+    let mut unpriced: Vec<UnpricedUse> = unpriced
+        .into_iter()
+        .map(|((model, missing), tokens)| UnpricedUse {
+            model,
+            missing,
+            tokens,
+        })
+        .collect();
+    unpriced.sort_by(|left, right| {
+        right
+            .tokens
+            .cmp(&left.tokens)
+            .then(left.model.cmp(&right.model))
+            .then(left.missing.cmp(&right.missing))
+    });
+    unpriced
 }
 
 /// The repository `folder` is in: the nearest folder up from it with a
@@ -719,7 +746,7 @@ mod tests {
         })
     }
 
-    fn prices() -> Catalog {
+    pub(super) fn prices() -> Catalog {
         catalog_of(
             json!({
                 "claude-opus-5-5": anthropic(4.0, 20.0, 5.0, 8.0, 0.2),
@@ -735,7 +762,7 @@ mod tests {
         read(config, &prices(), Period::Last30Days.days(today()).into())
     }
 
-    fn assert_usd(actual: f64, expected: f64) {
+    pub(super) fn assert_usd(actual: f64, expected: f64) {
         assert!(
             (actual - expected).abs() < 1e-9,
             "expected ${expected}, got ${actual}"

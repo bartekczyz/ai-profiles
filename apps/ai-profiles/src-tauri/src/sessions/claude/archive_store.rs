@@ -335,6 +335,25 @@ fn remove_empty_dirs(dir: &Path) {
 /// a readable manifest. Folders starting with `.` hold other things, such as
 /// backups of files a move replaced, and are skipped.
 pub fn archived_bundles(config_dir: &Path) -> Vec<ArchivedBundle> {
+    latest_bundles(config_dir)
+        .into_iter()
+        .map(|(_, bundle)| bundle)
+        .collect()
+}
+
+/// The folder of each session's latest bundle in `config_dir`, as
+/// [`archived_bundles`] reads them, by session id. A bundle keeps its files'
+/// paths relative to the config dir, so its transcripts are under `projects/`.
+pub fn archived_bundle_dirs(config_dir: &Path) -> Vec<(String, PathBuf)> {
+    latest_bundles(config_dir)
+        .into_iter()
+        .map(|(dir, bundle)| (bundle.session_id, dir))
+        .collect()
+}
+
+/// Each session's latest bundle in `config_dir` that has a readable
+/// manifest, with its folder.
+fn latest_bundles(config_dir: &Path) -> Vec<(PathBuf, ArchivedBundle)> {
     let Ok(sessions) = fs::read_dir(config_dir.join(ARCHIVE_DIR)) else {
         return Vec::new();
     };
@@ -346,7 +365,7 @@ pub fn archived_bundles(config_dir: &Path) -> Vec<ArchivedBundle> {
             if session_id.starts_with('.') {
                 return None;
             }
-            latest_bundle(session_id, &entry.path()).map(|(_, bundle)| bundle)
+            latest_bundle(session_id, &entry.path())
         })
         .collect()
 }

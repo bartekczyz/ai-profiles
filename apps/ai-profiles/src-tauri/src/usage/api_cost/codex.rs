@@ -24,6 +24,9 @@
 //! within [`BURST_PAUSE`] of each other at its start is taken for the replay,
 //! as ccusage does. A thread both in `sessions/` and `archived_sessions/`
 //! counts once, from `sessions/`.
+//!
+//! By thread ([`session_costs`]), a subagent's requests are its spawner's: the
+//! Sessions list shows the threads people started, not their subagents.
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -35,6 +38,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::sessions::{SessionCosts, SessionTab};
 use super::{files, tally, ApiCost, Span, Turn};
 use crate::line_cache::{LineCache, LineScan};
 use crate::usage::prices::{Catalog, Tier, Tokens};
@@ -181,6 +185,8 @@ struct RolloutScan {
     /// The thread it was forked from, or the one that spawned it as a
     /// subagent.
     parent: Option<String>,
+    /// The thread that spawned it, when it is a subagent.
+    spawned_by: Option<String>,
     /// When it started: for a fork, when it was forked.
     started: Option<DateTime<Utc>>,
     /// The folder it works in.
@@ -214,16 +220,17 @@ impl LineScan for RolloutScan {
         };
         match (kind.as_deref(), payload.kind.as_deref()) {
             (Some("session_meta"), _) if self.id.is_none() => {
+                self.spawned_by = payload
+                    .source
+                    .as_ref()
+                    .and_then(|source| source.pointer("/subagent/thread_spawn/parent_thread_id"))
+                    .and_then(Value::as_str)
+                    .filter(|spawner| !spawner.is_empty())
+                    .map(str::to_owned);
                 self.parent = payload
                     .forked_from_id
-                    .or_else(|| {
-                        let spawner = payload
-                            .source
-                            .as_ref()?
-                            .pointer("/subagent/thread_spawn/parent_thread_id")?;
-                        spawner.as_str().map(str::to_owned)
-                    })
-                    .filter(|parent| !parent.is_empty());
+                    .filter(|parent| !parent.is_empty())
+                    .or_else(|| self.spawned_by.clone());
                 self.id = payload.id;
                 self.cwd = payload.cwd.filter(|cwd| !cwd.is_empty());
                 self.started = timestamp.and_then(|at| at.parse().ok());
@@ -302,6 +309,48 @@ static ROLLOUT_CACHE: LazyLock<LineCache<RolloutScan, RolloutScan>> =
 /// `period`, at `prices`. Walks every rollout, so it belongs on a blocking
 /// thread.
 pub fn read(codex_home: &Path, prices: &Catalog, period: Span) -> ApiCost {
+    let scans = rollout_scans(codex_home);
+    let threads = Threads::of(&codex_home.join("sessions"), &scans);
+    let turns: Vec<(Turn, Option<&str>)> = threads
+        .own_requests()
+        .flat_map(|(scan, requests)| {
+            requests
+                .iter()
+                .map(|request| (turn_of(request), scan.cwd.as_deref()))
+        })
+        .collect();
+    let turns = turns.iter().map(|(turn, cwd)| (turn, *cwd)).collect();
+    tally(turns, prices, period)
+}
+
+/// What each thread in `codex_home` would cost at `prices` over its whole
+/// life, by thread id: its own requests and those of the subagents it
+/// spawned. Walks every rollout, so it belongs on a blocking thread.
+pub fn session_costs(codex_home: &Path, prices: &Catalog) -> SessionCosts {
+    let scans = rollout_scans(codex_home);
+    let threads = Threads::of(&codex_home.join("sessions"), &scans);
+    let mut tabs: HashMap<&str, SessionTab> = HashMap::new();
+    for (scan, requests) in threads.own_requests() {
+        let Some(id) = scan.id.as_deref() else {
+            continue;
+        };
+        let tab = tabs.entry(threads.spawner_of(id)).or_default();
+        for request in requests {
+            tab.add(&turn_of(request), prices);
+        }
+    }
+    SessionCosts {
+        sessions: tabs
+            .into_iter()
+            .map(|(id, tab)| (id.to_owned(), tab.finish()))
+            .collect(),
+        prices_as_of: prices.as_of(),
+    }
+}
+
+/// Every rollout in `codex_home`, read: plain where both a plain and a
+/// compressed copy are there.
+fn rollout_scans(codex_home: &Path) -> Vec<(PathBuf, RolloutScan)> {
     ROLLOUT_CACHE.forget_gone();
     let mut paths = Vec::new();
     for dir in ["sessions", "archived_sessions"] {
@@ -313,18 +362,12 @@ pub fn read(codex_home: &Path, prices: &Catalog, period: Span) -> ApiCost {
         .cloned()
         .collect();
     paths.retain(|path| !is_compressed(path) || !plain.contains(&path.with_extension("")));
-    let scans: Vec<(&Path, RolloutScan)> = paths
-        .iter()
-        .filter_map(|path| Some((path.as_path(), scan_of(path)?)))
-        .collect();
     let read: HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
     ROLLOUT_CACHE.retain(|path| !path.starts_with(codex_home) || read.contains(path));
-    let turns = own_requests(&codex_home.join("sessions"), &scans);
-    let turns = turns
+    paths
         .iter()
-        .map(|(turn, cwd)| (turn, cwd.as_deref()))
-        .collect();
-    tally(turns, prices, period)
+        .filter_map(|path| Some((path.clone(), scan_of(path)?)))
+        .collect()
 }
 
 fn is_rollout(path: &Path) -> bool {
@@ -356,47 +399,81 @@ fn scan_of(path: &Path) -> Option<RolloutScan> {
     }
 }
 
-/// The requests the threads in `scans` made themselves, each with the folder
-/// its thread works in. A thread in more than one rollout counts once, from
-/// the one in `active`, the `sessions/` dir, if any.
-fn own_requests(active: &Path, scans: &[(&Path, RolloutScan)]) -> Vec<(Turn, Option<String>)> {
-    let mut threads: HashMap<&str, &RolloutScan> = HashMap::new();
-    let mut unnamed = Vec::new();
-    for (path, scan) in scans {
-        let Some(id) = scan.id.as_deref() else {
-            unnamed.push(scan);
-            continue;
-        };
-        match threads.entry(id) {
-            Entry::Vacant(entry) => {
-                entry.insert(scan);
+/// The threads of a set of rollouts.
+struct Threads<'a> {
+    /// By id. A thread in more than one rollout is read from the one in the
+    /// `sessions/` dir, if any.
+    by_id: HashMap<&'a str, &'a RolloutScan>,
+    /// The rollouts that name no thread.
+    unnamed: Vec<&'a RolloutScan>,
+}
+
+impl<'a> Threads<'a> {
+    /// The threads of `scans`, preferring a rollout in `active`, the
+    /// `sessions/` dir, to an archived copy.
+    fn of(active: &Path, scans: &'a [(PathBuf, RolloutScan)]) -> Self {
+        let mut by_id: HashMap<&str, &RolloutScan> = HashMap::new();
+        let mut unnamed = Vec::new();
+        for (path, scan) in scans {
+            let Some(id) = scan.id.as_deref() else {
+                unnamed.push(scan);
+                continue;
+            };
+            match by_id.entry(id) {
+                Entry::Vacant(entry) => {
+                    entry.insert(scan);
+                }
+                Entry::Occupied(mut entry) if path.starts_with(active) => {
+                    entry.insert(scan);
+                }
+                Entry::Occupied(_) => {}
             }
-            Entry::Occupied(mut entry) if path.starts_with(active) => {
-                entry.insert(scan);
-            }
-            Entry::Occupied(_) => {}
         }
+        Threads { by_id, unnamed }
     }
-    threads
-        .values()
-        .copied()
-        .chain(unnamed)
-        .flat_map(|scan| {
-            let parent = scan
-                .parent
-                .as_deref()
-                .filter(|parent| scan.id.as_deref() != Some(parent))
-                .map(|parent| {
-                    threads
-                        .get(parent)
-                        .map(|parent| replayable(parent, scan.started))
-                });
-            let skipped = parent.map_or(0, |parent| replayed(&scan.requests, parent.as_deref()));
-            scan.requests[skipped..]
-                .iter()
-                .map(|request| (turn_of(request), scan.cwd.clone()))
-        })
-        .collect()
+
+    /// Each thread's rollout with the requests it made itself: without what a
+    /// fork or a subagent replays of its parent at its start.
+    fn own_requests(&self) -> impl Iterator<Item = (&'a RolloutScan, &'a [Request])> + '_ {
+        self.by_id
+            .values()
+            .copied()
+            .chain(self.unnamed.iter().copied())
+            .map(|scan| {
+                let parent = scan
+                    .parent
+                    .as_deref()
+                    .filter(|parent| scan.id.as_deref() != Some(parent))
+                    .map(|parent| {
+                        self.by_id
+                            .get(parent)
+                            .map(|parent| replayable(parent, scan.started))
+                    });
+                let skipped =
+                    parent.map_or(0, |parent| replayed(&scan.requests, parent.as_deref()));
+                (scan, &scan.requests[skipped..])
+            })
+    }
+
+    /// The thread `id` works for: itself, or for a subagent the thread that
+    /// spawned it, followed up to one no thread spawned. One whose rollout is
+    /// gone ends the climb.
+    fn spawner_of(&self, mut id: &'a str) -> &'a str {
+        // A spawner can't be spawned by its own subagent; the bound only
+        // keeps rollouts that say so anyway from looping.
+        for _ in 0..=self.by_id.len() {
+            match self
+                .by_id
+                .get(id)
+                .copied()
+                .and_then(|scan| scan.spawned_by.as_deref())
+            {
+                Some(spawner) if spawner != id => id = spawner,
+                _ => break,
+            }
+        }
+        id
+    }
 }
 
 /// The usage of the requests `parent` made up to `forked_at`, which a thread
@@ -443,6 +520,7 @@ fn turn_of(request: &Request) -> Turn {
         tokens: request.usage.tokens(),
         web_searches: request.web_searches,
         tier: request.tier,
+        session: None,
     }
 }
 
@@ -749,6 +827,50 @@ mod tests {
         );
 
         assert_usd(cost_of(home.path()).by_kind.input, 4.0);
+    }
+
+    #[test]
+    fn by_thread_a_fork_pays_for_its_own_requests_and_a_spawner_for_its_subagents() {
+        let home = tempdir().unwrap();
+        let (one, two) = (usage(1_000_000, 0, 0), usage(2_000_000, 0, 0));
+        write(
+            home.path(),
+            ROLLOUT,
+            &[
+                meta("parent", 0, json!({})),
+                turn_context("gpt-5.6"),
+                count(10, one.clone(), one.clone()),
+            ],
+        );
+        write(
+            home.path(),
+            "sessions/2026/10/15/rollout-2026-10-15T12-05-00-child.jsonl",
+            &[
+                meta("child", 300, json!({ "forked_from_id": "parent" })),
+                turn_context("gpt-5.6"),
+                // The parent's request, replayed, then the fork's own.
+                count(300, one.clone(), one.clone()),
+                count(320, two, one),
+            ],
+        );
+        let source =
+            json!({ "subagent": { "thread_spawn": { "parent_thread_id": "child", "depth": 1 } } });
+        let half = usage(500_000, 0, 0);
+        write(
+            home.path(),
+            "archived_sessions/rollout-2026-10-15T12-06-00-agent.jsonl",
+            &[
+                meta("agent", 360, json!({ "source": source })),
+                turn_context("gpt-5.6"),
+                count(400, half.clone(), half),
+            ],
+        );
+
+        let costs = session_costs(home.path(), &prices());
+
+        assert_usd(costs.sessions["parent"].total_usd, 4.0);
+        assert_usd(costs.sessions["child"].total_usd, 4.0 + 2.0);
+        assert!(!costs.sessions.contains_key("agent"));
     }
 
     #[test]
