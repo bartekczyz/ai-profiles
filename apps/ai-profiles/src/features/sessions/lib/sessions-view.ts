@@ -1,11 +1,13 @@
 import type { AppId } from '@/lib/app-registry'
-import type { Session } from '@/lib/types'
+import type { Session, SessionCost } from '@/lib/types'
 import type { DescribedFailure } from './describe-failure'
-import type { KindFilter, SessionsTab, SortDirection } from './session-filters'
+import type { CostSum } from './session-cost'
+import type { KindFilter, SessionSort, SessionsTab } from './session-filters'
 
 import { appSpecs } from '@/lib/app-registry'
 
 import { describeFailure } from './describe-failure'
+import { costSum } from './session-cost'
 import { countByTab, filterSessions, hasBothKinds, sortSessions } from './session-filters'
 
 /**
@@ -24,6 +26,10 @@ export type SessionsListing = {
    * The sessions listed; absent until the first listing lands.
    */
   sessions?: Array<Session>
+  /**
+   * What each session would cost, by its id; absent until they are read.
+   */
+  costs?: Record<string, SessionCost>
 }
 
 /**
@@ -43,9 +49,9 @@ export type ViewFilters = {
    */
   query: string
   /**
-   * The last-used order.
+   * The order of the rows.
    */
-  direction: SortDirection
+  sort: SessionSort
 }
 
 /**
@@ -89,6 +95,11 @@ type SessionsView = {
    * How many sessions each tab holds; absent until the first listing lands.
    */
   counts?: Record<SessionsTab, number>
+  /**
+   * What the rows to show add up to; `null` until the costs are read, or
+   * when none of the rows has one.
+   */
+  costSum: CostSum | null
 }
 
 /**
@@ -113,15 +124,16 @@ type EmptyTabCopy = {
 export function sessionsView(listing: SessionsListing, filters: ViewFilters): SessionsView {
   const listed = listing.sessions
   const sessions = listed ?? []
-  const { tab, query, direction } = filters
+  const { tab, query, sort } = filters
   const inTab = filterSessions(sessions, { tab, kind: 'all', query: '' })
   const kindFilterShown = hasBothKinds(inTab)
   const kind = kindFilterShown ? filters.kindChoice : 'all'
+  const visible = sortSessions(filterSessions(inTab, { tab, kind, query }), sort, listing.costs)
   return {
     tabTotal: inTab.length,
     kindFilterShown,
     kind,
-    visible: sortSessions(filterSessions(inTab, { tab, kind, query }), direction),
+    visible,
     repairSessionIds: sessions.filter((session) => session.needsRepair).map((session) => session.id),
     // A failed refetch keeps the rows it already has, under a quiet note; only
     // a listing that never landed shows the failure.
@@ -129,6 +141,7 @@ export function sessionsView(listing: SessionsListing, filters: ViewFilters): Se
     refreshFailed: listed !== undefined && listing.isError,
     footerShown: listed !== undefined && inTab.length > 0,
     counts: listed === undefined ? undefined : countByTab(listed),
+    costSum: listing.costs === undefined ? null : costSum(visible, listing.costs),
   }
 }
 

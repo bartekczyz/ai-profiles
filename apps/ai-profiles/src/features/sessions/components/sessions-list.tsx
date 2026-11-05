@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { AppId, Session, SessionAction } from '@/lib/types'
+import type { AppId, Session, SessionAction, SessionCost } from '@/lib/types'
 import type { DescribedFailure } from '../lib/describe-failure'
 import type { MoveTarget } from './move-session-dialog'
 import type { SessionRowAction } from './session-row-actions'
@@ -10,7 +10,7 @@ import { cn } from '@/design'
 import { TooltipProvider } from '@/design/ui/tooltip'
 
 import { moveAvailability, rowActions } from '../lib/session-actions'
-import { SessionRow } from './session-row'
+import { SessionRow, sessionRowGridClasses } from './session-row'
 import { SessionsListSkeleton, sessionsListClasses } from './sessions-panel-skeleton'
 
 type Props = {
@@ -45,6 +45,10 @@ type Props = {
    * The other profiles of the app a session can be moved to.
    */
   moveTargets: Array<MoveTarget>
+  /**
+   * What the sessions would cost at API prices, as far as it is read.
+   */
+  costs: RowCosts
   /**
    * What an empty tab says.
    */
@@ -97,6 +101,20 @@ type RowActionsInput = {
   onMove: (session: Session, target: MoveTarget) => void
 }
 
+/**
+ * What the sessions would cost at API prices, as far as it is read.
+ */
+type RowCosts = {
+  /**
+   * Whether the costs are still being read.
+   */
+  pending: boolean
+  /**
+   * Each session's, by its id; absent until read, or when they couldn't be.
+   */
+  byId?: Record<string, SessionCost>
+}
+
 type SessionRowsProps = {
   /**
    * The rows to show, filtered and ordered.
@@ -110,6 +128,10 @@ type SessionRowsProps = {
    * The other profiles of the app a session can be moved to.
    */
   moveTargets: Array<MoveTarget>
+  /**
+   * What the sessions would cost at API prices, as far as it is read.
+   */
+  costs: RowCosts
   /**
    * Asks to do `action` to `session`, from its row.
    */
@@ -162,6 +184,14 @@ const actionLabels: Record<SessionAction, string> = {
 }
 
 /**
+ * The rows' box, laid out in the rows' three columns: the session, its cost
+ * and its actions. Rows start at the top rather than share out its height,
+ * and each is as tall as its content: once the rows overflow the box, a grid
+ * row would otherwise shrink to the row's minimum height and cut it off.
+ */
+const rowsGridClasses = 'grid auto-rows-max grid-cols-[minmax(0,1fr)_auto_auto] content-start gap-x-3'
+
+/**
  * The list's secondary buttons, Retry and Clear search: a quiet bordered
  * pill.
  */
@@ -182,6 +212,7 @@ export function SessionsList({
   sessions,
   app,
   moveTargets,
+  costs,
   emptyTitle,
   emptyHint,
   onRetry,
@@ -215,27 +246,55 @@ export function SessionsList({
       </Notice>
     )
   }
-  return <SessionRows sessions={sessions} app={app} moveTargets={moveTargets} onAction={onAction} onMove={onMove} />
+  return (
+    <SessionRows
+      sessions={sessions}
+      app={app}
+      moveTargets={moveTargets}
+      costs={costs}
+      onAction={onAction}
+      onMove={onMove}
+    />
+  )
 }
 
 /**
- * The rows, which share one tooltip provider for why their actions are held
- * back.
+ * The rows, under heads naming the session and cost columns, which share one
+ * tooltip provider for their costs' breakdowns and why their actions are held
+ * back. The heads show while the costs are read and once some row has one.
  */
-function SessionRows({ sessions, app, moveTargets, onAction, onMove }: SessionRowsProps) {
+function SessionRows({ sessions, app, moveTargets, costs, onAction, onMove }: SessionRowsProps) {
+  const costShown = costs.pending || sessions.some((session) => costs.byId?.[session.id] !== undefined)
   return (
     <TooltipProvider>
-      <ul aria-label="Sessions" className={sessionsListClasses}>
+      <ul aria-label="Sessions" className={cn(sessionsListClasses, rowsGridClasses)}>
+        {costShown ? <ColumnHeads /> : null}
         {sessions.map((session) => (
           <SessionRow
             key={session.id}
+            costPending={costs.pending}
             session={session}
             app={app}
+            cost={costs.byId?.[session.id]}
             actions={sessionRowActions({ session, app, moveTargets, onAction, onMove })}
           />
         ))}
       </ul>
     </TooltipProvider>
+  )
+}
+
+/**
+ * The heads of the session and cost columns, as the list's first row. Hidden
+ * from screen readers: each row's cost says what it is.
+ */
+function ColumnHeads() {
+  return (
+    <li aria-hidden className={cn(sessionRowGridClasses, 'py-[5px] font-mono text-[11px] text-muted-strong')}>
+      <span>Session</span>
+      <span className="text-right">API-equivalent</span>
+      <span />
+    </li>
   )
 }
 

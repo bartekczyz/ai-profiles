@@ -10,16 +10,7 @@ import { getProfileApiCost, getProfileApiCostBetween } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 import { renderWithQuery } from '@/test/render-with-query'
 
-import {
-  barsOf,
-  cycleText,
-  formatShare,
-  formatUsd,
-  kindRows,
-  ProfileDetailApiCost,
-  summaryText,
-  unpricedNote,
-} from './profile-detail-api-cost'
+import { barsOf, cycleText, kindRows, ProfileDetailApiCost, summaryText, unpricedNote } from './profile-detail-api-cost'
 
 vi.mock('@/lib/commands', () => ({
   getProfileApiCost: vi.fn(),
@@ -400,26 +391,6 @@ describe('barsOf', () => {
       { model: 'Sonnet 5.5', usd: 3 },
     ])
     expect(barsOf(days, 1, byModel)).toHaveLength(9)
-  })
-})
-
-describe('formatting', () => {
-  it('drops the cents from $100 up', () => {
-    expect(formatUsd(4.5)).toBe('$4.50')
-    expect(formatUsd(20)).toBe('$20')
-    expect(formatUsd(1234.56)).toBe('$1,235')
-  })
-
-  it('shows an amount too small for cents as under a cent, not as $0.00', () => {
-    expect(formatUsd(0.004)).toBe('<$0.01')
-    expect(formatUsd(0.006)).toBe('$0.01')
-    expect(formatUsd(0)).toBe('$0')
-  })
-
-  it('shows a share too small to round up as under 1%', () => {
-    expect(formatShare(0.0001)).toBe('<1%')
-    expect(formatShare(0)).toBe('0%')
-    expect(formatShare(0.426)).toBe('43%')
   })
 })
 

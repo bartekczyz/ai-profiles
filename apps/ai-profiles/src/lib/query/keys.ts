@@ -35,6 +35,9 @@ export const queryKeys = {
   sessions: {
     all: ['sessions'] as const,
     list: (profileId: string) => ['sessions', profileId] as const,
+    // Under the list's key, so an action that refetches the lists refetches
+    // what their sessions cost too.
+    costs: (profileId: string) => ['sessions', profileId, 'costs'] as const,
   },
   // Outside the `sessions` subtree: the lists refetching after an action must
   // not refetch the check of the action that was just done.
