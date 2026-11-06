@@ -32,15 +32,29 @@ const listed: SessionsListing = { sessions, isError: false, error: null }
 /**
  * The Active tab, unnarrowed, newest first.
  */
-const activeFilters: ViewFilters = { tab: 'active', kindChoice: 'all', query: '', direction: 'desc' }
+const activeFilters: ViewFilters = {
+  tab: 'active',
+  kindChoice: 'all',
+  query: '',
+  sort: { key: 'lastUsed', direction: 'desc' },
+}
 
 describe('sessionsView', () => {
   it('shows the open tab’s sessions, narrowed and ordered, with each tab’s count', () => {
-    const view = sessionsView(listed, { ...activeFilters, query: 'the', direction: 'asc' })
+    const view = sessionsView(listed, { ...activeFilters, query: 'the', sort: { key: 'lastUsed', direction: 'asc' } })
     expect(ids(view.visible)).toEqual(['old', 'new'])
     expect(view.tabTotal).toBe(3)
     expect(view.counts).toEqual({ active: 3, archived: 1 })
     expect(view.footerShown).toBe(true)
+  })
+
+  it('orders the rows by cost and adds up the ones it shows', () => {
+    const cost = (usd: number) => ({ totalUsd: usd, byModel: [], unpriced: [], coverage: 'complete' as const })
+    const costs = { old: cost(9), new: cost(1), desk: cost(4), gone: cost(50) }
+    const view = sessionsView({ ...listed, costs }, { ...activeFilters, sort: { key: 'cost', direction: 'desc' } })
+    expect(ids(view.visible)).toEqual(['old', 'desk', 'new'])
+    expect(view.costSum).toEqual({ usd: 14, partial: false })
+    expect(sessionsView(listed, activeFilters).costSum).toBeNull()
   })
 
   it('applies the kind chosen while the tab mixes both kinds', () => {

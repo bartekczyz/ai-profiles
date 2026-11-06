@@ -1,14 +1,18 @@
 import type { AppId } from '@/lib/app-registry'
-import type { Session, SessionAction } from '@/lib/types'
-import type { KindFilter, SessionsTab, SortDirection } from '../lib/session-filters'
+import type { Session, SessionAction, Spend } from '@/lib/types'
+import type { CostSum } from '../lib/session-cost'
+import type { KindFilter, SessionSort, SessionsTab } from '../lib/session-filters'
 import type { MoveTarget } from './move-session-dialog'
 
 import { Suspense, useState } from 'react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/design/ui/tabs'
+import { useProfileUsageSnapshot } from '@/features/profiles/api/use-profile-usage'
 import { appFromEntry, entryId, useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
 import { appSpecs } from '@/lib/app-registry'
+import { formatMoney, formatUsd } from '@/lib/format-cost'
 
+import { useSessionCosts } from '../api/use-session-costs'
 import { useSessions } from '../api/use-sessions'
 import { sessionCount } from '../lib/session-count'
 import { emptyTabCopy, sessionsView } from '../lib/sessions-view'
@@ -16,7 +20,7 @@ import { ConfirmSessionActionDialog } from './confirm-session-action-dialog'
 import { MoveSessionDialog } from './move-session-dialog'
 import { RefreshFailedNote } from './refresh-failed-note'
 import { RepairBanner } from './repair-banner'
-import { SessionsControls } from './sessions-controls'
+import { SessionsControls, sortChoices } from './sessions-controls'
 import { SessionsList } from './sessions-list'
 import { sessionsHeaderClasses, sessionsPanelClasses } from './sessions-panel-skeleton'
 
@@ -156,9 +160,18 @@ type ListFooterProps = {
    */
   total: number
   /**
-   * The last-used order.
+   * The order of the rows.
    */
-  direction: SortDirection
+  sort: SessionSort
+  /**
+   * What the rows add up to at API prices; `null` without costs to add.
+   */
+  costSum: CostSum | null
+  /**
+   * What the profile paid in usage credits this month, as the usage card last
+   * read it; none when it has no usage credits.
+   */
+  paid?: Spend
 }
 
 /**
@@ -181,21 +194,16 @@ const tabTriggerClasses =
   'h-6 flex-none cursor-default gap-1.5 rounded-md border-0 px-3 text-[12px] font-medium text-muted data-active:bg-cream data-active:text-ink data-active:shadow-[0_1px_2px_rgba(0,0,0,0.1),0_0_0_0.5px_rgba(0,0,0,0.06)] dark:data-active:bg-white/[0.12] dark:data-active:shadow-none'
 
 /**
- * What the footer says for each order.
- */
-const directionLabels: Record<SortDirection, string> = {
-  desc: 'newest first',
-  asc: 'oldest first',
-}
-
-/**
  * The sessions a profile owns, beside (or, in a narrow pane, below) its
  * details, in a card that speaks the Usage card's language.
  *
  * A SESSIONS eyebrow heads the card with the Active and Archived tabs across
  * from it; under them, one toolbar — search, the Desktop/CLI filter and the
- * last-used sort — applies to whichever tab is open, and a footer says how
- * many rows show and in what order. The panel fills the height the pane gives it — the column
+ * sort, by last use or API-equivalent cost — applies to whichever tab is open,
+ * and a footer says how many rows show, what they add up to at API prices
+ * beside what the profile paid in usage credits this month, and in what
+ * order. Each row's API-equivalent cost is read apart from the list and fills
+ * its column once read. The panel fills the height the pane gives it — the column
  * beside the details, or the room under them — and only the rows scroll.
  *
  * An active session's row offers Move, a menu of the app's other profiles
@@ -213,13 +221,20 @@ export function SessionsPanel({ profileId, app }: Props) {
   const [tab, setTab] = useState<SessionsTab>('active')
   const [kindChoice, setKindChoice] = useState<KindFilter>('all')
   const [query, setQuery] = useState('')
-  const [direction, setDirection] = useState<SortDirection>('desc')
+  const [sort, setSort] = useState<SessionSort>({ key: 'lastUsed', direction: 'desc' })
+  const costsQuery = useSessionCosts(profileId)
+  const paid = useProfileUsageSnapshot(profileId).data?.quota?.spend
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const { moveTargets, profileLabel } = useMoveTargets(profileId, app)
   const view = sessionsView(
-    { sessions: sessionsQuery.data?.sessions, isError: sessionsQuery.isError, error: sessionsQuery.error },
-    { tab, kindChoice, query, direction },
+    {
+      sessions: sessionsQuery.data?.sessions,
+      isError: sessionsQuery.isError,
+      error: sessionsQuery.error,
+      costs: costsQuery.data?.sessions,
+    },
+    { tab, kindChoice, query, sort },
   )
   const empty = emptyTabCopy(tab, app)
   const retry = () => {
@@ -237,10 +252,10 @@ export function SessionsPanel({ profileId, app }: Props) {
         kindFilterShown={view.kindFilterShown}
         query={query}
         kind={view.kind}
-        direction={direction}
+        sort={sort}
         onQueryChange={setQuery}
         onKindChange={setKindChoice}
-        onDirectionChange={setDirection}
+        onSortChange={setSort}
       />
       {/* One content slot, for whichever tab is open: the rows below the
           controls are the same list either way, filtered by the tab. Keyed
@@ -263,6 +278,7 @@ export function SessionsPanel({ profileId, app }: Props) {
           sessions={view.visible}
           app={app}
           moveTargets={moveTargets}
+          costs={{ pending: costsQuery.isPending, byId: costsQuery.data?.sessions }}
           emptyTitle={empty.title}
           emptyHint={empty.hint}
           onRetry={retry}
@@ -271,7 +287,9 @@ export function SessionsPanel({ profileId, app }: Props) {
           onMove={(session, destination) => setPendingMove({ session, destination })}
         />
       </TabsContent>
-      {view.footerShown ? <ListFooter shown={view.visible.length} total={view.tabTotal} direction={direction} /> : null}
+      {view.footerShown ? (
+        <ListFooter shown={view.visible.length} total={view.tabTotal} sort={sort} costSum={view.costSum} paid={paid} />
+      ) : null}
       <PendingDialogs
         profileId={profileId}
         pendingAction={pendingAction}
@@ -388,13 +406,42 @@ function TabLabel({ label, count }: TabLabelProps) {
 
 /**
  * The card's last line: how many rows show — of how many, while search or
- * kind narrows them — and in what order.
+ * kind narrows them — and what they add up to at API prices, with a `+` when
+ * some of their use couldn't be priced; then in what order they show.
+ *
+ * That sum is an API-equivalent, whether a plan covered the use or it was
+ * paid for, so what the profile actually paid in usage credits this month
+ * follows it, as the usage card last read it.
  */
-function ListFooter({ shown, total, direction }: ListFooterProps) {
+function ListFooter({ shown, total, sort, costSum, paid }: ListFooterProps) {
+  const choice = sortChoices.find((each) => each.key === sort.key) ?? sortChoices[0]
   return (
     <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-border-soft px-[13px] py-1.5 font-mono text-mono text-muted-strong">
-      <span>{shown === total ? sessionCount(total) : `${shown} of ${sessionCount(total)}`}</span>
-      <span>last used · {directionLabels[direction]}</span>
+      <span className="min-w-0 truncate">
+        {shown === total ? sessionCount(total) : `${shown} of ${sessionCount(total)}`}
+        {costSum === null ? null : (
+          <>
+            <span className="mx-1.5 text-border">·</span>
+            <span className="text-ink-soft tabular-nums">
+              {formatUsd(costSum.usd)}
+              {costSum.partial ? '+' : ''}
+            </span>{' '}
+            API-equivalent
+          </>
+        )}
+        {costSum === null || paid === undefined ? null : (
+          <>
+            <span className="mx-1.5 text-border">·</span>
+            <span className="text-ink-soft tabular-nums">
+              {formatMoney(paid.usedMinor, paid.currency, paid.exponent)}
+            </span>{' '}
+            paid in usage credits this month
+          </>
+        )}
+      </span>
+      <span className="shrink-0">
+        {choice.label.toLowerCase()} · {choice.directions[sort.direction].toLowerCase()}
+      </span>
     </footer>
   )
 }

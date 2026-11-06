@@ -357,6 +357,46 @@ export type ApiCost = {
   pricesAsOf: string
 }
 
+/**
+ * What one session's Claude Code or Codex use would cost at API list prices
+ * over its whole life, in USD: what an API key, or Claude's extra usage, is
+ * billed for it. Within a plan's limits, the plan covers it.
+ */
+export type SessionCost = {
+  /**
+   * The sum of `byModel`.
+   */
+  totalUsd: number
+  /**
+   * Most expensive first.
+   */
+  byModel: Array<ModelCost>
+  /**
+   * Use the price list has no rates for, as in `ApiCost`. Its tokens are in
+   * none of the costs.
+   */
+  unpriced: ApiCost['unpriced']
+  /**
+   * How much of the session's use the costs cover.
+   */
+  coverage: ApiCost['coverage']
+}
+
+/**
+ * What a profile's sessions would cost at API prices.
+ */
+export type SessionCosts = {
+  /**
+   * By each session's id in the Sessions list. A session that used nothing
+   * has none.
+   */
+  sessions: Record<string, SessionCost>
+  /**
+   * The day the price list is of, `YYYY-MM-DD`.
+   */
+  pricesAsOf: string
+}
+
 /** The account a profile is signed in under, from what its CLI keeps on disk. */
 export type ProfileAccount = {
   email: string | null

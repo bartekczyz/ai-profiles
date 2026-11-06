@@ -1,4 +1,4 @@
-import type { Session } from '@/lib/types'
+import type { Session, SessionCost } from '@/lib/types'
 
 import { describe, expect, it } from 'vitest'
 
@@ -10,6 +10,13 @@ import { countByTab, filterSessions, hasBothKinds, sortSessions } from './sessio
  */
 function ids(sessions: Array<Session>): Array<string> {
   return sessions.map((session) => session.id)
+}
+
+/**
+ * A cost of `usd`, covering as much of the use as `coverage` says.
+ */
+function makeCost(usd: number, coverage: SessionCost['coverage'] = 'complete'): SessionCost {
+  return { totalUsd: usd, byModel: [{ model: 'Opus 5.5', usd }], unpriced: [], coverage }
 }
 
 describe('filterSessions', () => {
@@ -70,15 +77,15 @@ describe('sortSessions', () => {
   ]
 
   it('puts the most recently used first when descending', () => {
-    expect(ids(sortSessions(sessions, 'desc'))).toEqual(['newest', 'middle', 'oldest'])
+    expect(ids(sortSessions(sessions, { key: 'lastUsed', direction: 'desc' }))).toEqual(['newest', 'middle', 'oldest'])
   })
 
   it('puts the least recently used first when ascending', () => {
-    expect(ids(sortSessions(sessions, 'asc'))).toEqual(['oldest', 'middle', 'newest'])
+    expect(ids(sortSessions(sessions, { key: 'lastUsed', direction: 'asc' }))).toEqual(['oldest', 'middle', 'newest'])
   })
 
   it('leaves the input untouched', () => {
-    sortSessions(sessions, 'asc')
+    sortSessions(sessions, { key: 'lastUsed', direction: 'asc' })
     expect(ids(sessions)).toEqual(['middle', 'newest', 'oldest'])
   })
 
@@ -87,7 +94,43 @@ describe('sortSessions', () => {
       makeSession({ id: 'earlier', lastUsedAt: '2026-09-02T11:00:00+02:00' }),
       makeSession({ id: 'later', lastUsedAt: '2026-09-02T10:00:00Z' }),
     ]
-    expect(ids(sortSessions(offset, 'desc'))).toEqual(['later', 'earlier'])
+    expect(ids(sortSessions(offset, { key: 'lastUsed', direction: 'desc' }))).toEqual(['later', 'earlier'])
+  })
+})
+
+describe('sortSessions by cost', () => {
+  const sessions = [
+    makeSession({ id: 'cheap', lastUsedAt: '2026-09-01T10:00:00Z' }),
+    makeSession({ id: 'unpriced', lastUsedAt: '2026-09-02T10:00:00Z' }),
+    makeSession({ id: 'pricey', lastUsedAt: '2026-09-03T10:00:00Z' }),
+    makeSession({ id: 'none', lastUsedAt: '2026-09-04T10:00:00Z' }),
+    makeSession({ id: 'cheap-newer', lastUsedAt: '2026-09-05T10:00:00Z' }),
+  ]
+  const costs = {
+    cheap: makeCost(2),
+    'cheap-newer': makeCost(2),
+    pricey: makeCost(40, 'partial'),
+    unpriced: makeCost(0, 'unpriced'),
+  }
+
+  it('puts the priciest first, ties most recently used first, and rows without a figure last', () => {
+    expect(ids(sortSessions(sessions, { key: 'cost', direction: 'desc' }, costs))).toEqual([
+      'pricey',
+      'cheap-newer',
+      'cheap',
+      'none',
+      'unpriced',
+    ])
+  })
+
+  it('keeps rows without a figure last when the cheapest come first', () => {
+    expect(ids(sortSessions(sessions, { key: 'cost', direction: 'asc' }, costs))).toEqual([
+      'cheap-newer',
+      'cheap',
+      'pricey',
+      'none',
+      'unpriced',
+    ])
   })
 })
 

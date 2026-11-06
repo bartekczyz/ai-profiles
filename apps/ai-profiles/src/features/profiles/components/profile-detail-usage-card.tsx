@@ -10,6 +10,7 @@ import { format } from 'date-fns'
 import { cn, PortalTooltip, panelClasses, Skeleton } from '@/design'
 import { appSpecs } from '@/lib/app-registry'
 import { openCliLogin } from '@/lib/commands'
+import { formatMoney } from '@/lib/format-cost'
 
 import { refetchIntervalMs, UsageUnavailableError, useProfileUsage } from '../api/use-profile-usage'
 
@@ -609,24 +610,6 @@ function SpendMeter({ spend }: { spend: Spend | undefined }) {
       trailing={`${used} of ${limit}`}
     />
   )
-}
-
-// Minor units → a localised currency string. The amount is only divided
-// down at the last moment so the integer the backend sent stays exact.
-function formatMoney(amountMinor: number, currency: string, exponent: number): string {
-  const amount = amountMinor / 10 ** exponent
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: exponent,
-      maximumFractionDigits: exponent,
-    }).format(amount)
-  } catch {
-    // Intl throws on a currency code it doesn't know. A bare number with
-    // the code beside it is still more use than an empty row.
-    return `${amount.toFixed(exponent)} ${currency}`
-  }
 }
 
 // Layout: [label] [bar (1fr)] [trailing text fixed width]. The fixed

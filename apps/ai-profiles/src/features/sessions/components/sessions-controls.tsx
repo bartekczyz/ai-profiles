@@ -1,11 +1,28 @@
 import type { SegmentedOption } from '@/design'
-import type { KindFilter, SortDirection } from '../lib/session-filters'
+import type { KindFilter, SessionSort, SortDirection, SortKey } from '../lib/session-filters'
 
-import { MagnifyingGlass, Monitor, SortAscending, SortDescending, TerminalWindow } from '@phosphor-icons/react'
+import { Fragment } from 'react'
+
+import {
+  CaretDown,
+  MagnifyingGlass,
+  Monitor,
+  SortAscending,
+  SortDescending,
+  TerminalWindow,
+} from '@phosphor-icons/react'
 
 import { Segmented, TooltipBubble } from '@/design'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/design/ui/dropdown-menu'
 import { Input } from '@/design/ui/input'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/design/ui/tooltip'
 
 type Props = {
   /**
@@ -22,9 +39,9 @@ type Props = {
    */
   kind: KindFilter
   /**
-   * The last-used order.
+   * The order of the rows.
    */
-  direction: SortDirection
+  sort: SessionSort
   /**
    * Called with the new search text.
    */
@@ -36,7 +53,25 @@ type Props = {
   /**
    * Called with the order to switch to.
    */
-  onDirectionChange: (direction: SortDirection) => void
+  onSortChange: (sort: SessionSort) => void
+}
+
+/**
+ * One thing the list can be ordered by, as the sort menu offers it.
+ */
+type SortChoice = {
+  /**
+   * What it orders by.
+   */
+  key: SortKey
+  /**
+   * Its name.
+   */
+  label: string
+  /**
+   * What each way it runs is called.
+   */
+  directions: Record<SortDirection, string>
 }
 
 /**
@@ -68,28 +103,35 @@ const kindOptions: ReadonlyArray<SegmentedOption<KindFilter>> = [
 ]
 
 /**
- * What the sort toggle says for each order.
+ * What the list can be ordered by, in the sort menu's order.
  */
-const directionLabels: Record<SortDirection, string> = {
-  desc: 'Newest first',
-  asc: 'Oldest first',
-}
+export const sortChoices: ReadonlyArray<SortChoice> = [
+  { key: 'lastUsed', label: 'Last used', directions: { desc: 'Newest first', asc: 'Oldest first' } },
+  { key: 'cost', label: 'API-equivalent', directions: { desc: 'Highest first', asc: 'Lowest first' } },
+]
+
+/**
+ * Each way the list can run, in the sort menu's order.
+ */
+const directions: ReadonlyArray<SortDirection> = ['desc', 'asc']
 
 /**
  * The toolbar under the panel's header that narrows and orders the open tab:
- * search, the kind filter, and the last-used sort. One compact line — the
- * search takes the room left, the filter and the sort keep to icons.
+ * search, the kind filter, and the sort. One compact line — the search takes
+ * the room left, the filter keeps to icons, and the sort names what it orders
+ * by only where the panel has room.
  */
 export function SessionsControls({
   kindFilterShown,
   query,
   kind,
-  direction,
+  sort,
   onQueryChange,
   onKindChange,
-  onDirectionChange,
+  onSortChange,
 }: Props) {
-  const SortIcon = direction === 'desc' ? SortDescending : SortAscending
+  const SortIcon = sort.direction === 'desc' ? SortDescending : SortAscending
+  const choice = sortChoices.find((each) => each.key === sort.key) ?? sortChoices[0]
   return (
     <div className="flex shrink-0 items-center gap-1.5 px-[13px] pt-2 pb-[9px]">
       <div className="relative min-w-0 flex-1">
@@ -114,25 +156,52 @@ export function SessionsControls({
       {kindFilterShown ? (
         <Segmented ariaLabel="Session kind" size="small" options={kindOptions} value={kind} onChange={onKindChange} />
       ) : null}
-      {/* Portalled, unlike the filter's bubbles: the button sits at the
-          card's right edge, and a bubble centred on it would be clipped. */}
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={`Last used, ${directionLabels[direction].toLowerCase()}`}
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] border border-border bg-white text-muted outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:border-border-strong hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40 dark:bg-cream-2"
-              onClick={() => onDirectionChange(direction === 'desc' ? 'asc' : 'desc')}
-            >
-              <SortIcon aria-hidden className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent sideOffset={4} className="px-2 py-1 font-mono text-[11px] leading-[1.4]">
-            Last used · {directionLabels[direction].toLowerCase()}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Sort: ${choice.label}, ${choice.directions[sort.direction].toLowerCase()}`}
+            className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1.5 rounded-[7px] border border-border bg-white px-[7px] text-[12px] text-muted outline-none transition-colors duration-(--duration-snap) ease-(--ease-natural) hover:border-border-strong hover:text-ink focus-visible:ring-2 focus-visible:ring-orange/40 data-[state=open]:border-border-strong data-[state=open]:text-ink dark:bg-cream-2"
+          >
+            <SortIcon aria-hidden className="h-3.5 w-3.5" />
+            <span className="hidden @min-[480px]/sessions:inline">{choice.label}</span>
+            <CaretDown aria-hidden className="hidden h-3 w-3 opacity-70 @min-[480px]/sessions:block" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuRadioGroup
+            value={`${sort.key}:${sort.direction}`}
+            onValueChange={(value) => onSortChange(sortOf(value))}
+          >
+            {sortChoices.map((each, index) => (
+              <Fragment key={each.key}>
+                {index > 0 ? <DropdownMenuSeparator /> : null}
+                <DropdownMenuLabel className="text-[11px] text-muted-strong">{each.label}</DropdownMenuLabel>
+                {directions.map((direction) => (
+                  <DropdownMenuRadioItem
+                    key={direction}
+                    value={`${each.key}:${direction}`}
+                    className="px-2 py-1.5 text-[12px]"
+                  >
+                    {each.directions[direction]}
+                  </DropdownMenuRadioItem>
+                ))}
+              </Fragment>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
+}
+
+/**
+ * The order a sort menu item's `value`, `<key>:<direction>`, stands for.
+ */
+function sortOf(value: string): SessionSort {
+  const [key, direction] = value.split(':')
+  return {
+    key: key === 'cost' ? 'cost' : 'lastUsed',
+    direction: direction === 'asc' ? 'asc' : 'desc',
+  }
 }

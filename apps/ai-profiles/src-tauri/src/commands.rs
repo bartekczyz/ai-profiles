@@ -21,7 +21,7 @@ use crate::sessions::{
 };
 use crate::usage::{
     self,
-    api_cost::{self, ApiCost, Period, Span},
+    api_cost::{self, sessions::SessionCosts, ApiCost, Period, Span},
     codex::CodexQuotaProvider,
     prices,
     quota::{ClaudeQuotaCache, ClaudeQuotaProvider, ReqwestUsageClient},
@@ -631,6 +631,27 @@ async fn read_api_cost(profile_id: String, span: Span) -> AppResult<ApiCost> {
     tokio::task::spawn_blocking(move || read(&config_dir, &prices::current(), span))
         .await
         .map_err(|error| AppError::Io(std::io::Error::other(error)))
+}
+
+/// What each session profile `profile_id` (or `default:<app>`) owns would
+/// cost at API prices over its whole life, by its id in the Sessions list, at
+/// the price list in use (refreshed in the background when it is over a day
+/// old). On a blocking thread, as it walks every transcript.
+#[tauri::command]
+pub async fn get_session_costs(profile_id: String) -> AppResult<SessionCosts> {
+    let home = sessions::home_for(&profile_id)?;
+    prices::refresh_if_stale();
+    tokio::task::spawn_blocking(move || {
+        let prices = prices::current();
+        Ok(match home.app {
+            AppKind::Claude => {
+                api_cost::sessions::claude(&sessions::claude_session_transcripts(&home)?, &prices)
+            }
+            AppKind::Codex => api_cost::codex::session_costs(&home.config_dir, &prices),
+        })
+    })
+    .await
+    .map_err(|error| AppError::Io(std::io::Error::other(error)))?
 }
 
 /// The sessions profile `profile_id` (or `default:<app>`) owns. Async so a

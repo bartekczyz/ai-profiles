@@ -1,5 +1,6 @@
-import type { Profile, Session, SessionList, SidebarEntry } from '@/lib/types'
+import type { Profile, ProfileUsage, Session, SessionCost, SessionList, SidebarEntry } from '@/lib/types'
 
+import { QueryClient } from '@tanstack/react-query'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,11 +10,13 @@ import { useSidebarEntries } from '@/features/profiles/api/use-sidebar-entries'
 import {
   archiveSession,
   checkSessionAction,
+  getSessionCosts,
   listSessions,
   loadAppState,
   moveSession,
   planSessionMove,
 } from '@/lib/commands'
+import { queryKeys } from '@/lib/query/keys'
 import { makeRetryingClient, renderWithQuery } from '@/test/render-with-query'
 
 import { makeSession } from '../test/make-session'
@@ -23,6 +26,7 @@ vi.mock('@/lib/commands', () => ({
   archiveSession: vi.fn(),
   checkSessionAction: vi.fn(),
   checkSessionRepair: vi.fn(),
+  getSessionCosts: vi.fn(),
   listSessions: vi.fn(),
   loadAppState: vi.fn(),
   moveSession: vi.fn(),
@@ -99,17 +103,25 @@ function expectRows(titles: Array<string>) {
 }
 
 /**
- * Renders the panel and waits for the first rows.
+ * Renders the panel, on `client` when given, and waits for the first rows.
  */
-async function renderPanel() {
+async function renderPanel(client?: QueryClient) {
   const user = userEvent.setup()
   const result = renderWithQuery(
     <ToastProvider>
       <SessionsPanel profileId="p1" app="claude" />
     </ToastProvider>,
+    { client },
   )
   await screen.findByRole('list', { name: 'Sessions' })
   return { ...result, user }
+}
+
+/**
+ * What a session that cost `usd`, all of it priced, would cost.
+ */
+function makeCost(usd: number): SessionCost {
+  return { totalUsd: usd, byModel: [{ model: 'Opus 5.5', usd }], unpriced: [], coverage: 'complete' }
 }
 
 /**
@@ -135,6 +147,7 @@ beforeEach(() => {
     defaultProfileColors: {},
   })
   vi.mocked(listSessions).mockReset()
+  vi.mocked(getSessionCosts).mockReset().mockResolvedValue({ sessions: {}, pricesAsOf: '2026-10-14' })
   vi.mocked(archiveSession).mockReset().mockResolvedValue(undefined)
   vi.mocked(checkSessionAction).mockReset().mockResolvedValue({ blocker: null, appToQuit: null })
   vi.mocked(useSidebarEntries).mockReset().mockReturnValue(sidebarEntries)
@@ -212,13 +225,43 @@ describe('SessionsPanel', () => {
     expectRows(['Old parser work'])
   })
 
-  it('reverses the order when the sort is toggled', async () => {
+  it('reverses the order picked from the sort menu', async () => {
     mockSessions(mixed)
     const { user } = await renderPanel()
-    await user.click(screen.getByRole('button', { name: /Last used/ }))
+    await user.click(screen.getByRole('button', { name: /^Sort/ }))
+    await user.click(screen.getByRole('menuitemradio', { name: 'Oldest first' }))
     expectRows(['Fix the build', 'Plan the launch', 'Refactor the parser'])
-    await user.click(screen.getByRole('button', { name: /Last used/ }))
-    expectRows(['Refactor the parser', 'Plan the launch', 'Fix the build'])
+  })
+
+  it('shows what each session would cost, orders by it and adds up the rows', async () => {
+    mockSessions(mixed)
+    vi.mocked(getSessionCosts).mockResolvedValue({
+      sessions: { a: makeCost(1.5), b: makeCost(12.4), c: makeCost(0.25), d: makeCost(90) },
+      pricesAsOf: '2026-10-14',
+    })
+    const { user, container } = await renderPanel()
+    await screen.findByText('$12.40')
+    await user.click(screen.getByRole('button', { name: /^Sort/ }))
+    await user.click(screen.getByRole('menuitemradio', { name: 'Highest first' }))
+    expectRows(['Plan the launch', 'Refactor the parser', 'Fix the build'])
+    expect(container.querySelector('footer')).toHaveTextContent('3 sessions·$14.15 API-equivalent')
+  })
+
+  it('puts what the profile paid in usage credits beside the API-equivalent total', async () => {
+    mockSessions(mixed)
+    vi.mocked(getSessionCosts).mockResolvedValue({ sessions: { a: makeCost(1.5) }, pricesAsOf: '2026-10-14' })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+    })
+    const spend = { usedMinor: 1240, currency: 'GBP', exponent: 2, limitMinor: 30000, percent: 4 }
+    client.setQueryData(queryKeys.profileUsage('p1'), {
+      quota: { primary: null, secondary: null, scopedWeekly: [], spend },
+      quotaError: null,
+      fetchedAt: '2026-11-05T12:00:00Z',
+    } satisfies ProfileUsage)
+    const { container } = await renderPanel(client)
+    await waitFor(() => expect(container.querySelector('footer')).toHaveTextContent('$1.50 API-equivalent·'))
+    expect(container.querySelector('footer')).toHaveTextContent('12.40 paid in usage credits this month')
   })
 
   it('keeps the search across tabs and clears it from the no-match state', async () => {

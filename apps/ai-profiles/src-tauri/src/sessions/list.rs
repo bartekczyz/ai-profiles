@@ -8,7 +8,7 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use super::claude::archive_store::{archived_bundles, ArchivedBundle};
+use super::claude::archive_store::{archived_bundle_dirs, archived_bundles, ArchivedBundle};
 use super::claude::desktop::{self, read_records};
 use super::claude::live::{live_sessions, LiveHolder};
 use super::claude::markup::strip_markup;
@@ -20,6 +20,7 @@ use super::Home;
 use crate::app_kind::AppKind;
 use crate::error::{AppError, AppResult};
 use crate::launch::process_list;
+use crate::usage::api_cost::sessions::SessionTranscripts;
 
 /// Why a session whose desktop record outlived its transcript can't move.
 const TRANSCRIPT_DELETED: &str = "Transcript deleted";
@@ -153,6 +154,57 @@ pub(super) fn claude_sessions(home: &Home, homes: &[Home], ps_output: &str) -> S
         sessions,
         repair_count: u32::try_from(repair_count).unwrap_or(u32::MAX),
     }
+}
+
+/// The Claude sessions `home` owns, by the same ids [`claude_sessions`] lists
+/// them by, as the transcripts each is made of, to price them. Ownership
+/// depends on what every home of the app holds, so all of them are read: it
+/// belongs on a blocking thread.
+pub fn claude_session_transcripts(home: &Home) -> AppResult<Vec<SessionTranscripts>> {
+    Ok(session_transcripts(home, &homes_of(AppKind::Claude)?))
+}
+
+/// The Claude sessions `home` owns, of all `homes` of the app, as the
+/// transcripts each is made of: those it claims, each with the folder beside
+/// it that holds its subagents', and an archived session's bundle. A session
+/// whose transcripts are all gone has none.
+pub(super) fn session_transcripts(home: &Home, homes: &[Home]) -> Vec<SessionTranscripts> {
+    let scans = home_scans(homes);
+    let owned = owned_by(&home.id, &scans);
+    let listed: HashSet<String> = owned.iter().map(|each| each.session_id.clone()).collect();
+    let mut sessions: Vec<SessionTranscripts> = owned
+        .into_iter()
+        .filter(|each| !each.claimed_transcripts.is_empty())
+        .map(|each| SessionTranscripts {
+            transcript_ids: each
+                .claimed_transcripts
+                .iter()
+                .map(|held| held.summary.session_id.clone())
+                .collect(),
+            paths: each
+                .claimed_transcripts
+                .iter()
+                .flat_map(|held| {
+                    let transcript = &held.summary;
+                    [
+                        transcript.path.clone(),
+                        transcript.path.with_file_name(&transcript.session_id),
+                    ]
+                })
+                .collect(),
+            id: each.session_id,
+        })
+        .collect();
+    let archived = archived_bundle_dirs(&home.config_dir)
+        .into_iter()
+        .filter(|(id, _)| !listed.contains(id))
+        .map(|(id, dir)| SessionTranscripts {
+            transcript_ids: vec![id.clone()],
+            paths: vec![dir.join("projects")],
+            id,
+        });
+    sessions.extend(archived);
+    sessions
 }
 
 /// What each of `homes` holds: its transcripts and desktop records. What was
@@ -592,6 +644,69 @@ mod tests {
                 repair_count: 3,
             }
         );
+    }
+
+    #[test]
+    fn a_session_is_priced_by_the_transcripts_it_claims_and_an_archived_one_by_its_bundle() {
+        let root = tempdir().unwrap();
+        let (default, personal) = two_homes(root.path());
+        let homes = [default.clone(), personal.clone()];
+        let ids_of = |sessions: &[SessionTranscripts]| {
+            let mut ids: Vec<(String, Vec<String>)> = sessions
+                .iter()
+                .map(|each| {
+                    let mut own = each.transcript_ids.clone();
+                    own.sort();
+                    (each.id.clone(), own)
+                })
+                .collect();
+            ids.sort();
+            ids
+        };
+        let expected = |pairs: &[(&str, &[&str])]| -> Vec<(String, Vec<String>)> {
+            pairs
+                .iter()
+                .map(|(id, own)| {
+                    (
+                        id.to_string(),
+                        own.iter().map(|each| each.to_string()).collect(),
+                    )
+                })
+                .collect()
+        };
+
+        let personals = session_transcripts(&personal, &homes);
+        let defaults = session_transcripts(&default, &homes);
+
+        // A session whose transcripts are all gone has none to price.
+        assert_eq!(
+            ids_of(&personals),
+            expected(&[
+                ("orphan", &["orphan"]),
+                ("put-away", &["put-away"]),
+                ("restarted-before", &["restarted-before"]),
+                ("resumed", &["resumed", "resumed-before"]),
+            ])
+        );
+        assert_eq!(
+            ids_of(&defaults),
+            expected(&[
+                ("busy", &["busy"]),
+                ("cli", &["cli"]),
+                ("shelved", &["shelved"])
+            ])
+        );
+        let projects = default.config_dir.join("projects").join("-work-app");
+        let cli = defaults.iter().find(|each| each.id == "cli").unwrap();
+        assert_eq!(
+            cli.paths,
+            [projects.join("cli.jsonl"), projects.join("cli")]
+        );
+        let shelved = defaults.iter().find(|each| each.id == "shelved").unwrap();
+        let bundle = default
+            .config_dir
+            .join("ai-profiles-archive/shelved/2026-09-05T10-00-00Z");
+        assert_eq!(shelved.paths, [bundle.join("projects")]);
     }
 
     #[test]

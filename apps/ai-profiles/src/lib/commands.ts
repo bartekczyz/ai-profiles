@@ -22,6 +22,7 @@ import type {
   ProfileUsage,
   RepairReport,
   SessionAction,
+  SessionCosts,
   SessionList,
   Shell,
   Surface,
@@ -199,6 +200,14 @@ export function getProfileApiCostBetween(profileId: string, from: string, to: st
  */
 export function listSessions(profileId: string): Promise<SessionList> {
   return invoke<SessionList>('list_sessions', { profileId })
+}
+
+/**
+ * What each session profile `profileId` (or `default:<app>`) owns would cost at
+ * API prices over its whole life, by its id in the Sessions list.
+ */
+export function getSessionCosts(profileId: string): Promise<SessionCosts> {
+  return invoke<SessionCosts>('get_session_costs', { profileId })
 }
 
 /**

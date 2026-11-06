@@ -10,16 +10,7 @@ import { getProfileApiCost, getProfileApiCostBetween } from '@/lib/commands'
 import { queryKeys } from '@/lib/query/keys'
 import { renderWithQuery } from '@/test/render-with-query'
 
-import {
-  barsOf,
-  cycleText,
-  formatShare,
-  formatUsd,
-  kindRows,
-  ProfileDetailApiCost,
-  summaryText,
-  unpricedNote,
-} from './profile-detail-api-cost'
+import { barsOf, cycleText, kindRows, ProfileDetailApiCost, summaryText, unpricedNote } from './profile-detail-api-cost'
 
 vi.mock('@/lib/commands', () => ({
   getProfileApiCost: vi.fn(),
@@ -73,7 +64,7 @@ beforeEach(() => {
 describe('ProfileDetailApiCost', () => {
   it('estimates what the use would cost, without comparing it against a plan', async () => {
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    const row = await screen.findByRole('button', { name: /Estimated API cost/ })
+    const row = await screen.findByRole('button', { name: /API-equivalent cost/ })
     expect(row.textContent).toContain('Last 30 days')
     expect(row.textContent).toContain('$559')
     expect(row.textContent).not.toMatch(/×|plan|save/i)
@@ -92,7 +83,7 @@ describe('ProfileDetailApiCost', () => {
       }),
     )
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    const row = await screen.findByRole('button', { name: /Estimated API cost/ })
+    const row = await screen.findByRole('button', { name: /API-equivalent cost/ })
     expect(row.textContent).toContain('Unpriced')
     expect(row.textContent).not.toContain('$')
 
@@ -107,7 +98,7 @@ describe('ProfileDetailApiCost', () => {
       makeCost({ unpriced: [{ model: 'Opus 9', missing: null, tokens: 1_200 }], coverage: 'partial' }),
     )
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    const row = await screen.findByRole('button', { name: /Estimated API cost/ })
+    const row = await screen.findByRole('button', { name: /API-equivalent cost/ })
     expect(row.textContent).toContain('$559')
     expect(row.textContent).toContain('partial')
 
@@ -118,7 +109,7 @@ describe('ProfileDetailApiCost', () => {
 
   it('leaves a complete total unlabelled', async () => {
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    const row = await screen.findByRole('button', { name: /Estimated API cost/ })
+    const row = await screen.findByRole('button', { name: /API-equivalent cost/ })
     expect(row.textContent).not.toMatch(/partial|unpriced/i)
   })
 
@@ -127,14 +118,14 @@ describe('ProfileDetailApiCost', () => {
       makeCost({ coveredDays: 0, hasUse: false, totalUsd: 0, projectedUsd: null }),
     )
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    await waitFor(() => expect(screen.queryByText('Estimated API cost')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('API-equivalent cost')).toBeNull())
   })
 
   it('holds its place while the transcripts are read', () => {
     vi.mocked(getProfileApiCost).mockReturnValue(new Promise(() => {}))
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    expect(screen.getByText('Estimated API cost')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /Estimated API cost/ })).toBeNull()
+    expect(screen.getByText('API-equivalent cost')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /API-equivalent cost/ })).toBeNull()
   })
 
   it("says when the transcripts couldn't be read", async () => {
@@ -145,7 +136,7 @@ describe('ProfileDetailApiCost', () => {
 
   it('estimates Codex use at OpenAI API prices, without ChatGPT chats', async () => {
     renderWithQuery(<ProfileDetailApiCost app="codex" profileId="p1" />)
-    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /API-equivalent cost/ }))
 
     expect(await screen.findByText(/Codex use on this profile would cost at OpenAI API prices/)).toBeTruthy()
     expect(screen.getByText(/From this profile's Codex transcripts/)).toBeTruthy()
@@ -156,7 +147,7 @@ describe('ProfileDetailApiCost', () => {
 
   it('estimates Claude Code use at Claude API prices, without claude.ai chats', async () => {
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /API-equivalent cost/ }))
 
     expect(await screen.findByText(/Claude Code use on this profile would cost at Claude API prices/)).toBeTruthy()
     expect(screen.getByText(/on claude\.ai keep no token counts, so they aren't included/)).toBeTruthy()
@@ -165,14 +156,14 @@ describe('ProfileDetailApiCost', () => {
 
   it('opens the breakdown, which asks for no plan price', async () => {
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /API-equivalent cost/ }))
 
     expect(await screen.findByText('Cache reads')).toBeTruthy()
     expect(screen.getByText('app')).toBeTruthy()
     expect(screen.getByText('~')).toBeTruthy()
     expect(screen.getByText('Unknown folder')).toBeTruthy()
     expect(screen.getByText('peak $12.50/day')).toBeTruthy()
-    expect(screen.getByText(/not what you were billed/)).toBeTruthy()
+    expect(screen.getByText(/the same whether a plan covered the use or it was paid for/)).toBeTruthy()
     expect(screen.getByText(/LiteLLM's price list as of Oct 15, 2026/)).toBeTruthy()
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.queryByText(/your plan|what you pay/i)).toBeNull()
@@ -180,12 +171,12 @@ describe('ProfileDetailApiCost', () => {
 
   it('estimates the period picked in the breakdown, on the line as well', async () => {
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /API-equivalent cost/ }))
     fireEvent.click(await screen.findByRole('radio', { name: '7 days' }))
 
     await waitFor(() => expect(getProfileApiCost).toHaveBeenCalledWith('p1', 'last7Days'))
     // Behind the open dialog, the line is hidden from the accessibility tree.
-    const row = screen.getByRole('button', { name: /Estimated API cost/, hidden: true })
+    const row = screen.getByRole('button', { name: /API-equivalent cost/, hidden: true })
     await waitFor(() => expect(row.textContent).toContain('Last 7 days'))
   })
 
@@ -197,7 +188,7 @@ describe('ProfileDetailApiCost', () => {
     }))
     vi.mocked(getProfileApiCost).mockResolvedValue(makeCost({ days, coveredDays: 30 }))
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /API-equivalent cost/ }))
 
     expect(await screen.findByText(/deletes transcripts after 30 days unless cleanupPeriodDays/)).toBeTruthy()
   })
@@ -213,7 +204,7 @@ describe('ProfileDetailApiCost', () => {
       }),
     )
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /API-equivalent cost/ }))
 
     expect(await screen.findByText('~/client-a/api')).toBeTruthy()
     expect(screen.getByText('~/client-b/api')).toBeTruthy()
@@ -237,7 +228,7 @@ describe('limit cycles', () => {
     vi.mocked(getProfileApiCost).mockResolvedValue(makeCost())
     vi.mocked(getProfileApiCostBetween).mockResolvedValue(makeCost({ totalUsd: 42 }))
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />, { client: clientWithUsage() })
-    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /API-equivalent cost/ }))
 
     fireEvent.click(await screen.findByRole('radio', { name: 'Last cycle' }))
 
@@ -254,7 +245,7 @@ describe('limit cycles', () => {
       makeCost({ totalUsd: new Date(to) > new Date() ? 7 : 5 }),
     )
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />, { client: clientWithUsage() })
-    const row = await screen.findByRole('button', { name: /Estimated API cost/ })
+    const row = await screen.findByRole('button', { name: /API-equivalent cost/ })
     await waitFor(() => expect(row.textContent).toContain('$7'))
     expect(row.textContent).toContain('$30')
     expect(row.textContent).toContain('Last 30 days')
@@ -273,7 +264,7 @@ describe('limit cycles', () => {
     vi.mocked(getProfileApiCost).mockResolvedValue(makeCost())
     vi.mocked(getProfileApiCostBetween).mockResolvedValue(makeCost())
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />, { client: clientWithUsage() })
-    fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /API-equivalent cost/ }))
 
     const cycles = await screen.findByRole('radiogroup', { name: 'Limit cycle' })
     const days = screen.getByRole('radiogroup', { name: 'Days' })
@@ -290,7 +281,7 @@ describe('limit cycles', () => {
   it('offers no cycles when the usage is unknown', async () => {
     vi.mocked(getProfileApiCost).mockResolvedValue(makeCost())
     renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-    const row = await screen.findByRole('button', { name: /Estimated API cost/ })
+    const row = await screen.findByRole('button', { name: /API-equivalent cost/ })
     expect(row.textContent).not.toContain('This cycle')
     fireEvent.click(row)
 
@@ -308,13 +299,13 @@ describe('limit cycles', () => {
 it('charts only the days the transcripts cover', async () => {
   vi.mocked(getProfileApiCost).mockResolvedValue(makeCost({ coveredDays: 1 }))
   renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-  fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /API-equivalent cost/ }))
   expect(await screen.findByRole('img', { name: 'Cost per day over 1 day' })).toBeTruthy()
 })
 
 it('shows the day and what each model cost then when pointing at its bar', async () => {
   renderWithQuery(<ProfileDetailApiCost app="claude" profileId="p1" />)
-  fireEvent.click(await screen.findByRole('button', { name: /Estimated API cost/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /API-equivalent cost/ }))
   const chart = await screen.findByRole('img', { name: /Cost per day/ })
   const bars = chart.children
 
@@ -400,26 +391,6 @@ describe('barsOf', () => {
       { model: 'Sonnet 5.5', usd: 3 },
     ])
     expect(barsOf(days, 1, byModel)).toHaveLength(9)
-  })
-})
-
-describe('formatting', () => {
-  it('drops the cents from $100 up', () => {
-    expect(formatUsd(4.5)).toBe('$4.50')
-    expect(formatUsd(20)).toBe('$20')
-    expect(formatUsd(1234.56)).toBe('$1,235')
-  })
-
-  it('shows an amount too small for cents as under a cent, not as $0.00', () => {
-    expect(formatUsd(0.004)).toBe('<$0.01')
-    expect(formatUsd(0.006)).toBe('$0.01')
-    expect(formatUsd(0)).toBe('$0')
-  })
-
-  it('shows a share too small to round up as under 1%', () => {
-    expect(formatShare(0.0001)).toBe('<1%')
-    expect(formatShare(0)).toBe('0%')
-    expect(formatShare(0.426)).toBe('43%')
   })
 })
 
