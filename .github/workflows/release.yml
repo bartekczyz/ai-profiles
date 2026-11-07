@@ -21,33 +21,37 @@ permissions:
 jobs:
   publish:
     runs-on: macos-latest
+    env:
+      # Whether Apple signing is configured: a boolean, not the secret, so
+      # it's safe job-wide. Picks the signed or unsigned build step below.
+      APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' }}
 
     steps:
       # On `workflow_dispatch` we explicitly check out the requested tag;
       # on `push: tags/v*` we just take whatever ref triggered the run.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.tag || github.ref }}
 
       # No `version:` here — root package.json's `packageManager` field
       # is the source of truth; pnpm/action-setup@v4 errors if both are set.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
           cache: 'pnpm'
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: './apps/ai-profiles/src-tauri -> target'
 
       - name: Restore turbo cache
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
@@ -57,52 +61,46 @@ jobs:
       - name: pnpm install
         run: pnpm install --frozen-lockfile
 
-      # When APPLE_CERTIFICATE is set, import it into a keychain AND
-      # propagate every Apple-signing env var to subsequent steps via
-      # $GITHUB_ENV. When it isn't set, propagate *nothing* — Tauri's
-      # bundler reads APPLE_CERTIFICATE directly and tries to run
-      # `security import` on whatever's there, so an empty value still
-      # triggers the codesign path and fails. The all-or-nothing flow
-      # produces a valid unsigned build when secrets are missing.
-      - name: Import Apple Developer Certificate
+      # Apple secrets reach the signing step and nothing else. Exported to
+      # $GITHUB_ENV they would be readable by every later step, post-job
+      # hooks of third-party actions included. Tauri's bundler imports
+      # APPLE_CERTIFICATE into a temporary keychain itself, so no separate
+      # keychain step needs them either. An empty APPLE_CERTIFICATE still
+      # counts as set and fails the import, so an unsigned build needs a
+      # step without the variables at all: hence two copies of tauri-action.
+      - name: Note unsigned build
+        if: env.APPLE_SIGNING != 'true'
+        run: echo "::notice::APPLE_CERTIFICATE not set — building unsigned. Users will see a Gatekeeper warning."
+
+      - name: Build, sign and upload
+        if: env.APPLE_SIGNING == 'true'
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          if [ -z "$APPLE_CERTIFICATE" ]; then
-            echo "::notice::APPLE_CERTIFICATE not set — building unsigned. Users will see a Gatekeeper warning."
-            exit 0
-          fi
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -t 3600 -u build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          # Propagate to subsequent steps only when signing is enabled.
-          {
-            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
-            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
-            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
-            echo "APPLE_ID=$APPLE_ID"
-            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
-            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
-          } >> "$GITHUB_ENV"
+        with:
+          projectPath: apps/ai-profiles
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: 'ai-profiles ${{ inputs.tag || github.ref_name }}'
+          releaseBody: 'See [CHANGELOG.md](./apps/ai-profiles/CHANGELOG.md) for details. Auto-update will pick this up on the next 6-hour check.'
+          releaseDraft: true
+          prerelease: false
+          args: --target universal-apple-darwin
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: Build and upload (unsigned)
+        if: env.APPLE_SIGNING != 'true'
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # APPLE_* vars are intentionally NOT listed here — they're
-          # injected by the previous step via $GITHUB_ENV only when
-          # APPLE_CERTIFICATE is configured.
         with:
           projectPath: apps/ai-profiles
           tagName: ${{ inputs.tag || github.ref_name }}

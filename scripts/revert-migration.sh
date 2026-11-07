@@ -1,71 +1,135 @@
 #!/usr/bin/env bash
 #
-# revert-migration.sh — undo a Phase 5 first-run migration import.
+# revert-migration.sh — undo first-run migration imports.
 #
-# Restores the most recent backup of ~/.claude and ~/Library/Application Support/Claude
-# from <app-data>/migration-backup-<ts>/, removes every generated launcher for every
-# profile listed in profiles.json, then deletes the ai-profiles app-data dir.
+# Puts back every original install the imports moved into
+# <app-data>/migration-backup-<ts>/ (Claude and ChatGPT/Codex alike), removes
+# the launcher and CLI wrapper of every profile in profiles.json, then deletes
+# the ai-profiles app-data dir.
 #
-# WARNING: this nukes ALL ai-profiles state, not just the imported profile.
-# If you've created additional profiles manually, their launchers and data will
-# be removed too. This script is intended for testing the migration flow.
+# Everything is checked before anything is touched. The script refuses to run
+# if any backup entry can't go back where it came from: two backups of the same
+# install, an entry it doesn't recognise, or an original location that is in
+# use again. The app-data dir (backups included) is deleted only once every
+# backup has been emptied, so no backup is ever deleted unrestored.
+#
+# WARNING: this nukes ALL ai-profiles state, not just the imported profiles.
+# Profiles created manually lose their launchers and data too. This script is
+# intended for testing the migration flow.
+#
+# Written for macOS's stock bash 3.2 (no associative arrays).
 
 set -euo pipefail
+shopt -s nullglob dotglob
 
 APP_DATA="$HOME/Library/Application Support/ai-profiles"
 PROFILES_JSON="$APP_DATA/profiles.json"
-CLAUDE_DESKTOP="$HOME/Library/Application Support/Claude"
-CLAUDE_CODE="$HOME/.claude"
+SUPPORT_DIR="$HOME/Library/Application Support"
 
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
 green() { printf '\033[32m%s\033[0m\n' "$1"; }
 yellow() { printf '\033[33m%s\033[0m\n' "$1"; }
+
+# Where a backup entry goes back to, or nothing for an entry an import never
+# creates. Mirrors gui_support_dir_name / cli_stock_config_dir_name in
+# app_kind.rs.
+restore_target() {
+    case "$1" in
+        Claude | Codex) echo "$SUPPORT_DIR/$1" ;;
+        .claude | .codex) echo "$HOME/$1" ;;
+    esac
+}
+
+# Print the backup entry already planned to restore to $1; fail if none.
+planned_source_for() {
+    local restore
+    for restore in "${restores[@]:-}"; do
+        if [ -n "$restore" ] && [ "${restore#*$'\t'}" = "$1" ]; then
+            echo "${restore%%$'\t'*}"
+            return 0
+        fi
+    done
+    return 1
+}
 
 if [ ! -d "$APP_DATA" ]; then
     yellow "Nothing to revert: $APP_DATA does not exist."
     exit 0
 fi
 
-# Most-recent backup directory (lexicographic sort works because timestamps are
-# fixed-width unix-ms suffixes).
-backup_dir=$(ls -1d "$APP_DATA"/migration-backup-* 2>/dev/null | sort -r | head -1 || true)
+# 1. Plan a restore for every entry of every backup, oldest backup first (glob
+#    order is lexicographic and the unix-ms suffixes are fixed-width).
+backups=("$APP_DATA"/migration-backup-*/)
+restores=() # "<backup entry>\t<original location>"
+problems=()
+for backup in "${backups[@]:-}"; do
+    [ -z "$backup" ] && continue
+    for entry in "${backup%/}"/*; do
+        name="${entry##*/}"
+        [ "$name" = ".DS_Store" ] && continue
+        target=$(restore_target "$name")
+        if [ -z "$target" ]; then
+            problems+=("Unrecognised backup entry: $entry")
+        elif earlier=$(planned_source_for "$target"); then
+            problems+=("Two backups of $target: $earlier and $entry")
+        elif [ -e "$target" ] || [ -L "$target" ]; then
+            problems+=("$target exists again, so $entry can't go back")
+        else
+            restores+=("$entry"$'\t'"$target")
+        fi
+    done
+done
+
+if [ "${#problems[@]}" -gt 0 ]; then
+    red "Refusing to revert: some backups can't be restored in full."
+    for problem in "${problems[@]}"; do
+        echo "  - $problem"
+    done
+    echo
+    yellow "Nothing was changed. Move the conflicting files aside, then rerun."
+    exit 1
+fi
+
+# 2. Every generated launcher and CLI wrapper that exists. Mirrors
+#    launcher_prefix, legacy_launcher_prefixes and cli_wrapper_prefix in
+#    app_kind.rs; an unknown `app` fails here, before anything is touched.
+launchers=()
+if [ -f "$PROFILES_JSON" ]; then
+    launcher_paths=$(python3 -c '
+import json, os, sys
+apps = {"claude": (["Claude"], "claude"), "codex": (["ChatGPT", "Codex"], "codex")}
+home = os.path.expanduser("~")
+for profile in json.load(open(sys.argv[1])).get("profiles", []):
+    prefixes, wrapper = apps[profile.get("app", "claude")]
+    name, slug = profile["name"], profile["slug"]
+    for prefix in prefixes:
+        print(f"/Applications/{prefix} ({name}).app")
+    print(f"{home}/.local/bin/{wrapper}-{slug}")
+' "$PROFILES_JSON")
+    while IFS= read -r path; do
+        if [ -n "$path" ] && { [ -e "$path" ] || [ -L "$path" ]; }; then
+            launchers+=("$path")
+        fi
+    done <<<"$launcher_paths"
+fi
 
 echo "About to revert ai-profiles state."
 echo
 echo "App data dir:        $APP_DATA"
 echo "Profiles registry:   $PROFILES_JSON"
-if [ -n "$backup_dir" ]; then
-    green "Backup to restore:   $backup_dir"
-else
-    yellow "Backup to restore:   (none found — only state cleanup will run)"
+if [ "${#restores[@]}" -eq 0 ]; then
+    yellow "Backups to restore:  (none found — only state cleanup will run)"
 fi
 echo
-
-profiles_to_remove=()
-if [ -f "$PROFILES_JSON" ]; then
-    while IFS=$'\t' read -r profile_name profile_slug; do
-        gui_path="/Applications/Claude (${profile_name}).app"
-        cli_path="$HOME/.local/bin/claude-${profile_slug}"
-        echo "Will remove launcher: $gui_path"
-        echo "Will remove wrapper:  $cli_path"
-        profiles_to_remove+=("$profile_name"$'\t'"$profile_slug")
-    done < <(python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for profile in data.get('profiles', []):
-    print(f\"{profile['name']}\t{profile['slug']}\")
-" < "$PROFILES_JSON")
-fi
-
-if [ -n "$backup_dir" ]; then
-    if [ -d "$backup_dir/Claude" ]; then
-        echo "Will restore:         $backup_dir/Claude -> $CLAUDE_DESKTOP"
-    fi
-    if [ -d "$backup_dir/.claude" ]; then
-        echo "Will restore:         $backup_dir/.claude -> $CLAUDE_CODE"
-    fi
-fi
-echo "Will remove:          $APP_DATA"
+for restore in "${restores[@]:-}"; do
+    [ -z "$restore" ] && continue
+    echo "Will restore:        ${restore%%$'\t'*} -> ${restore#*$'\t'}"
+done
+for launcher in "${launchers[@]:-}"; do
+    [ -z "$launcher" ] && continue
+    echo "Will remove:         $launcher"
+done
+echo "Will remove:         $APP_DATA"
 echo
 
 red "This is destructive. Type 'revert' to proceed:"
@@ -75,35 +139,39 @@ if [ "$confirmation" != "revert" ]; then
     exit 1
 fi
 
-# 1. Remove launchers for every registered profile.
-for entry in "${profiles_to_remove[@]:-}"; do
-    [ -z "$entry" ] && continue
-    profile_name="${entry%$'\t'*}"
-    profile_slug="${entry#*$'\t'}"
-    gui_path="/Applications/Claude (${profile_name}).app"
-    cli_path="$HOME/.local/bin/claude-${profile_slug}"
-    rm -rf "$gui_path"
-    rm -f "$cli_path"
-    green "Removed launcher: $gui_path"
-    green "Removed wrapper:  $cli_path"
+# 3. Restore the originals. The location is checked again because the prompt
+#    above may have sat open while an app recreated it; `mv` onto an existing
+#    dir would nest the backup inside it.
+for restore in "${restores[@]:-}"; do
+    [ -z "$restore" ] && continue
+    from="${restore%%$'\t'*}"
+    to="${restore#*$'\t'}"
+    if [ -e "$to" ] || [ -L "$to" ]; then
+        red "$to appeared after the check; stopping before the app-data dir is removed."
+        yellow "Move it aside, then rerun."
+        exit 1
+    fi
+    mv "$from" "$to"
+    green "Restored: $to"
 done
 
-# 2. Restore originals from the most recent backup, if any.
-if [ -n "$backup_dir" ]; then
-    if [ -d "$backup_dir/Claude" ]; then
-        rm -rf "$CLAUDE_DESKTOP"
-        mv "$backup_dir/Claude" "$CLAUDE_DESKTOP"
-        green "Restored: $CLAUDE_DESKTOP"
-    fi
-    if [ -d "$backup_dir/.claude" ]; then
-        rm -rf "$CLAUDE_CODE"
-        mv "$backup_dir/.claude" "$CLAUDE_CODE"
-        green "Restored: $CLAUDE_CODE"
-    fi
-fi
+# Every backup must be empty now. `rmdir` refuses a non-empty dir, and
+# `set -e` then stops the script before the app-data dir goes.
+for backup in "${backups[@]:-}"; do
+    [ -z "$backup" ] && continue
+    rm -f "${backup%/}/.DS_Store"
+    rmdir "$backup"
+done
 
-# 3. Nuke the app-data dir (this also removes the now-empty backup dir, the
-#    profiles registry, and every per-profile data dir under profiles/).
+# 4. Remove launchers and wrappers.
+for launcher in "${launchers[@]:-}"; do
+    [ -z "$launcher" ] && continue
+    rm -rf "$launcher"
+    green "Removed: $launcher"
+done
+
+# 5. Nuke the app-data dir: the profiles registry and every per-profile data
+#    dir under profiles/.
 rm -rf "$APP_DATA"
 green "Removed: $APP_DATA"
 
