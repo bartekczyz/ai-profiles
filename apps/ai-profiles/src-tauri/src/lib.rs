@@ -167,6 +167,8 @@ pub fn run() {
             dev_tools::dev_prepare_screenshot_window,
             #[cfg(all(debug_assertions, target_os = "macos"))]
             dev_tools::dev_restore_window,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            dev_tools::dev_capture_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -23,6 +23,13 @@ function recordingEffects(): DemoEffects & { calls: Array<string> } {
     restoreWindow: async () => {
       calls.push('restore')
     },
+    waitUntilRendered: async () => {
+      calls.push('wait')
+    },
+    captureWindow: async (theme) => {
+      calls.push(`capture:${theme}`)
+      return `screenshot-${theme}.png`
+    },
   }
 }
 
@@ -117,5 +124,59 @@ describe('createDemoController', () => {
     await controller.setData(false)
 
     expect(effects.calls).toEqual(['data:true', 'restore', 'data:false'])
+  })
+
+  it('captures light then dark on demo data in the screenshot size, then puts the real app back', async () => {
+    const effects = recordingEffects()
+    const controller = createDemoController(effects)
+
+    const saved = await controller.capture()
+
+    expect(effects.calls).toEqual([
+      'data:true',
+      'size',
+      'theme:light',
+      'wait',
+      'capture:light',
+      'theme:dark',
+      'wait',
+      'capture:dark',
+      'theme:null',
+      'restore',
+      'data:false',
+    ])
+    expect(saved).toEqual(['screenshot-light.png', 'screenshot-dark.png'])
+  })
+
+  it('puts everything back when a capture fails', async () => {
+    const effects = recordingEffects()
+    effects.captureWindow = (theme) =>
+      theme === 'dark' ? Promise.reject(new Error('no permission')) : Promise.resolve('screenshot-light.png')
+    const controller = createDemoController(effects)
+
+    await expect(controller.capture()).rejects.toThrow('no permission')
+
+    expect(effects.calls.slice(-3)).toEqual(['theme:null', 'restore', 'data:false'])
+  })
+
+  it('leaves a demo that was already on as it was after capturing', async () => {
+    const effects = recordingEffects()
+    const controller = createDemoController(effects)
+    await controller.setData(true)
+    await controller.setTheme('dark')
+    effects.calls.length = 0
+
+    await controller.capture()
+
+    expect(effects.calls).toEqual([
+      'size',
+      'theme:light',
+      'wait',
+      'capture:light',
+      'theme:dark',
+      'wait',
+      'capture:dark',
+      'restore',
+    ])
   })
 })

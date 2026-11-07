@@ -312,3 +312,11 @@ export function devPrepareScreenshotWindow(): Promise<void> {
 export function devRestoreWindow(): Promise<void> {
   return invoke('dev_restore_window')
 }
+
+/**
+ * Dev only: saves the window as the README's and landing page's screenshot
+ * in `theme`, resolving with where.
+ */
+export function devCaptureWindow(theme: DevTheme): Promise<string> {
+  return invoke<string>('dev_capture_window', { theme })
+}
