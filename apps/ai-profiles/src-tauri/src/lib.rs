@@ -7,6 +7,8 @@ pub mod cli;
 mod codex_rpc;
 mod commands;
 mod deps;
+#[cfg(all(debug_assertions, target_os = "macos"))]
+mod dev_tools;
 mod error;
 mod inherited_env;
 mod launch;
@@ -34,7 +36,10 @@ const OPEN_ABOUT_ID: &str = "open-about";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(all(debug_assertions, target_os = "macos"))]
+    let builder = dev_tools::install(builder);
+    builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Provides `relaunch()` to the frontend so the updater can restart
         // the app itself after `downloadAndInstall` finishes — Tauri 2's
@@ -102,6 +107,8 @@ pub fn run() {
                 ],
             )?;
             let menu = Menu::with_items(app, &[&app_submenu, &edit_submenu])?;
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            menu.append(&dev_tools::menu(app)?)?;
             app.set_menu(menu)?;
             Ok(())
         })
@@ -154,6 +161,12 @@ pub fn run() {
             launchers::custom_icon::check_custom_icon,
             launchers::custom_icon::set_custom_icon,
             launchers::custom_icon::clear_custom_icon,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            dev_tools::dev_set_window_theme,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            dev_tools::dev_prepare_screenshot_window,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            dev_tools::dev_restore_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

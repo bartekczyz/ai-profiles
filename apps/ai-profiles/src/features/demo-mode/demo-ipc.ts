@@ -1,5 +1,5 @@
 import type { InvokeArgs, InvokeOptions, invoke } from '@tauri-apps/api/core'
-import type { DemoState } from './fixtures'
+import type { DemoSeed, DemoState } from './fixtures'
 
 import { interceptCommands } from '@/lib/commands'
 
@@ -60,8 +60,8 @@ export function installDemoIpc(): void {
 }
 
 /**
- * Turns demo data on, as a fresh demo, or off.
+ * Turns demo data on, as a fresh demo seeded with `seed`, or off.
  */
-export function setDemoEnabled(enabled: boolean): void {
-  state = enabled ? createDemoState({ themeMode: 'system' }) : null
+export function setDemoEnabled(enabled: boolean, seed: DemoSeed = { themeMode: 'system' }): void {
+  state = enabled ? createDemoState(seed) : null
 }

@@ -23,20 +23,20 @@ if (isTauri()) {
 // Pause usage polling while the window is unfocused (see focus.ts).
 void syncQueryFocusWithWindow()
 
-// Dev builds can answer every command with fake data, for screenshots. It is
-// dormant until switched on, and left out of release builds altogether.
+let app = <App />
+// Dev builds can show fake data in place of the user's, for screenshots: the
+// Developer menu switches it on. Release builds leave it out altogether.
 if (import.meta.env.DEV) {
-  const { installDemoIpc } = await import('@/features/demo-mode/demo-ipc')
+  const { DemoMode, installDemoIpc } = await import('@/features/demo-mode/demo-mode')
   installDemoIpc()
+  app = <DemoMode>{app}</DemoMode>
 }
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <ThemeProvider defaultMode="system">
       <QueryProvider>
-        <ToastProvider>
-          <App />
-        </ToastProvider>
+        <ToastProvider>{app}</ToastProvider>
       </QueryProvider>
     </ThemeProvider>
   </React.StrictMode>,

@@ -7,6 +7,7 @@ import type {
   AppState,
   AppStatePatch,
   Dependencies,
+  DevTheme,
   ExistingInstallInfo,
   ExistingInstallSizes,
   ImportExistingInput,
@@ -287,4 +288,27 @@ export function checkSessionRepair(profileId: string): Promise<ActionCheck> {
  */
 export function repairSessions(profileId: string, quitApp: boolean): Promise<RepairReport> {
   return invoke<RepairReport>('repair_sessions', { profileId, quitApp })
+}
+
+/**
+ * Dev only: puts the window's native parts (title bar, sidebar material) in
+ * `theme`, or back to following the system with `null`.
+ */
+export function devSetWindowTheme(theme: DevTheme | null): Promise<void> {
+  return invoke('dev_set_window_theme', { theme })
+}
+
+/**
+ * Dev only: gives the window the screenshot size, centred, remembering where
+ * it was.
+ */
+export function devPrepareScreenshotWindow(): Promise<void> {
+  return invoke('dev_prepare_screenshot_window')
+}
+
+/**
+ * Dev only: puts the window back where `devPrepareScreenshotWindow` found it.
+ */
+export function devRestoreWindow(): Promise<void> {
+  return invoke('dev_restore_window')
 }
