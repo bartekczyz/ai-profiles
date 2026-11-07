@@ -58,6 +58,7 @@ All Tauri IPC goes through typed wrappers in `apps/ai-profiles/src/lib/commands.
 - **TS constants**: module-level `const`s are camelCase (`sixHoursMs`), even next to older SCREAMING_CASE ones.
 - **Tests**: cover behaviour (interactions, state transitions, conditional rendering, IPC payloads, error paths). Styling and static copy are checked by eye, not asserted.
 - **Network**: local-only by design, no telemetry or analytics. Outbound requests are exactly: the update check (GitHub `latest.json`), the Claude usage and profile endpoints, and the LiteLLM price list (carries no user data). A new outbound request is a product decision: ask first.
+- **GitHub Actions**: pinned to a commit SHA plus a `# vX.Y.Z` comment, since a tag can be repointed to code that then runs with the release secrets. Dependabot bumps them weekly; by hand: `gh api repos/<owner>/<action>/commits/<tag> -q .sha`, then update the comment.
 
 ## Screenshots
 
