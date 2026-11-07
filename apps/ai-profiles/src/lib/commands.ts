@@ -29,8 +29,24 @@ import type {
   Surfaces,
 } from './types'
 
-import { invoke } from '@tauri-apps/api/core'
+import { invoke as backendInvoke } from '@tauri-apps/api/core'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
+
+/**
+ * How a command below reaches the backend.
+ */
+type Invoke = typeof backendInvoke
+
+let invoke: Invoke = backendInvoke
+
+/**
+ * Dev only: puts `intercept` between every command below and the backend,
+ * which it is handed to pass commands on to. Tauri's own `invoke` can't be
+ * wrapped: it is a read-only property of the webview's internals.
+ */
+export function interceptCommands(intercept: (backend: Invoke) => Invoke): void {
+  invoke = intercept(backendInvoke)
+}
 
 export function listProfiles(): Promise<Array<Profile>> {
   return invoke<Array<Profile>>('list_profiles')

@@ -23,6 +23,13 @@ if (isTauri()) {
 // Pause usage polling while the window is unfocused (see focus.ts).
 void syncQueryFocusWithWindow()
 
+// Dev builds can answer every command with fake data, for screenshots. It is
+// dormant until switched on, and left out of release builds altogether.
+if (import.meta.env.DEV) {
+  const { installDemoIpc } = await import('@/features/demo-mode/demo-ipc')
+  installDemoIpc()
+}
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <ThemeProvider defaultMode="system">
