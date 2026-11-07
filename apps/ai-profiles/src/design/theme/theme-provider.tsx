@@ -9,6 +9,11 @@ type ThemeContextValue = {
   mode: ThemeMode
   resolved: ResolvedTheme
   setMode: (mode: ThemeMode) => void
+  /**
+   * Shows `theme` whatever the mode, until called with `null`. The mode is
+   * left as it is and nothing is stored, so it suits a screenshot.
+   */
+  forceTheme: (theme: ResolvedTheme | null) => void
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
@@ -76,9 +81,10 @@ export function ThemeProvider({ children, mode, defaultMode = 'system', onModeCh
   const isControlled = mode !== undefined
   const [internalMode, setInternalMode] = useState<ThemeMode>(defaultMode)
   const activeMode = isControlled ? mode : internalMode
+  const [forced, setForced] = useState<ResolvedTheme | null>(null)
 
   const systemResolved = useSyncExternalStore(subscribePrefersColorScheme, readPrefersColorScheme, getServerSnapshot)
-  const resolved: ResolvedTheme = activeMode === 'system' ? systemResolved : activeMode
+  const resolved: ResolvedTheme = forced ?? (activeMode === 'system' ? systemResolved : activeMode)
 
   useEffect(() => {
     if (typeof document === 'undefined') {
@@ -97,7 +103,11 @@ export function ThemeProvider({ children, mode, defaultMode = 'system', onModeCh
     }
   }
 
-  return <ThemeContext.Provider value={{ mode: activeMode, resolved, setMode }}>{children}</ThemeContext.Provider>
+  return (
+    <ThemeContext.Provider value={{ mode: activeMode, resolved, setMode, forceTheme: setForced }}>
+      {children}
+    </ThemeContext.Provider>
+  )
 }
 
 export function useTheme(): ThemeContextValue {

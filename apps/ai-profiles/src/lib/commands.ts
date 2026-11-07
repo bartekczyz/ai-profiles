@@ -7,6 +7,7 @@ import type {
   AppState,
   AppStatePatch,
   Dependencies,
+  DevTheme,
   ExistingInstallInfo,
   ExistingInstallSizes,
   ImportExistingInput,
@@ -29,8 +30,24 @@ import type {
   Surfaces,
 } from './types'
 
-import { invoke } from '@tauri-apps/api/core'
+import { invoke as backendInvoke } from '@tauri-apps/api/core'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
+
+/**
+ * How a command below reaches the backend.
+ */
+type Invoke = typeof backendInvoke
+
+let invoke: Invoke = backendInvoke
+
+/**
+ * Dev only: puts `intercept` between every command below and the backend,
+ * which it is handed to pass commands on to. Tauri's own `invoke` can't be
+ * wrapped: it is a read-only property of the webview's internals.
+ */
+export function interceptCommands(intercept: (backend: Invoke) => Invoke): void {
+  invoke = intercept(backendInvoke)
+}
 
 export function listProfiles(): Promise<Array<Profile>> {
   return invoke<Array<Profile>>('list_profiles')
@@ -271,4 +288,35 @@ export function checkSessionRepair(profileId: string): Promise<ActionCheck> {
  */
 export function repairSessions(profileId: string, quitApp: boolean): Promise<RepairReport> {
   return invoke<RepairReport>('repair_sessions', { profileId, quitApp })
+}
+
+/**
+ * Dev only: puts the window's native parts (title bar, sidebar material) in
+ * `theme`, or back to following the system with `null`.
+ */
+export function devSetWindowTheme(theme: DevTheme | null): Promise<void> {
+  return invoke('dev_set_window_theme', { theme })
+}
+
+/**
+ * Dev only: gives the window the screenshot size, centred, remembering where
+ * it was.
+ */
+export function devPrepareScreenshotWindow(): Promise<void> {
+  return invoke('dev_prepare_screenshot_window')
+}
+
+/**
+ * Dev only: puts the window back where `devPrepareScreenshotWindow` found it.
+ */
+export function devRestoreWindow(): Promise<void> {
+  return invoke('dev_restore_window')
+}
+
+/**
+ * Dev only: saves the window as the README's and landing page's screenshot
+ * in `theme`, resolving with where.
+ */
+export function devCaptureWindow(theme: DevTheme): Promise<string> {
+  return invoke<string>('dev_capture_window', { theme })
 }

@@ -644,3 +644,8 @@ export type RepairReport = {
    */
   warnings: Array<string>
 }
+
+/**
+ * Dev only: a theme the Developer menu can put the window in, for screenshots.
+ */
+export type DevTheme = 'light' | 'dark'

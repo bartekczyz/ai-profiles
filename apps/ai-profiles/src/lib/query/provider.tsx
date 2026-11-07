@@ -3,7 +3,6 @@ import type { ReactNode } from 'react'
 import { useState } from 'react'
 
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister'
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 
 import { createQueryClient } from './client'
@@ -45,7 +44,6 @@ export function QueryProvider({ children }: QueryProviderProps) {
       }}
     >
       {children}
-      {import.meta.env.DEV ? <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-right" /> : null}
     </PersistQueryClientProvider>
   )
 }

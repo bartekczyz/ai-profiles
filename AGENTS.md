@@ -59,3 +59,6 @@ All Tauri IPC goes through typed wrappers in `apps/ai-profiles/src/lib/commands.
 - **Tests**: cover behaviour (interactions, state transitions, conditional rendering, IPC payloads, error paths). Styling and static copy are checked by eye, not asserted.
 - **Network**: local-only by design, no telemetry or analytics. Outbound requests are exactly: the update check (GitHub `latest.json`), the Claude usage and profile endpoints, and the LiteLLM price list (carries no user data). A new outbound request is a product decision: ask first.
 
+## Screenshots
+
+`apps/landing/public/screenshot-{light,dark}.png` (README and landing page) are taken from the app itself, on fake data: run `pnpm --filter ai-profiles tauri dev`, then Developer → Capture Screenshots (debug builds only). The app that launches it (terminal or IDE) needs Screen Recording permission (System Settings → Privacy & Security), and only gets it after a restart. What they show lives in `src/features/demo-mode/fixtures.ts`; in demo mode an app command without a handler there is refused, so a new command needs one. Review the PNGs, then commit them.
