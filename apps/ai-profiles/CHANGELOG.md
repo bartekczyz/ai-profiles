@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/bartekczyz/ai-profiles/compare/v1.7.1...v1.8.0) (2026-11-07)
+
+
+### Added
+
+* **sessions:** show each session's API-equivalent cost ([#89](https://github.com/bartekczyz/ai-profiles/issues/89)) ([5a9f6fb](https://github.com/bartekczyz/ai-profiles/commit/5a9f6fb8361016481ecc6463d7a3467d4ef9b542))
+
 ## [1.7.1](https://github.com/bartekczyz/ai-profiles/compare/v1.7.0...v1.7.1) (2026-11-03)
 
 
