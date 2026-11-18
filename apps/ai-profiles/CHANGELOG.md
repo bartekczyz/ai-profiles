@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.1](https://github.com/bartekczyz/ai-profiles/compare/v1.8.0...v1.8.1) (2026-11-18)
+
+
+### Fixed
+
+* **profiles:** count launcher and CLI wrapper launches as "last used" ([#99](https://github.com/bartekczyz/ai-profiles/issues/99)) ([6dd5fba](https://github.com/bartekczyz/ai-profiles/commit/6dd5fbad3807289073c2dae24f08e500259f39ee)), closes [#96](https://github.com/bartekczyz/ai-profiles/issues/96)
+* **wrapper:** strip every com.apple.developer.* entitlement so ChatGPT launches again ([#97](https://github.com/bartekczyz/ai-profiles/issues/97)) ([9d58f19](https://github.com/bartekczyz/ai-profiles/commit/9d58f19ccb58de925554615b4acbb4096b41043e)), closes [#95](https://github.com/bartekczyz/ai-profiles/issues/95)
+
 ## [1.8.0](https://github.com/bartekczyz/ai-profiles/compare/v1.7.1...v1.8.0) (2026-11-07)
 
 
