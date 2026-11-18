@@ -351,15 +351,49 @@ impl fmt::Display for Bypass {
 /// The longest a cause is quoted at in a [`Bypass`] message.
 const BRIEF_MAX_CHARS: usize = 140;
 
-/// Pure: the first line of `text`, cut to [`BRIEF_MAX_CHARS`]. Tool errors run
-/// to paragraphs, and the message ends up in a one-line notice.
+/// Pure: the first line of `text`, cut to [`BRIEF_MAX_CHARS`], followed by its
+/// innermost `NSError` if it nests one. Tool errors run to paragraphs, and the
+/// message ends up in a one-line notice, but the cut would otherwise drop the
+/// underlying error, which is the part that explains the failure.
 fn brief(text: &str) -> String {
     let line = text.lines().next().unwrap_or_default().trim();
-    if line.chars().count() <= BRIEF_MAX_CHARS {
-        return line.to_owned();
+    let head = if line.chars().count() <= BRIEF_MAX_CHARS {
+        line.to_owned()
+    } else {
+        let cut: String = line.chars().take(BRIEF_MAX_CHARS).collect();
+        format!("{}…", cut.trim_end())
+    };
+    match underlying_error(line) {
+        Some(cause) => format!("{head} ({cause})"),
+        None => head,
     }
-    let cut: String = line.chars().take(BRIEF_MAX_CHARS).collect();
-    format!("{}…", cut.trim_end())
+}
+
+/// Pure: the innermost of the nested `NSError`s described in `line`, as
+/// `<domain> Code=<n>: <description>`, or `None` if it describes fewer than
+/// two. `open` reports a refused launch as e.g. `… Error Domain=RBSRequestErrorDomain
+/// Code=5 "Launch failed." UserInfo={…, NSUnderlyingError=0x… {Error
+/// Domain=NSPOSIXErrorDomain Code=163 "Unknown error: 163" UserInfo={NSLocalizedDescription=Launchd
+/// job spawn failed}}}`.
+fn underlying_error(line: &str) -> Option<String> {
+    const MARKER: &str = "Error Domain=";
+    let (outer, inner) = line.rsplit_once(MARKER)?;
+    if !outer.contains(MARKER) {
+        return None;
+    }
+    let mut words = inner.split_whitespace();
+    let domain = words.next()?;
+    let code = words.next().filter(|word| word.starts_with("Code="))?;
+    let description = inner
+        .split_once("NSLocalizedDescription=")
+        .and_then(|(_, rest)| rest.split(['}', ',']).next())
+        .or_else(|| inner.split('"').nth(1))
+        .map(str::trim)
+        .filter(|description| !description.is_empty());
+    Some(match description {
+        Some(description) => format!("{domain} {code}: {description}"),
+        None => format!("{domain} {code}"),
+    })
 }
 
 /// How far apart the looks at a wrapper that was just opened are.
@@ -1021,6 +1055,34 @@ mod tests {
         // At the limit nothing is cut.
         let exact = "y".repeat(BRIEF_MAX_CHARS);
         assert_eq!(brief(&exact), exact);
+    }
+
+    #[test]
+    fn a_cause_keeps_the_underlying_error_the_cut_would_drop() {
+        // As `open` printed it for a wrapper the kernel refused (issue #95).
+        let refused = "`open /Applications/ChatGPT (Work).app` exited with status exit status: 1: \
+            The application cannot be opened for an unexpected reason, error=Error \
+            Domain=RBSRequestErrorDomain Code=5 \"Launch failed.\" UserInfo={NSLocalizedFailureReason=Launch \
+            failed., NSUnderlyingError=0x7ab4c18600 {Error Domain=NSPOSIXErrorDomain Code=163 \
+            \"Unknown error: 163\" UserInfo={NSLocalizedDescription=Launchd job spawn failed}}}";
+        let quoted = brief(refused);
+        assert!(quoted.starts_with("`open /Applications/ChatGPT (Work).app`"));
+        assert!(
+            quoted.ends_with("… (NSPOSIXErrorDomain Code=163: Launchd job spawn failed)"),
+            "{quoted}"
+        );
+
+        // Without `NSLocalizedDescription`, the quoted description stands in.
+        assert_eq!(
+            underlying_error(
+                "error=Error Domain=A Code=1 \"outer\" UserInfo={NSUnderlyingError=0x1 \
+                 {Error Domain=NSPOSIXErrorDomain Code=153 \"Launchd job spawn failed\"}}"
+            )
+            .as_deref(),
+            Some("NSPOSIXErrorDomain Code=153: Launchd job spawn failed")
+        );
+        // A single error is already in the head; nothing to add.
+        assert_eq!(underlying_error("Error Domain=A Code=1 \"only\""), None);
     }
 
     /// Records what a launch asks for and answers from a script.

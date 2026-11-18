@@ -1,23 +1,32 @@
 //! The entitlements a wrapper is signed with: the vendor's, minus what an
 //! ad-hoc signature cannot carry.
 //!
-//! An ad-hoc signature has no team identifier, and the kernel refuses to launch
-//! a binary that has none but claims entitlements scoped to a team
-//! (`Launchd job spawn failed`, POSIX 163). `codesign` itself accepts them, so
-//! nothing short of launching the app reveals the mistake.
+//! An ad-hoc signature has no team identifier and no provisioning profile, and
+//! the kernel refuses to launch a binary that has neither but claims
+//! entitlements scoped to a team (`Launchd job spawn failed`, POSIX 153 or 163
+//! depending on the macOS version). `codesign` itself accepts them, so nothing
+//! short of launching the app reveals the mistake.
 
 use plist::{Dictionary, Value};
 
 /// Entitlements only a binary signed by the vendor's team can hold, whatever
 /// their values.
-const TEAM_SCOPED_KEYS: [&str; 6] = [
+const TEAM_SCOPED_KEYS: [&str; 3] = [
     "com.apple.application-identifier",
-    "com.apple.developer.team-identifier",
     "keychain-access-groups",
     "com.apple.security.application-groups",
-    "com.apple.developer.aps-environment",
-    "com.apple.developer.associated-domains",
 ];
+
+/// Prefix of the entitlements Apple grants through a provisioning profile
+/// (`com.apple.developer.usernotifications.communication`,
+/// `com.apple.developer.aps-environment`, …). All of them are team-scoped, and
+/// new ones keep appearing in vendor updates, so they go by prefix, not by name.
+const DEVELOPER_PREFIX: &str = "com.apple.developer.";
+
+/// Whether `key` is an entitlement only the vendor's team can hold.
+fn team_scoped_key(key: &str) -> bool {
+    TEAM_SCOPED_KEYS.contains(&key) || key.starts_with(DEVELOPER_PREFIX)
+}
 
 /// Entitlement that lets the wrapper's ad-hoc executable load the vendor's
 /// frameworks. Hardened runtime implies library validation, which rejects a
@@ -30,12 +39,12 @@ pub const DISABLE_LIBRARY_VALIDATION: &str = "com.apple.security.cs.disable-libr
 /// library validation disabled.
 ///
 /// `team_id` is `None` for a vendor with no team (an ad-hoc signed build), in
-/// which case only the fixed list of team-scoped keys is removed.
+/// which case only the team-scoped keys are removed.
 pub fn strip_team_entitlements(entitlements: &Dictionary, team_id: Option<&str>) -> Dictionary {
     let prefix = team_id.map(|team| format!("{team}."));
     let mut stripped: Dictionary = entitlements
         .iter()
-        .filter(|(key, _)| !TEAM_SCOPED_KEYS.contains(&key.as_str()))
+        .filter(|(key, _)| !team_scoped_key(key))
         .filter_map(|(key, value)| match &prefix {
             Some(prefix) => without_team_strings(value, prefix).map(|value| (key.clone(), value)),
             None => Some((key.clone(), value.clone())),
@@ -53,7 +62,7 @@ pub fn team_scoped_entitlements(entitlements: &Dictionary, team_id: Option<&str>
     entitlements
         .iter()
         .filter(|(key, value)| {
-            TEAM_SCOPED_KEYS.contains(&key.as_str())
+            team_scoped_key(key)
                 || prefix.as_ref().is_some_and(|prefix| {
                     without_team_strings(value, prefix).as_ref() != Some(*value)
                 })
@@ -147,6 +156,43 @@ mod tests {
             for key in TEAM_SCOPED_KEYS {
                 assert!(!stripped.contains_key(key), "{name}: {key} survived");
             }
+            for key in stripped.keys() {
+                assert!(!key.starts_with(DEVELOPER_PREFIX), "{name}: {key} survived");
+            }
+        }
+    }
+
+    #[test]
+    fn strip_removes_any_developer_entitlement_whatever_its_value() {
+        let mut vendor = Dictionary::new();
+        // A plain `true` names no team, and is still team-scoped (issue #95).
+        vendor.insert(
+            "com.apple.developer.usernotifications.communication".into(),
+            Value::Boolean(true),
+        );
+        vendor.insert(
+            "com.apple.developer.some-future-capability".into(),
+            Value::String("anything".into()),
+        );
+        vendor.insert(
+            "com.apple.security.cs.allow-jit".into(),
+            Value::Boolean(true),
+        );
+
+        for team in [Some("TEAM"), None] {
+            let stripped = strip_team_entitlements(&vendor, team);
+            assert_eq!(
+                stripped.keys().collect::<Vec<_>>(),
+                [
+                    "com.apple.security.cs.allow-jit",
+                    DISABLE_LIBRARY_VALIDATION
+                ],
+                "{team:?}"
+            );
+            assert_eq!(
+                team_scoped_entitlements(&stripped, team),
+                Vec::<String>::new()
+            );
         }
     }
 
@@ -297,6 +343,7 @@ mod tests {
                 "com.apple.application-identifier",
                 "com.apple.developer.aps-environment",
                 "com.apple.developer.team-identifier",
+                "com.apple.developer.usernotifications.communication",
                 "com.apple.security.application-groups",
                 "keychain-access-groups",
             ]
