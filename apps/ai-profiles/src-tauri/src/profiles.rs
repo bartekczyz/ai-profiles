@@ -42,6 +42,8 @@ pub struct Profile {
     pub distinct_dock_icon: bool,
     /// Set whenever the user opens the desktop app or copies the CLI
     /// command for this profile. `None` until the first such interaction.
+    /// Profiles handed to the frontend carry the later of this and the
+    /// profile's activity on disk (see [`crate::activity`]).
     #[serde(default)]
     pub last_used_at: Option<String>,
 }

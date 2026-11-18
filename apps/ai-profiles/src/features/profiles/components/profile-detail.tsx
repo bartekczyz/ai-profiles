@@ -39,6 +39,7 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
   const command = wrapperCommand(profile.app, profile.slug)
   const account = useProfileAccount(profile.id)
   const signedInAs = accountLabel(account)
+  const lastUsed = formatLastUsed(profile.lastUsedAt)
   const icon = useCustomIcon(profile.id, true)
   // Above the boundary below, which swaps one surfaces panel for another as
   // soon as the paths land.
@@ -76,8 +77,12 @@ export function ProfileDetail({ profile, shortcutsEnabled, onEdit, onDelete }: P
                   <span title={accountTitle(account)}>{signedInAs}</span>
                 </>
               ) : null}
-              <span className="mx-2 text-border">·</span>
-              <span className="text-muted-strong">{formatLastUsed(profile.lastUsedAt)}</span>
+              {lastUsed ? (
+                <>
+                  <span className="mx-2 text-border">·</span>
+                  <span className="text-muted-strong">{lastUsed}</span>
+                </>
+              ) : null}
             </>
           }
         />

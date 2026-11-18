@@ -22,8 +22,9 @@ export type Profile = {
    */
   distinctDockIcon: boolean
   /**
-   * RFC 3339 timestamp of the last `launched_gui` or `copied_cli` event,
-   * or `null` if this profile has never been used.
+   * RFC 3339 timestamp of the profile's last use: an in-app Open or Copy CLI
+   * command, or activity in its data dir (launches from its own launcher or
+   * CLI wrapper). `null` if this profile has never been used.
    */
   lastUsedAt: string | null
 }

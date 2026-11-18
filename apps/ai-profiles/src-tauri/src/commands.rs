@@ -3,6 +3,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use crate::accounts::{self, AccountStatus};
+use crate::activity::with_activity;
 use crate::app_kind::{spec, AppKind};
 use crate::app_state::{self, AppState, AppStatePatch};
 use crate::deps::{self, Dependencies};
@@ -29,9 +30,10 @@ use crate::usage::{
     ProfileUsage,
 };
 
-#[tauri::command]
+/// Async because each profile's data dir is scanned for activity.
+#[tauri::command(async)]
 pub fn list_profiles() -> AppResult<Vec<Profile>> {
-    profiles::load()
+    Ok(profiles::load()?.into_iter().map(with_activity).collect())
 }
 
 /// Building a wrapper takes seconds (a copy of the app is cloned and signed), so
@@ -80,7 +82,7 @@ pub fn regenerate_launchers(id: String) -> AppResult<()> {
 #[tauri::command(async)]
 pub fn update_profile(id: String, patch: ProfilePatch) -> AppResult<Profile> {
     ensure_wrapper_not_running(&id)?;
-    profiles::update(&id, patch)
+    profiles::update(&id, patch).map(with_activity)
 }
 
 #[tauri::command]
@@ -117,7 +119,10 @@ pub(crate) fn ensure_wrapper_not_running(id: &str) -> AppResult<()> {
 
 #[tauri::command]
 pub fn reorder_profiles(ids: Vec<String>) -> AppResult<Vec<Profile>> {
-    profiles::reorder(&ids)
+    Ok(profiles::reorder(&ids)?
+        .into_iter()
+        .map(with_activity)
+        .collect())
 }
 
 /// Turning the desktop surface on builds a launcher, and off removes one, which a
@@ -127,7 +132,7 @@ pub fn toggle_surface(id: String, surface: Surface, enabled: bool) -> AppResult<
     if surface == Surface::Gui && !enabled {
         ensure_wrapper_not_running(&id)?;
     }
-    profiles::toggle_surface(&id, surface, enabled)
+    profiles::toggle_surface(&id, surface, enabled).map(with_activity)
 }
 
 /// What opening a profile's desktop app came to.
@@ -430,7 +435,7 @@ pub fn import_existing_install(app: AppKind, input: ImportExistingInput) -> AppR
         return Err(err);
     }
 
-    Ok(outcome.profile)
+    Ok(with_activity(outcome.profile))
 }
 
 fn rollback_import(
